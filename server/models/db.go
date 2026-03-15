@@ -9,6 +9,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"time"
 )
 
 var DB *gorm.DB
@@ -27,6 +28,17 @@ func InitDB(dbPath string) {
 	if err != nil {
 		log.Fatalf("❌ 数据库连接失败: %v", err)
 	}
+
+	// 获取通用数据库对象 sql.DB，设置连接池
+	sqlDB, err := DB.DB()
+	if err != nil {
+		log.Fatalf("❌ 获取 sql.DB 失败: %v", err)
+	}
+
+	// 针对 SQLite WAL，适度限制连接池
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetMaxOpenConns(100)
+	sqlDB.SetConnMaxLifetime(time.Hour)
 
 	// 自动建表
 	if err := DB.AutoMigrate(&Employee{}, &Order{}); err != nil {

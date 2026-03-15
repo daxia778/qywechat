@@ -1,48 +1,109 @@
 <template>
-  <div class="app-container">
-    <aside class="sidebar glass-panel">
-      <div class="logo-area">
-        <div class="logo-icon">🚀</div>
-        <h1 class="logo-text text-gradient">DataNexus</h1>
-      </div>
-      
-      <nav class="nav-menu">
-        <router-link 
-          v-for="route in routes" 
-          :key="route.name" 
-          :to="route.path"
-          class="nav-item"
-          active-class="active"
+  <div class="h-screen flex flex-col bg-gray-50 text-gray-800 font-sans overflow-hidden" style="flex-direction: row;">
+    
+    <!-- Sidebar -->
+    <aside
+      class="h-screen flex flex-col shrink-0 z-50 bg-white border-r border-[#e5e7eb] relative transition-all duration-300 ease-in-out"
+      :class="collapsed ? 'w-[72px]' : 'w-[260px]'"
+    >
+      <!-- Logo -->
+      <div class="flex items-center z-10 relative py-6 shrink-0" :class="collapsed ? 'justify-center px-3' : 'px-5'">
+        <div class="w-9 h-9 bg-[#465FFF] rounded-xl flex items-center justify-center shrink-0 shadow-sm">
+          <span class="text-white text-[13px] font-black tracking-tighter">PN</span>
+        </div>
+        <div
+          class="transition-all duration-300 overflow-hidden whitespace-nowrap ml-3"
+          :class="collapsed ? 'w-0 opacity-0 ml-0' : 'w-auto opacity-100'"
         >
-          <span class="nav-icon">{{ route.meta.icon }}</span>
-          <span class="nav-text">{{ route.meta.title }}</span>
-        </router-link>
-      </nav>
+          <h1 class="text-[17px] font-[Outfit] font-bold text-gray-900 tracking-tight" style="margin: 0;">企微中控平台</h1>
+        </div>
+      </div>
 
-      <div class="sidebar-footer">
-        <div class="user-profile">
-          <div class="avatar">A</div>
-          <div class="user-info">
-            <div class="user-name">管理员</div>
-            <div class="user-role">系统拥有者</div>
+      <!-- Navigation -->
+      <nav class="flex-1 z-10 overflow-y-auto pb-6">
+        <div class="mb-4">
+          <p
+            class="px-5 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap transition-all duration-300 overflow-hidden"
+            :class="collapsed ? 'h-0 opacity-0 mb-0' : 'h-5 opacity-100 mb-3'"
+          >业务管理</p>
+
+          <div class="flex flex-col gap-1 px-3">
+            <router-link
+              v-for="route in routes"
+              :key="route.name"
+              :to="route.path"
+              class="relative group flex items-center transition-all cursor-pointer rounded-lg text-decoration-none"
+              :class="[
+                collapsed ? 'px-3 py-2.5 justify-center' : 'px-3 py-2.5 gap-3',
+                $route.path === route.path
+                  ? 'bg-[#ecf3ff] text-[#465FFF]'
+                  : 'text-gray-600 hover:bg-gray-100'
+              ]"
+              :title="collapsed ? route.meta.title : ''"
+            >
+              <div class="w-5 h-5 shrink-0 flex items-center justify-center text-lg" :class="$route.path === route.path ? 'text-[#465FFF]' : 'text-gray-500 group-hover:text-gray-700'">
+                 {{ route.meta.icon }}
+              </div>
+              <span
+                class="text-sm font-medium whitespace-nowrap transition-all duration-300 overflow-hidden"
+                :class="collapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'"
+              >{{ route.meta.title }}</span>
+            </router-link>
           </div>
         </div>
+      </nav>
+
+      <!-- Footer Collapse -->
+      <div class="shrink-0 border-t border-gray-200 py-4 px-3 space-y-1">
+        <div class="flex items-center rounded-lg px-3 py-2 transition-all duration-300" :class="collapsed ? 'justify-center' : ''">
+          <div class="w-1.5 h-1.5 bg-emerald-500 rounded-full shrink-0 relative">
+            <div class="absolute inset-0 bg-emerald-400 rounded-full animate-pulse opacity-60"></div>
+          </div>
+          <span class="text-xs font-medium text-gray-500 ml-2.5 whitespace-nowrap transition-all duration-300 overflow-hidden" :class="collapsed ? 'w-0 opacity-0 ml-0' : 'w-auto opacity-100'">系统在线</span>
+        </div>
+        <button
+          @click="collapsed = !collapsed"
+          class="w-full flex items-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-all cursor-pointer rounded-lg border-none bg-transparent"
+          :class="collapsed ? 'px-3 py-2.5 justify-center' : 'px-3 py-2 gap-3'"
+          :title="collapsed ? '展开侧边栏' : '收起侧边栏'"
+        >
+          <svg class="w-5 h-5 shrink-0 transition-transform duration-300" :class="collapsed ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path></svg>
+          <span class="text-sm font-medium whitespace-nowrap transition-all duration-300 overflow-hidden" :class="collapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'">收起菜单</span>
+        </button>
       </div>
     </aside>
 
-    <main class="main-content">
-      <header class="top-bar glass-panel">
-        <h2 class="page-title">{{ currentRouteName }}</h2>
-        <div class="time-display">{{ currentTime }}</div>
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative bg-gray-50">
+      
+      <!-- Header -->
+      <header class="sticky top-0 h-16 border-b border-gray-200 bg-white flex items-center justify-between px-6 shrink-0 w-full z-30">
+        <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-gray-500 cursor-pointer hover:text-gray-900 transition-colors">控制台</span>
+            <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+            <span class="font-bold text-gray-900 text-sm">{{ currentRouteName }}</span>
+        </div>
+
+        <div class="flex items-center gap-5">
+            <div class="text-sm text-gray-500 font-medium">{{ currentTime }}</div>
+            <div class="w-px h-5 bg-gray-200 hidden sm:block"></div>
+            <!-- User -->
+            <button class="flex items-center gap-2 p-1 rounded-md hover:bg-gray-50 transition-colors border-none bg-transparent cursor-pointer">
+              <div class="w-8 h-8 rounded-full bg-slate-800 text-white font-medium flex items-center justify-center text-xs shadow-sm">AD</div>
+              <span class="text-sm font-medium text-gray-700 hidden sm:block">Admin</span>
+            </button>
+        </div>
       </header>
       
-      <div class="page-wrapper">
+      <!-- Page View -->
+      <div class="flex-1 w-full overflow-y-auto overflow-x-hidden p-6">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
             <component :is="Component" />
           </transition>
         </router-view>
       </div>
+
     </main>
   </div>
 </template>
@@ -53,6 +114,7 @@ import { useRouter, useRoute } from 'vue-router'
 
 const router = useRouter()
 const route = useRoute()
+const collapsed = ref(false)
 
 const routes = computed(() => {
   return router.options.routes
@@ -82,152 +144,23 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.app-container {
-  display: flex;
-  height: 100vh;
-  overflow: hidden;
-  background: radial-gradient(circle at 50% -20%, rgba(59, 130, 246, 0.15), transparent 60%),
-              radial-gradient(circle at -20% 50%, rgba(139, 92, 246, 0.1), transparent 50%),
-              var(--bg-dark);
-}
-
-.sidebar {
-  width: 260px;
-  display: flex;
-  flex-direction: column;
-  z-index: 10;
-}
-
-.logo-area {
-  padding: 2rem 1.5rem;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.logo-icon {
-  font-size: 1.5rem;
-}
-
-.logo-text {
-  font-size: 1.25rem;
-  font-weight: 700;
-  letter-spacing: -0.5px;
-}
-
-.nav-menu {
-  flex: 1;
-  padding: 0 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.875rem 1rem;
-  border-radius: 12px;
-  color: var(--text-secondary);
-  text-decoration: none;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.nav-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
-}
-
-.nav-item.active {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(37, 99, 235, 0.05));
-  color: #60a5fa;
-  border: 1px solid rgba(59, 130, 246, 0.2);
-}
-
-.sidebar-footer {
-  padding: 1.5rem;
-  border-top: 1px solid var(--border-color);
-}
-
-.user-profile {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-}
-
-.user-name {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.user-role {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-}
-
-.main-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.top-bar {
-  height: 72px;
-  padding: 0 2rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  z-index: 5;
-}
-
-.page-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-}
-
-.time-display {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  background: rgba(0, 0, 0, 0.2);
-  padding: 0.5rem 1rem;
-  border-radius: 999px;
-  border: 1px solid var(--border-color);
-}
-
-.page-wrapper {
-  flex: 1;
-  padding: 2rem;
-  overflow-y: auto;
-}
-
 /* Page Transitions */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .fade-enter-from {
   opacity: 0;
-  transform: translateY(10px);
+  transform: translateY(5px);
 }
 
 .fade-leave-to {
   opacity: 0;
-  transform: translateY(-10px);
+  transform: translateY(-5px);
+}
+
+a {
+  text-decoration: none;
 }
 </style>

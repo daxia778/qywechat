@@ -1,243 +1,184 @@
 <template>
-  <div class="revenue-view animate-fade-in">
-    <div class="controls glass-card">
-      <div class="control-group">
-        <label>时间范围：</label>
-        <div class="tabs">
-          <button 
-            v-for="d in [7, 14, 30]" 
-            :key="d"
-            :class="['tab-btn', { active: days === d }]"
-            @click="setDays(d)"
-          >
-            最近 {{ d }} 天
-          </button>
-        </div>
-      </div>
-      <div class="total-revenue">
-        <span class="text-secondary">期间总营收：</span>
-        <span class="text-gradient">¥{{ totalRevenue }}</span>
+  <div class="animate-fade-in-up flex flex-col gap-6 w-full max-w-[1400px] mx-auto min-h-full">
+    
+    <div class="flex justify-between items-center mb-2">
+      <h1 class="text-2xl font-[Outfit] font-bold text-gray-900 tracking-tight">营收与分单走势</h1>
+      
+      <!-- Time Range Selector -->
+      <div class="flex bg-white shadow-sm border border-gray-200 rounded-lg p-1">
+        <button 
+          v-for="range in ranges" 
+          :key="range.days"
+          @click="selectDays(range.days)"
+          class="px-4 py-1.5 text-sm font-medium rounded-md transition-colors border-none cursor-pointer"
+          :class="days === range.days ? 'bg-[#465FFF] text-white' : 'bg-transparent text-gray-500 hover:text-gray-900'"
+        >
+          {{ range.label }}
+        </button>
       </div>
     </div>
 
-    <div class="chart-container glass-card">
-      <h3 class="chart-title">营收走向与订单量趋势</h3>
-      <div class="canvas-wrapper">
-        <canvas ref="chartCanvas"></canvas>
+    <!-- Summary KPI -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="card-enterprise p-5 flex flex-col justify-center">
+        <div class="text-sm text-gray-500 font-medium mb-1 uppercase tracking-wider">区间总营收</div>
+        <div class="text-3xl font-bold text-gray-900 font-mono">¥{{ summary.total_revenue.toFixed(2) }}</div>
       </div>
+      <div class="card-enterprise p-5 flex flex-col justify-center">
+        <div class="text-sm text-gray-500 font-medium mb-1 uppercase tracking-wider">区间总订单数</div>
+        <div class="text-3xl font-bold text-gray-900 font-mono">{{ summary.total_orders }} <span class="text-base text-gray-400 font-normal">单</span></div>
+      </div>
+    </div>
+
+    <!-- ECharts Container -->
+    <div class="card-enterprise flex flex-col p-5 min-h-[450px]">
+      <div v-if="loading && !chartInstance" class="flex items-center justify-center flex-1">
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+      <div class="w-full h-[400px]" ref="chartRef" v-show="!loading || chartInstance"></div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, shallowRef } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
-import Chart from 'chart.js/auto'
+import * as echarts from 'echarts'
+
+const ranges = [
+  { label: '最近 7 天', days: 7 },
+  { label: '最近 14 天', days: 14 },
+  { label: '最近 30 天', days: 30 }
+]
 
 const days = ref(7)
-const chartData = ref([])
-const chartCanvas = ref(null)
-const chartInstance = shallowRef(null)
+const summary = ref({ total_revenue: 0, total_orders: 0 })
+const rawData = ref([])
+const loading = ref(false)
 
-const totalRevenue = computed(() => {
-  return chartData.value.reduce((sum, item) => sum + item.revenue, 0)
-})
+const chartRef = ref(null)
+let chartInstance = null
 
-const fetchCharData = async () => {
-  try {
-    const { data } = await axios.get(`/api/v1/admin/revenue_chart?days=${days.value}`)
-    chartData.value = data
-    renderChart()
-  } catch (err) {
-    console.error('Fetch chart error', err)
+const initChart = () => {
+  if (chartInstance) {
+    chartInstance.dispose()
   }
+  chartInstance = echarts.init(chartRef.value)
+  window.addEventListener('resize', () => chartInstance?.resize())
 }
 
-const setDays = (d) => {
-  days.value = d
-  fetchCharData()
-}
+const updateChart = () => {
+  if (!chartInstance) return
 
-const renderChart = () => {
-  if (!chartCanvas.value) return
-  
-  if (chartInstance.value) {
-    chartInstance.value.destroy()
-  }
+  const dates = rawData.value.map(d => {
+    // extract MM-DD from YYYY-MM-DD
+    const parts = d.date.split('-')
+    return `${parts[1]}/${parts[2]}`
+  })
+  const revenueData = rawData.value.map(d => d.revenue)
+  const orderData = rawData.value.map(d => d.order_count)
 
-  const ctx = chartCanvas.value.getContext('2d')
-
-  // Create gradient
-  const gradient = ctx.createLinearGradient(0, 0, 0, 400)
-  gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)')
-  gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)')
-
-  const labels = chartData.value.map(d => d.date.substring(5)) // mm-dd
-  const revenueData = chartData.value.map(d => d.revenue)
-  const ordersData = chartData.value.map(d => d.order_count)
-
-  chartInstance.value = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: '日营收 (￥)',
-          data: revenueData,
-          borderColor: '#3b82f6',
-          backgroundColor: gradient,
-          borderWidth: 3,
-          fill: true,
-          tension: 0.4,
-          yAxisID: 'y'
-        },
-        {
-          label: '订单量 (单)',
-          type: 'bar',
-          data: ordersData,
-          backgroundColor: 'rgba(139, 92, 246, 0.3)',
-          borderColor: '#8b5cf6',
-          borderWidth: 1,
-          borderRadius: 4,
-          yAxisID: 'y1'
-        }
-      ]
+  const option = {
+    grid: { top: 40, right: 10, bottom: 20, left: 40, containLabel: true },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      borderColor: '#e5e7eb',
+      textStyle: { color: '#374151' },
+      axisPointer: { type: 'cross', crossStyle: { color: '#9ca3af' } }
     },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: {
-        mode: 'index',
-        intersect: false,
+    legend: {
+      data: ['每日营收 (元)', '每日订单量 (单)'],
+      bottom: 0,
+      icon: 'circle',
+      itemGap: 24,
+      textStyle: { color: '#6b7280' }
+    },
+    xAxis: [
+      {
+        type: 'category',
+        data: dates,
+        axisPointer: { type: 'shadow' },
+        axisLine: { lineStyle: { color: '#e5e7eb' } },
+        axisLabel: { color: '#6b7280', margin: 12 }
+      }
+    ],
+    yAxis: [
+      {
+        type: 'value',
+        name: '营收 (元)',
+        nameTextStyle: { color: '#9ca3af', padding: [0, 30, 0, 0] },
+        min: 0,
+        axisLabel: { color: '#6b7280' },
+        splitLine: { lineStyle: { color: '#f3f4f6', type: 'dashed' } }
       },
-      plugins: {
-        legend: {
-          labels: { color: '#f8fafc', font: { family: 'Inter', size: 13 } }
-        },
-        tooltip: {
-          backgroundColor: 'rgba(15, 23, 42, 0.9)',
-          titleColor: '#f8fafc',
-          bodyColor: '#cbd5e1',
-          borderColor: 'rgba(255,255,255,0.1)',
-          borderWidth: 1,
-          padding: 12,
-          cornerRadius: 8
-        }
+      {
+        type: 'value',
+        name: '单量 (单)',
+        nameTextStyle: { color: '#9ca3af', padding: [0, 0, 0, 30] },
+        min: 0,
+        axisLabel: { color: '#6b7280' },
+        splitLine: { show: false } // only one split line
+      }
+    ],
+    series: [
+      {
+        name: '每日订单量 (单)',
+        type: 'bar',
+        yAxisIndex: 1,
+        data: orderData,
+        barWidth: '25%',
+        itemStyle: { color: '#38bdf8', borderRadius: [4, 4, 0, 0] } // Sky blue
       },
-      scales: {
-        x: {
-          grid: { color: 'rgba(255,255,255,0.05)' },
-          ticks: { color: '#94a3b8' }
-        },
-        y: {
-          type: 'linear',
-          display: true,
-          position: 'left',
-          grid: { color: 'rgba(255,255,255,0.05)' },
-          ticks: { color: '#94a3b8' },
-          title: { display: true, text: '营收 (￥)', color: '#60a5fa' }
-        },
-        y1: {
-          type: 'linear',
-          display: true,
-          position: 'right',
-          grid: { drawOnChartArea: false },
-          ticks: { color: '#94a3b8', stepSize: 1 },
-          title: { display: true, text: '订单数', color: '#a78bfa' }
+      {
+        name: '每日营收 (元)',
+        type: 'line',
+        data: revenueData,
+        smooth: 0.3,
+        symbolSize: 8,
+        itemStyle: { color: '#465FFF' }, // Primary TailAdmin blue
+        lineStyle: { width: 3, color: '#465FFF' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(70, 95, 255, 0.2)' },
+            { offset: 1, color: 'rgba(70, 95, 255, 0)' }
+          ])
         }
       }
-    }
-  })
+    ]
+  }
+
+  chartInstance.setOption(option)
+}
+
+const fetchData = async () => {
+  loading.value = true
+  try {
+    const res = await axios.get(`/api/v1/admin/revenue_chart?days=${days.value}`)
+    summary.value = res.data.summary || { total_revenue: 0, total_orders: 0 }
+    rawData.value = res.data.data || []
+    await nextTick()
+    if (!chartInstance) initChart()
+    updateChart()
+  } catch (err) {
+    console.error('Failed to fetch revenue data:', err)
+  } finally {
+    loading.value = false
+  }
+}
+
+const selectDays = (d) => {
+  days.value = d
+  fetchData()
 }
 
 onMounted(() => {
-  fetchCharData()
+  fetchData()
 })
 
 onUnmounted(() => {
-  if (chartInstance.value) {
-    chartInstance.value.destroy()
+  if (chartInstance) {
+    chartInstance.dispose()
   }
 })
 </script>
-
-<style scoped>
-.revenue-view {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.controls {
-  padding: 1rem 1.5rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.control-group {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.tabs {
-  display: flex;
-  gap: 0.25rem;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 0.25rem;
-  border-radius: 8px;
-}
-
-.tab-btn {
-  background: transparent;
-  border: none;
-  padding: 0.375rem 0.75rem;
-  color: var(--text-secondary);
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.875rem;
-  transition: all 0.2s;
-}
-
-.tab-btn:hover {
-  color: var(--text-primary);
-}
-
-.tab-btn.active {
-  background: var(--bg-card-hover);
-  color: white;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-}
-
-.total-revenue {
-  font-size: 1.125rem;
-  font-weight: 500;
-}
-
-.total-revenue .text-gradient {
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin-left: 0.5rem;
-}
-
-.chart-container {
-  padding: 1.5rem;
-  height: 500px;
-  display: flex;
-  flex-direction: column;
-}
-
-.chart-title {
-  font-size: 1.125rem;
-  margin-bottom: 1.5rem;
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-.canvas-wrapper {
-  flex: 1;
-  position: relative;
-  width: 100%;
-}
-</style>

@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"pdd-order-system/config"
 	"pdd-order-system/handlers"
@@ -11,6 +16,7 @@ import (
 	"pdd-order-system/services"
 
 	"github.com/gin-contrib/cors"
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -45,6 +51,9 @@ func main() {
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: true,
 	}))
+
+	// 启用 Gzip 压缩 (对大小大于默认值的响应进行压缩)
+	r.Use(gzip.Gzip(gzip.DefaultCompression))
 
 	// ── 静态资源与前端 (Vue SPA) ──────────────────
 	// 将 admin-web/dist 目录下的静态文件挂载到根路径
@@ -100,7 +109,30 @@ func main() {
 	log.Printf("   API:  http://0.0.0.0:%s/api/v1", port)
 	log.Println("=" + fmt.Sprintf("%49s", "="))
 
-	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("❌ 服务启动失败: %v", err)
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: r,
 	}
+
+	// 在 goroutine 中启动服务器
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("❌ 服务启动失败: %v", err)
+		}
+	}()
+
+	// 优雅关闭 (Graceful Shutdown)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("正在关闭服务器...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatal("服务器强制关闭:", err)
+	}
+
+	log.Println("服务器已优雅退出")
 }

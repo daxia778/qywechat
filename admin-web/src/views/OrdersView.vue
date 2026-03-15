@@ -1,203 +1,173 @@
 <template>
-  <div class="orders-view animate-fade-in">
-    <div class="filters glass-card">
-      <div class="tabs">
-        <button 
-          v-for="tab in tabs" 
-          :key="tab.value"
-          :class="['tab-btn', { active: currentTab === tab.value }]"
-          @click="setTab(tab.value)"
-        >
-          {{ tab.label }}
-        </button>
-      </div>
-      <div class="actions">
-        <button class="btn btn-primary" @click="fetchOrders">🔄 刷新</button>
-      </div>
+  <div class="animate-fade-in-up flex flex-col gap-6 w-full max-w-[1400px] mx-auto min-h-full">
+    
+    <!-- Title Area -->
+    <div class="flex justify-between items-center">
+      <h1 class="text-2xl font-[Outfit] font-bold text-gray-900 tracking-tight">订单大厅</h1>
+      <button @click="fetchOrders(true)" class="btn btn-primary" :disabled="loading">
+        <svg class="w-4 h-4 mr-2" :class="{'animate-spin': loading}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+        {{ loading ? '刷新中...' : '手动刷新' }}
+      </button>
     </div>
 
-    <div class="orders-list glass-card">
-      <div class="table-container">
-        <table>
+    <!-- Main Card -->
+    <div class="card-enterprise flex flex-col overflow-hidden bg-white">
+      
+      <!-- Filter Tabs -->
+      <div class="px-5 pt-4 border-b border-gray-100 flex gap-6 overflow-x-auto scrollbar-hide">
+        <button
+          v-for="status in statuses"
+          :key="status.value"
+          @click="currentStatus = status.value"
+          class="pb-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap bg-transparent border-t-0 border-l-0 border-r-0 cursor-pointer"
+          :class="[
+            currentStatus === status.value 
+              ? 'border-primary text-primary' 
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          ]"
+        >
+          {{ status.label }}
+          <span v-if="status.value === 'PENDING' && orders.filter(o => o.status === 'PENDING').length > 0" class="ml-1.5 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+            {{ orders.filter(o => o.status === 'PENDING').length }}
+          </span>
+        </button>
+      </div>
+
+      <!-- Table Section -->
+      <div class="table-container relative min-h-[400px]">
+        
+        <!-- Loading overlay inside table -->
+        <div v-if="loading && orders.length === 0" class="absolute inset-0 z-10 bg-white/50 backdrop-blur-sm flex items-center justify-center">
+             <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+
+        <table class="w-full text-left border-collapse">
           <thead>
             <tr>
-              <th>订单号</th>
-              <th>客户联系方式</th>
-              <th>金额 (￥)</th>
-              <th>录单人 / 设计师</th>
-              <th>状态</th>
-              <th>创建时间</th>
+              <th class="py-3 px-5 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">订单号</th>
+              <th class="py-3 px-5 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">客户微信</th>
+              <th class="py-3 px-5 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">订单总价</th>
+              <th class="py-3 px-5 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">接单员/设计师</th>
+              <th class="py-3 px-5 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">状态</th>
+              <th class="py-3 px-5 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">时间</th>
             </tr>
           </thead>
-          <tbody>
-            <tr v-if="orders.length === 0">
-              <td colspan="6" class="empty-state">暂无订单数据</td>
-            </tr>
-            <tr v-for="order in orders" :key="order.id">
-              <td>
-                <div class="order-sn">{{ order.order_sn }}</div>
-                <div class="order-topic text-secondary">{{ order.topic || '无主题' }}</div>
+          <tbody class="divide-y divide-gray-100">
+            <tr v-for="order in filteredOrders" :key="order.id" class="hover:bg-gray-50 transition-colors">
+              <td class="py-3 px-5 text-sm">
+                <div class="font-medium text-gray-900">{{ order.order_sn }}</div>
               </td>
-              <td>{{ order.customer_contact || '-' }}</td>
-              <td class="price text-gradient font-bold">{{ order.price }}</td>
-              <td>
-                <div class="person">录入: {{ order.operator_id }}</div>
-                <div class="person" v-if="order.designer_id">承接: {{ order.designer_id }}</div>
+              <td class="py-3 px-5 text-sm text-gray-600">{{ order.customer_wx || '-' }}</td>
+              <td class="py-3 px-5 text-sm font-medium text-gray-900">
+                ¥{{ order.total_amount?.toFixed(2) || '0.00' }}
               </td>
-              <td>
-                <span :class="['badge', getStatusClass(order.status)]">
-                  {{ order.status }}
+              <td class="py-3 px-5 text-sm">
+                <div class="flex flex-col gap-1">
+                  <div class="text-xs text-gray-500">
+                    客服: <span class="text-gray-900">{{ order.operator_id || '-' }}</span>
+                  </div>
+                  <div class="text-xs text-gray-500">
+                    设计: <span class="text-gray-900">{{ order.designer_id || '-' }}</span>
+                  </div>
+                </div>
+              </td>
+              <td class="py-3 px-5">
+                <span class="badge" :class="getStatusBadgeClass(order.status)">
+                  {{ getStatusLabel(order.status) }}
                 </span>
               </td>
-              <td class="time-col">{{ formatDate(order.created_at) }}</td>
+              <td class="py-3 px-5 text-sm text-gray-500 text-right">
+                {{ formatTime(order.created_at) }}
+              </td>
+            </tr>
+            <tr v-if="filteredOrders.length === 0 && !loading">
+              <td colspan="6" class="py-12 text-center text-gray-500">
+                <div class="flex flex-col items-center justify-center">
+                  <svg class="w-12 h-12 text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                  <p>当前无相关状态的订单记录</p>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
+      </div>
+      
+      <!-- Footer pagination simplified -->
+      <div class="bg-gray-50 px-5 py-3 border-t border-gray-200 flex justify-between items-center text-sm text-gray-500">
+         <span>共展示 {{ filteredOrders.length }} 条订单数据</span>
+         <span class="text-xs text-gray-400">系统每 15 秒自动拉取最新数据</span>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 
-const tabs = [
-  { label: '全部订单', value: '' },
-  { label: '待抢单 (PENDING)', value: 'PENDING' },
-  { label: '已建群', value: 'GROUP_CREATED' },
-  { label: '制作中', value: 'DESIGNING' },
-  { label: '已完成', value: 'COMPLETED' },
-]
-
-const currentTab = ref('')
 const orders = ref([])
+const loading = ref(false)
+const currentStatus = ref('')
 let timer = null
 
-const setTab = (val) => {
-  currentTab.value = val
-  fetchOrders()
+const statuses = [
+  { value: '', label: '全部订单' },
+  { value: 'PENDING', label: '待处理' },
+  { value: 'GROUP_CREATED', label: '已建群' },
+  { value: 'DESIGNING', label: '制作中' },
+  { value: 'COMPLETED', label: '已完成' },
+]
+
+const filteredOrders = computed(() => {
+  if (!currentStatus.value) return orders.value
+  return orders.value.filter(o => o.status === currentStatus.value)
+})
+
+const getStatusLabel = (status) => {
+  const map = {
+    'PENDING': '待处理',
+    'GROUP_CREATED': '已建群',
+    'DESIGNING': '制作中',
+    'COMPLETED': '已完成'
+  }
+  return map[status] || status
 }
 
-const fetchOrders = async () => {
+const getStatusBadgeClass = (status) => {
+  const map = {
+    'PENDING': 'warning',
+    'GROUP_CREATED': 'primary',
+    'DESIGNING': 'secondary',
+    'COMPLETED': 'success'
+  }
+  return map[status] || 'secondary'
+}
+
+const formatTime = (timeStr) => {
+  if (!timeStr) return '-'
+  return new Date(timeStr).toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'
+  })
+}
+
+const fetchOrders = async (manual = false) => {
+  if (manual) loading.value = true
   try {
-    const url = currentTab.value 
-      ? `/api/v1/orders/list?status=${currentTab.value}` 
-      : `/api/v1/orders/list`
-    const { data } = await axios.get(url)
-    orders.value = data
+    const res = await axios.get('/api/v1/orders/list')
+    orders.value = res.data.data || []
   } catch (err) {
-    console.error('Fetch orders error', err)
+    console.error('Failed to fetch orders:', err)
+  } finally {
+    loading.value = false
   }
-}
-
-const getStatusClass = (status) => {
-  switch (status) {
-    case 'PENDING': return 'warning'
-    case 'COMPLETED': return 'success'
-    case 'DESIGNING': return 'primary'
-    case 'GROUP_CREATED': return 'info'
-    default: return 'secondary'
-  }
-}
-
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  const d = new Date(dateStr)
-  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 onMounted(() => {
-  fetchOrders()
-  timer = setInterval(fetchOrders, 15000)
+  fetchOrders(true)
+  timer = setInterval(() => fetchOrders(false), 15000)
 })
 
 onUnmounted(() => {
   clearInterval(timer)
 })
 </script>
-
-<style scoped>
-.orders-view {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.filters {
-  padding: 1rem 1.5rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.tabs {
-  display: flex;
-  gap: 0.5rem;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 0.25rem;
-  border-radius: 10px;
-}
-
-.tab-btn {
-  background: transparent;
-  border: none;
-  padding: 0.5rem 1rem;
-  color: var(--text-secondary);
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.tab-btn:hover {
-  color: var(--text-primary);
-}
-
-.tab-btn.active {
-  background: var(--bg-card-hover);
-  color: white;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-}
-
-.orders-list {
-  padding: 1px; /* border gradient illusion */
-  overflow: hidden;
-}
-
-.order-sn {
-  font-family: monospace;
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-
-.text-secondary {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-}
-
-.person {
-  font-size: 0.875rem;
-}
-
-.font-bold {
-  font-weight: 700;
-  font-size: 1.1rem;
-}
-
-.time-col {
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-}
-
-.empty-state {
-  text-align: center;
-  padding: 4rem !important;
-  color: var(--text-secondary);
-}
-
-.badge.info {
-  background: rgba(139, 92, 246, 0.2);
-  color: #a78bfa;
-}
-</style>
