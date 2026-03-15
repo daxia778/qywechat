@@ -46,15 +46,15 @@ func main() {
 		AllowCredentials: true,
 	}))
 
-	// ── 公开路由 ──────────────────────────────────
+	// ── 静态资源与前端 (Vue SPA) ──────────────────
+	// 将 admin-web/dist 目录下的静态文件挂载到根路径
+	r.Static("/assets", "../admin-web/dist/assets")
+	r.StaticFile("/favicon.ico", "../admin-web/dist/favicon.ico")
+
 	r.GET("/", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"app":     "PDD 派单与客勤管理系统",
-			"version": "1.0.0",
-			"status":  "running",
-			"docs":    "请查看 API 路由列表",
-		})
+		c.File("../admin-web/dist/index.html")
 	})
+	
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
@@ -86,6 +86,11 @@ func main() {
 			admin.GET("/team_workload", handlers.GetTeamWorkload)
 		}
 	}
+
+	// 设置 NoRoute 处理前端 Vue Router 的 history 模式
+	r.NoRoute(func(c *gin.Context) {
+		c.File("../admin-web/dist/index.html")
+	})
 
 	// 启动
 	port := config.C.ServerPort
