@@ -1,0 +1,19 @@
+# Go workspace
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Server
+server/pdd-server
+server/data/
+server/uploads/
+server/.env
+
+# Desktop
+desktop-client/build/bin/
+desktop-client/frontend/node_modules/
+desktop-client/frontend/dist/
+desktop-client/desktop-client*
+desktop-client/wailsjs/
+desktop-client/PDD 派单助手.app/
