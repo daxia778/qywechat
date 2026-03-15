@@ -44,6 +44,23 @@ func main() {
 	// 创建 Gin 引擎
 	r := gin.Default()
 
+	// 安全响应头与缓存策略中间件
+	r.Use(func(c *gin.Context) {
+		// 安全头
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("X-XSS-Protection", "1; mode=block")
+		c.Header("X-Content-Type-Options", "nosniff")
+		
+		// 如果是静态资源请求，添加 1 天的客户端缓存
+		if len(c.Request.URL.Path) > 7 && c.Request.URL.Path[:7] == "/assets" {
+			c.Header("Cache-Control", "public, max-age=86400")
+		} else {
+			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+		}
+		
+		c.Next()
+	})
+
 	// CORS
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     config.C.CORSOrigins,
