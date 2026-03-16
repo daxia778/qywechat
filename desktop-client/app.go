@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -37,6 +38,59 @@ func NewApp() *App {
 // startup is called when the app starts
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// 自动恢复上次的登录会话
+	a.loadSession()
+}
+
+// ─── 会话持久化 ─────────────────────────
+
+type sessionData struct {
+	Token    string `json:"token"`
+	EmpName  string `json:"emp_name"`
+	WecomUID string `json:"wecom_uid"`
+}
+
+func sessionFilePath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".pdd-session.json")
+}
+
+func (a *App) saveSession() {
+	data := sessionData{
+		Token:    a.token,
+		EmpName:  a.empName,
+		WecomUID: a.wecomUID,
+	}
+	b, _ := json.Marshal(data)
+	_ = os.WriteFile(sessionFilePath(), b, 0600)
+	log.Println("✅ 会话已保存到本地")
+}
+
+func (a *App) loadSession() {
+	b, err := os.ReadFile(sessionFilePath())
+	if err != nil {
+		return // 无会话文件，需要重新登录
+	}
+
+	var data sessionData
+	if err := json.Unmarshal(b, &data); err != nil {
+		return
+	}
+
+	if data.Token != "" {
+		a.token = data.Token
+		a.empName = data.EmpName
+		a.wecomUID = data.WecomUID
+		log.Printf("✅ 已恢复登录会话: %s", data.EmpName)
+	}
+}
+
+func (a *App) ClearSession() {
+	a.token = ""
+	a.empName = ""
+	a.wecomUID = ""
+	_ = os.Remove(sessionFilePath())
+	log.Println("🗑️ 会话已清除")
 }
 
 // ─── MAC 地址获取 ─────────────────────────
@@ -99,6 +153,9 @@ func (a *App) DeviceLogin(activationCode string) *LoginResult {
 	a.token = result["token"].(string)
 	a.empName = result["employee_name"].(string)
 	a.wecomUID = result["wecom_userid"].(string)
+
+	// 持久化会话到本地文件
+	a.saveSession()
 
 	return &LoginResult{
 		Success:  true,

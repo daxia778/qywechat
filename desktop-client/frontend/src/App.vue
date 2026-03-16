@@ -38,8 +38,16 @@ const state = reactive({
 onMounted(async () => {
   try {
     state.macAddress = await window.go.main.App.GetMacAddress();
+    
+    // 检查是否已有保存的会话（自动登录）
+    const loggedIn = await window.go.main.App.IsLoggedIn();
+    if (loggedIn) {
+      state.empName = await window.go.main.App.GetEmployeeName();
+      state.isLoggedIn = true;
+      showToast('已自动恢复上次登录');
+    }
   } catch (e) {
-    console.error("未能获取MAC地址", e);
+    console.error('初始化失败', e);
   }
 });
 
@@ -54,6 +62,17 @@ const showToast = (msg, type = 'success') => {
 };
 
 // ══ 功能 ══
+const handleLogout = async () => {
+  try {
+    await window.go.main.App.ClearSession();
+  } catch (e) { /* ignore */ }
+  state.isLoggedIn = false;
+  state.empName = '';
+  state.wecomUid = '';
+  state.activationCode = '';
+  showToast('已退出登录');
+};
+
 const handleLogin = async () => {
   if (!state.activationCode.trim()) {
     state.loginError = '请输入激活码';
@@ -213,7 +232,7 @@ const submit = async () => {
             <div class="user-role">客服坐席 (企微: {{ state.wecomUid }})</div>
           </div>
         </div>
-        <div class="online-dot"></div>
+        <button class="btn-logout" @click="handleLogout" title="退出登录">❌</button>
       </div>
       
       <div class="app-header">

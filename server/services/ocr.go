@@ -1,27 +1,22 @@
 package services
 
 import (
-	"encoding/base64"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"pdd-order-system/config"
 )
-
-var systemPrompt = `你是一个专业的电商订单截图解析助手。请从下方的PDD(拼多多)订单截图中提取以下信息：
-1. 订单编号（通常是一串数字）
-2. 实付金额（实际支付的金额，单位：元）
-
-请严格以下方 JSON 格式返回结果，不要有多余文字：
-{"order_sn": "订单编号", "price": "金额数字(不含单位符号)"}
-
-如果无法识别某个字段，对应值填空字符串。`
 
 // OCRResult OCR 提取结果
 type OCRResult struct {
@@ -32,167 +27,152 @@ type OCRResult struct {
 }
 
 // ExtractOrderFromImage 从截图提取订单信息
+// 使用智谱 Files OCR API (https://open.bigmodel.cn/api/paas/v4/files/ocr)
 func ExtractOrderFromImage(imagePath string) (*OCRResult, error) {
-	data, err := os.ReadFile(imagePath)
-	if err != nil {
-		return nil, fmt.Errorf("读取截图失败: %w", err)
-	}
-
-	b64 := base64.StdEncoding.EncodeToString(data)
-	mime := "image/jpeg"
-	if strings.HasSuffix(strings.ToLower(imagePath), ".png") {
-		mime = "image/png"
-	}
-	dataURL := fmt.Sprintf("data:%s;base64,%s", mime, b64)
-
-	switch config.C.OCRProvider {
-	case "zhipu":
-		return callZhipuVision(dataURL)
-	case "dashscope":
-		return callDashscopeVision(dataURL)
-	default:
-		return nil, fmt.Errorf("不支持的 OCR provider: %s", config.C.OCRProvider)
-	}
-}
-
-func callZhipuVision(dataURL string) (*OCRResult, error) {
 	if config.C.ZhipuAPIKey == "" {
 		return nil, fmt.Errorf("ZHIPU_API_KEY 未配置")
 	}
 
-	payload := map[string]interface{}{
-		"model": "glm-4v-flash",
-		"messages": []map[string]interface{}{
-			{
-				"role": "user",
-				"content": []map[string]interface{}{
-					{"type": "text", "text": systemPrompt},
-					{"type": "image_url", "image_url": map[string]string{"url": dataURL}},
-				},
-			},
-		},
-		"temperature": 0.1,
-		"max_tokens":  256,
+	// 1. 构建 multipart form
+	file, err := os.Open(imagePath)
+	if err != nil {
+		return nil, fmt.Errorf("打开截图文件失败: %w", err)
+	}
+	defer file.Close()
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	// 添加文件字段
+	part, err := writer.CreateFormFile("file", filepath.Base(imagePath))
+	if err != nil {
+		return nil, fmt.Errorf("创建 form file 失败: %w", err)
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return nil, fmt.Errorf("复制文件内容失败: %w", err)
 	}
 
-	body, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", "https://open.bigmodel.cn/api/paas/v4/chat/completions", strings.NewReader(string(body)))
-	req.Header.Set("Content-Type", "application/json")
+	// 添加 OCR 参数
+	_ = writer.WriteField("tool_type", "hand_write")     // 通用手写+打印
+	_ = writer.WriteField("language_type", "CHN_ENG")     // 中英文混合
+	_ = writer.WriteField("probability", "true")          // 返回置信度
+
+	writer.Close()
+
+	// 2. 发送请求
+	req, err := http.NewRequest("POST", "https://open.bigmodel.cn/api/paas/v4/files/ocr", &buf)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Authorization", "Bearer "+config.C.ZhipuAPIKey)
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("OCR 请求发送失败: %w", err)
 	}
 	defer resp.Body.Close()
 
-	var result struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-
-	if len(result.Choices) == 0 {
-		return nil, fmt.Errorf("GLM-4V 返回空结果")
-	}
-
-	return parseLLMResponse(result.Choices[0].Message.Content), nil
-}
-
-func callDashscopeVision(dataURL string) (*OCRResult, error) {
-	if config.C.DashscopeAPIKey == "" {
-		return nil, fmt.Errorf("DASHSCOPE_API_KEY 未配置")
-	}
-
-	payload := map[string]interface{}{
-		"model": "qwen-vl-plus",
-		"messages": []map[string]interface{}{
-			{
-				"role": "user",
-				"content": []map[string]interface{}{
-					{"type": "text", "text": systemPrompt},
-					{"type": "image_url", "image_url": map[string]string{"url": dataURL}},
-				},
-			},
-		},
-		"temperature": 0.1,
-		"max_tokens":  256,
-	}
-
-	body, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", strings.NewReader(string(body)))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+config.C.DashscopeAPIKey)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("读取 OCR 响应失败: %w", err)
 	}
 
-	if len(result.Choices) == 0 {
-		return nil, fmt.Errorf("Qwen-VL 返回空结果")
+	if resp.StatusCode != 200 {
+		log.Printf("❌ 智谱 OCR API 返回 %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("OCR API 返回错误 (HTTP %d)", resp.StatusCode)
 	}
 
-	return parseLLMResponse(result.Choices[0].Message.Content), nil
+	log.Printf("✅ 智谱 OCR 原始响应: %s", string(respBody))
+
+	// 3. 解析 OCR 返回
+	return parseZhipuOCRResponse(respBody)
 }
 
-func parseLLMResponse(content string) *OCRResult {
-	result := &OCRResult{}
-
-	re := regexp.MustCompile(`\{[^}]+\}`)
-	match := re.FindString(content)
-	if match == "" {
-		preview := content
-		if len(preview) > 200 {
-			preview = preview[:200]
-		}
-		log.Printf("⚠️ OCR 响应无 JSON: %s", preview)
-		return result
+// parseZhipuOCRResponse 解析智谱 OCR 文件接口的返回
+// 响应格式: {"words_result": [{"words": "...", "probability": {...}}, ...], "words_result_num": N}
+func parseZhipuOCRResponse(body []byte) (*OCRResult, error) {
+	var ocrResp struct {
+		WordsResult []struct {
+			Words       string `json:"words"`
+			Probability struct {
+				Average float64 `json:"average"`
+			} `json:"probability"`
+		} `json:"words_result"`
+		WordsResultNum int `json:"words_result_num"`
 	}
 
-	var parsed map[string]string
-	if err := json.Unmarshal([]byte(match), &parsed); err != nil {
-		log.Printf("⚠️ OCR JSON 解析失败: %v", err)
-		return result
+	if err := json.Unmarshal(body, &ocrResp); err != nil {
+		// 尝试解析为其他可能的格式
+		log.Printf("⚠️ 标准格式解析失败，尝试通用文本提取: %v", err)
+		return extractFromRawText(string(body)), nil
 	}
 
-	result.OrderSN = strings.TrimSpace(parsed["order_sn"])
-	result.RawPrice = strings.TrimSpace(parsed["price"])
+	if ocrResp.WordsResultNum == 0 || len(ocrResp.WordsResult) == 0 {
+		return nil, fmt.Errorf("OCR 未识别到任何文字")
+	}
 
-	priceRe := regexp.MustCompile(`[\d.]+`)
-	priceMatch := priceRe.FindString(result.RawPrice)
-	if priceMatch != "" {
-		if priceYuan, err := strconv.ParseFloat(priceMatch, 64); err == nil {
-			result.Price = int(priceYuan * 100)
-			result.Confidence = 0.9
+	// 拼接所有识别出的文字行
+	var allText strings.Builder
+	var totalConf float64
+	for _, w := range ocrResp.WordsResult {
+		allText.WriteString(w.Words)
+		allText.WriteString("\n")
+		totalConf += w.Probability.Average
+	}
+	avgConf := totalConf / float64(len(ocrResp.WordsResult))
+
+	fullText := allText.String()
+	log.Printf("📝 OCR 识别文本:\n%s", fullText)
+
+	result := extractFromRawText(fullText)
+	if avgConf > 0 {
+		result.Confidence = avgConf
+	}
+
+	return result, nil
+}
+
+// extractFromRawText 从原始文本中提取订单号和金额
+func extractFromRawText(text string) *OCRResult {
+	result := &OCRResult{Confidence: 0.5}
+
+	// 提取订单号: 拼多多订单号通常是纯数字，15-20位
+	orderRe := regexp.MustCompile(`(?:订单号|单号|订单编号|Order)[:\s：]*(\d{10,25})`)
+	if m := orderRe.FindStringSubmatch(text); len(m) > 1 {
+		result.OrderSN = m[1]
+		result.Confidence += 0.2
+	} else {
+		// 退而求其次: 找最长的连续数字串 (>= 12 位)
+		longNumRe := regexp.MustCompile(`\d{12,25}`)
+		if m := longNumRe.FindString(text); m != "" {
+			result.OrderSN = m
+			result.Confidence += 0.1
 		}
 	}
 
-	if result.OrderSN != "" {
-		c := result.Confidence + 0.05
-		if c > 1.0 {
-			c = 1.0
+	// 提取金额: 匹配 "实付" / "实付款" / "合计" / "总价" 后面的数字
+	pricePatterns := []string{
+		`(?:实付|实付款|合计|应付|总价|total|付款)[:\s：¥￥]*(\d+\.?\d{0,2})`,
+		`[¥￥](\d+\.?\d{0,2})`,
+		`(\d+\.\d{2})\s*元`,
+	}
+
+	for _, pattern := range pricePatterns {
+		priceRe := regexp.MustCompile(pattern)
+		if m := priceRe.FindStringSubmatch(text); len(m) > 1 {
+			if priceYuan, err := strconv.ParseFloat(m[1], 64); err == nil && priceYuan > 0 {
+				result.Price = int(priceYuan * 100) // 转为分
+				result.RawPrice = m[1]
+				result.Confidence += 0.2
+				break
+			}
 		}
-		result.Confidence = c
+	}
+
+	if result.Confidence > 1.0 {
+		result.Confidence = 1.0
 	}
 
 	return result
