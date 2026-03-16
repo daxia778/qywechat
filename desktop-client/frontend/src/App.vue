@@ -19,6 +19,8 @@ const state = reactive({
   rawPrice: '',
   priceLocked: false,
   uploading: false,
+  previewUrl: '',       // 图片预览 URL
+  showPreviewModal: false, // 是否显示大图弹窗
   
   form: {
     customerContact: '',
@@ -131,6 +133,10 @@ const triggerGoFileSelect = async () => {
     const filePath = await window.go.main.App.SelectScreenshotFile();
     if (!filePath) return; // User canceled
     
+    // 桌面端无法直接在网页中通过绝对路径显示图片 (安全限制)
+    // 所以这里的 filePath 暂不拿来做即时预览，或者等 OCR 成功后标记已选
+    state.previewUrl = ''; 
+    
     state.uploading = true;
     showToast('正在通过大模型进行OCR图文解析...', 'success');
     
@@ -159,6 +165,7 @@ const handleGlobalPaste = async (e) => {
       const reader = new FileReader();
       reader.onload = async (event) => {
         const base64Data = event.target.result;
+        state.previewUrl = base64Data; // 设置预览图
         state.uploading = true;
         showToast('检测到剪贴板图片，正在解析...', 'success');
         try {
@@ -199,6 +206,7 @@ const resetOCR = () => {
   state.rawPrice = '';
   state.price = null;
   state.priceLocked = false;
+  state.previewUrl = '';
   showToast('已撤销，可重新截图或粘贴');
 };
 
@@ -301,17 +309,23 @@ const submit = async () => {
         <div class="card-title">1. 订单防伪截图 (PDD截图)</div>
         <div 
           class="upload-zone" 
-          :class="{'has-file': state.priceLocked}"
-          @click="triggerGoFileSelect"
+          :class="{'has-file': state.priceLocked || state.previewUrl}"
+          @click="!state.previewUrl && triggerGoFileSelect()"
         >
           <div v-if="state.uploading" class="spinner" style="border-top-color: var(--accent); margin-bottom: 10px;"></div>
-          <div v-else class="upload-icon">📸</div>
           
-          <div v-if="state.priceLocked" class="upload-text" style="color: var(--success)">
-            OCR 解析完成 (可手动校对)
+          <!-- 有图片时显示带放大镜的缩略图 -->
+          <div v-else-if="state.previewUrl" class="preview-container" @click.stop="state.showPreviewModal = true">
+            <img :src="state.previewUrl" class="image-preview" />
+            <div class="zoom-overlay">🔍 点击放大</div>
           </div>
-          <div v-else class="upload-text">点击选择、或直接 <kbd>Cmd+V</kbd> 粘贴截图</div>
-          <div class="upload-hint">支持从剪贴板直接粘贴图片</div>
+          
+          <!-- 无图片时显示默认提示 -->
+          <div v-else>
+            <div class="upload-icon">📸</div>
+            <div class="upload-text">点击选择、或直接 <kbd>Cmd+V</kbd> 粘贴截图</div>
+            <div class="upload-hint">支持从剪贴板直接粘贴图片自动识别</div>
+          </div>
         </div>
         
         <div class="form-row" style="margin-top: 12px;" v-if="state.priceLocked">
@@ -369,12 +383,98 @@ const submit = async () => {
     
   </div>
 
-  <!-- Toast -->
+    <!-- Toast -->
   <div class="toast" :class="[state.toastType, { 'show': state.showToast }]">
     {{ state.toastMsg }}
+  </div>
+
+  <!-- 图片放大弹窗 -->
+  <div v-if="state.showPreviewModal" class="modal-overlay" @click="state.showPreviewModal = false">
+    <div class="modal-content">
+      <img :src="state.previewUrl" class="modal-image" @click.stop />
+      <button class="modal-close" @click="state.showPreviewModal = false">✖</button>
+    </div>
   </div>
 </template>
 
 <style scoped>
-/* Scoped overrides if needed */
+/* 预览区相关样式 */
+.preview-container {
+  position: relative;
+  width: 100%;
+  max-height: 120px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.image-preview {
+  max-width: 100%;
+  max-height: 120px;
+  object-fit: contain;
+}
+.zoom-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  color: white;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 500;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.preview-container:hover .zoom-overlay {
+  opacity: 1;
+}
+
+/* 放大弹窗样式 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  backdrop-filter: blur(5px);
+  cursor: zoom-out;
+}
+.modal-content {
+  position: relative;
+  max-width: 90%;
+  max-height: 90%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.modal-image {
+  max-width: 100%;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+.modal-close {
+  position: absolute;
+  top: -40px;
+  right: -10px;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 10px;
+}
+.modal-close:hover {
+  color: var(--accent);
+}
 </style>
