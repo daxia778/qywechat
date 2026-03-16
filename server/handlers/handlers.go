@@ -241,7 +241,7 @@ func ListOrders(c *gin.Context) {
 	}
 	query.Offset(offset).Limit(limit).Find(&orders)
 
-	c.JSON(http.StatusOK, orders)
+	c.JSON(http.StatusOK, gin.H{"data": orders})
 }
 
 // GetOrder 获取单个订单详情
@@ -303,7 +303,20 @@ func GetRevenueChart(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, result)
+	totalRevenue := 0
+	totalOrders := 0
+	for _, d := range result {
+		totalRevenue += d.Revenue
+		totalOrders += d.OrderCount
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"summary": gin.H{
+			"total_revenue": totalRevenue,
+			"total_orders":  totalOrders,
+		},
+		"data": result,
+	})
 }
 
 // ─── 员工管理 ──────────────────────────────────────────
@@ -324,7 +337,7 @@ func ListEmployees(c *gin.Context) {
 		query = query.Where("role = ?", role)
 	}
 	query.Find(&employees)
-	c.JSON(http.StatusOK, employees)
+	c.JSON(http.StatusOK, gin.H{"data": employees})
 }
 
 // CreateEmployee 添加员工
@@ -405,7 +418,7 @@ func GetTeamWorkload(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, result)
+	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
 func init() {

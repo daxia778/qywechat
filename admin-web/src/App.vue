@@ -1,5 +1,9 @@
 <template>
-  <div class="h-screen flex flex-col bg-gray-50 text-gray-800 font-sans overflow-hidden" style="flex-direction: row;">
+  <!-- Login page: full-screen, no sidebar -->
+  <router-view v-if="isLoginPage" />
+
+  <!-- Main layout: sidebar + content -->
+  <div v-else class="h-screen flex bg-gray-50 text-gray-800 font-sans overflow-hidden">
     
     <!-- Sidebar -->
     <aside
@@ -29,7 +33,7 @@
 
           <div class="flex flex-col gap-1 px-3">
             <router-link
-              v-for="route in routes"
+              v-for="route in navRoutes"
               :key="route.name"
               :to="route.path"
               class="relative group flex items-center transition-all cursor-pointer rounded-lg text-decoration-none"
@@ -53,7 +57,7 @@
         </div>
       </nav>
 
-      <!-- Footer Collapse -->
+      <!-- Footer -->
       <div class="shrink-0 border-t border-gray-200 py-4 px-3 space-y-1">
         <div class="flex items-center rounded-lg px-3 py-2 transition-all duration-300" :class="collapsed ? 'justify-center' : ''">
           <div class="w-1.5 h-1.5 bg-emerald-500 rounded-full shrink-0 relative">
@@ -88,9 +92,13 @@
             <div class="text-sm text-gray-500 font-medium">{{ currentTime }}</div>
             <div class="w-px h-5 bg-gray-200 hidden sm:block"></div>
             <!-- User -->
-            <button class="flex items-center gap-2 p-1 rounded-md hover:bg-gray-50 transition-colors border-none bg-transparent cursor-pointer">
-              <div class="w-8 h-8 rounded-full bg-slate-800 text-white font-medium flex items-center justify-center text-xs shadow-sm">AD</div>
-              <span class="text-sm font-medium text-gray-700 hidden sm:block">Admin</span>
+            <div class="flex items-center gap-2 p-1 rounded-md">
+              <div class="w-8 h-8 rounded-full bg-slate-800 text-white font-medium flex items-center justify-center text-xs shadow-sm">{{ userInitials }}</div>
+              <span class="text-sm font-medium text-gray-700 hidden sm:block">{{ userName }}</span>
+            </div>
+            <!-- Logout -->
+            <button @click="handleLogout" class="text-gray-400 hover:text-red-500 transition-colors bg-transparent border-none cursor-pointer p-1" title="退出登录">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H8a3 3 0 01-3-3V7a3 3 0 013-3h2a3 3 0 013 3v1" /></svg>
             </button>
         </div>
       </header>
@@ -116,13 +124,31 @@ const router = useRouter()
 const route = useRoute()
 const collapsed = ref(false)
 
-const routes = computed(() => {
-  return router.options.routes
+const isLoginPage = computed(() => route.path === '/login')
+
+const navRoutes = computed(() => {
+  return router.options.routes.filter(r => !r.meta?.public)
 })
 
 const currentRouteName = computed(() => {
   return route.meta.title || ''
 })
+
+const userName = computed(() => {
+  return localStorage.getItem('pdd_user_name') || 'Admin'
+})
+
+const userInitials = computed(() => {
+  const name = userName.value
+  return name.substring(0, 2).toUpperCase()
+})
+
+const handleLogout = () => {
+  localStorage.removeItem('pdd_token')
+  localStorage.removeItem('pdd_user_name')
+  localStorage.removeItem('pdd_user_id')
+  router.push('/login')
+}
 
 const currentTime = ref('')
 let timer
@@ -144,7 +170,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* Page Transitions */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.2s ease, transform 0.2s ease;

@@ -12,6 +12,7 @@ import (
 
 	"pdd-order-system/config"
 	"pdd-order-system/handlers"
+	"pdd-order-system/middleware"
 	"pdd-order-system/models"
 	"pdd-order-system/services"
 
@@ -36,6 +37,9 @@ func main() {
 
 	// 初始化企微客户端
 	services.InitWecom()
+
+	// 启动 SQLite 定时备份调度器
+	services.StartBackupScheduler()
 
 	// 确保目录存在
 	os.MkdirAll("uploads", 0o755)
@@ -91,18 +95,25 @@ func main() {
 		// 认证 (公开)
 		v1.POST("/auth/device_login", handlers.DeviceLogin)
 
-		// OCR (公开, 后续可加 JWT)
+		// OCR (公开)
 		v1.POST("/orders/upload_ocr", handlers.UploadOCR)
 
-		// 订单
-		v1.POST("/orders/create", handlers.CreateOrder)
-		v1.POST("/orders/grab", handlers.GrabOrder)
-		v1.PUT("/orders/:id/status", handlers.UpdateOrderStatus)
+		// 订单查询 (公开)
 		v1.GET("/orders/list", handlers.ListOrders)
 		v1.GET("/orders/:id", handlers.GetOrder)
 
-		// 管理端
+		// 订单操作 (需要 JWT 登录)
+		orderAuth := v1.Group("/orders")
+		orderAuth.Use(middleware.JWTAuth())
+		{
+			orderAuth.POST("/create", handlers.CreateOrder)
+			orderAuth.POST("/grab", handlers.GrabOrder)
+			orderAuth.PUT("/:id/status", handlers.UpdateOrderStatus)
+		}
+
+		// 管理端 (需要 JWT + Admin 角色)
 		admin := v1.Group("/admin")
+		admin.Use(middleware.JWTAuth(), middleware.AdminOnly())
 		{
 			admin.GET("/dashboard", handlers.GetDashboard)
 			admin.GET("/revenue_chart", handlers.GetRevenueChart)
