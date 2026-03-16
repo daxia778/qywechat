@@ -120,6 +120,7 @@ func main() {
 			admin.GET("/employees", handlers.ListEmployees)
 			admin.POST("/employees", handlers.CreateEmployee)
 			admin.PUT("/employees/:id/toggle", handlers.ToggleEmployee)
+			admin.PUT("/employees/:id/unbind", handlers.UnbindDevice)
 			admin.GET("/team_workload", handlers.GetTeamWorkload)
 		}
 	}

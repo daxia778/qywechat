@@ -43,7 +43,12 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
-import * as echarts from 'echarts'
+import { use, init, graphic } from 'echarts/core'
+import { LineChart, BarChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const ranges = [
   { label: '最近 7 天', days: 7 },
@@ -63,7 +68,7 @@ const initChart = () => {
   if (chartInstance) {
     chartInstance.dispose()
   }
-  chartInstance = echarts.init(chartRef.value)
+  chartInstance = init(chartRef.value)
   window.addEventListener('resize', () => chartInstance?.resize())
 }
 
@@ -139,7 +144,7 @@ const updateChart = () => {
         itemStyle: { color: '#465FFF' }, // Primary TailAdmin blue
         lineStyle: { width: 3, color: '#465FFF' },
         areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          color: new graphic.LinearGradient(0, 0, 0, 1, [
             { offset: 0, color: 'rgba(70, 95, 255, 0.2)' },
             { offset: 1, color: 'rgba(70, 95, 255, 0)' }
           ])

@@ -1,18 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import DashboardView from '../views/DashboardView.vue'
-import OrdersView from '../views/OrdersView.vue'
-import TeamView from '../views/TeamView.vue'
-import EmployeesView from '../views/EmployeesView.vue'
-import RevenueView from '../views/RevenueView.vue'
-import LoginView from '../views/LoginView.vue'
 
 const routes = [
-  { path: '/login', name: 'Login', component: LoginView, meta: { title: '登录', public: true } },
-  { path: '/', name: 'Dashboard', component: DashboardView, meta: { title: '仪表盘', icon: '📊' } },
-  { path: '/orders', name: 'Orders', component: OrdersView, meta: { title: '订单大厅', icon: '📦' } },
-  { path: '/team', name: 'Team', component: TeamView, meta: { title: '团队负载', icon: '👥' } },
-  { path: '/employees', name: 'Employees', component: EmployeesView, meta: { title: '员工管理', icon: '🔑' } },
-  { path: '/revenue', name: 'Revenue', component: RevenueView, meta: { title: '营收图表', icon: '📈' } },
+  { path: '/login', name: 'Login', component: () => import('../views/LoginView.vue'), meta: { title: '登录', public: true } },
+  { path: '/', name: 'Dashboard', component: () => import('../views/DashboardView.vue'), meta: { title: '仪表盘', icon: '📊' } },
+  { path: '/orders', name: 'Orders', component: () => import('../views/OrdersView.vue'), meta: { title: '订单大厅', icon: '📦' } },
+  { path: '/team', name: 'Team', component: () => import('../views/TeamView.vue'), meta: { title: '团队负载', icon: '👥' } },
+  { path: '/employees', name: 'Employees', component: () => import('../views/EmployeesView.vue'), meta: { title: '员工管理', icon: '🔑' } },
+  { path: '/revenue', name: 'Revenue', component: () => import('../views/RevenueView.vue'), meta: { title: '营收图表', icon: '📈' } },
 ]
 
 const router = createRouter({

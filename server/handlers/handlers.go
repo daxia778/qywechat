@@ -394,6 +394,32 @@ func ToggleEmployee(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%s成功", status), "is_active": emp.IsActive})
 }
 
+// UnbindDevice 解绑员工设备 (清空 MAC 地址)
+func UnbindDevice(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的员工ID"})
+		return
+	}
+
+	var emp models.Employee
+	if err := models.DB.First(&emp, uint(id)).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "员工不存在"})
+		return
+	}
+
+	if emp.MacAddress == "" {
+		c.JSON(http.StatusOK, gin.H{"message": "该员工未绑定任何设备"})
+		return
+	}
+
+	oldMAC := emp.MacAddress
+	models.DB.Model(&emp).Update("mac_address", "")
+	log.Printf("🔓 设备解绑 | 员工=%s | 旧MAC=%s", emp.Name, oldMAC)
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("已解绑 %s 的设备", emp.Name)})
+}
+
 // GetTeamWorkload 设计师工作负载
 func GetTeamWorkload(c *gin.Context) {
 	var designers []models.Employee

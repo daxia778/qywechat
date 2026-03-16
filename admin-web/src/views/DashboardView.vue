@@ -97,7 +97,12 @@
 <script setup>
 import { ref, onMounted, onUnmounted, shallowRef } from 'vue'
 import axios from 'axios'
-import * as echarts from 'echarts'
+import { use, init, graphic } from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import { GridComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+use([LineChart, GridComponent, CanvasRenderer])
 
 const stats = ref({
   total_orders: 0,
@@ -120,7 +125,7 @@ let timer = null
 
 const initSparkline = (el, color) => {
   if (!el) return null
-  const chart = echarts.init(el)
+  const chart = init(el)
   // Demo trends
   let data = []
   let val = 10
@@ -140,7 +145,7 @@ const initSparkline = (el, color) => {
       symbol: 'none',
       lineStyle: { width: 2, color: color },
       areaStyle: {
-        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+        color: new graphic.LinearGradient(0, 0, 0, 1, [
           { offset: 0, color: `${color}30` },
           { offset: 1, color: `${color}00` }
         ])

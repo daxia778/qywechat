@@ -17,3 +17,7 @@ desktop-client/frontend/dist/
 desktop-client/desktop-client*
 desktop-client/wailsjs/
 desktop-client/PDD 派单助手.app/
+
+# Admin Web
+admin-web/node_modules/
+admin-web/dist/

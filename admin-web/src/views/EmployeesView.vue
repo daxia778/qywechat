@@ -69,13 +69,23 @@
                 </div>
               </td>
               <td class="text-right">
-                <button 
-                  @click="toggleActive(emp)"
-                  class="btn text-xs px-3 py-1.5"
-                  :class="emp.is_active ? 'btn-danger bg-white hover:bg-red-50' : 'btn-secondary text-emerald-600 hover:text-emerald-700'"
-                >
-                  {{ emp.is_active ? '停用账号' : '恢复启用' }}
-                </button>
+                <div class="flex items-center justify-end gap-2">
+                  <button 
+                    v-if="emp.mac_address"
+                    @click="unbindDevice(emp)"
+                    class="btn text-xs px-3 py-1.5 btn-secondary text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                    title="解绑设备后可在新设备上使用该激活码"
+                  >
+                    🔓 解绑设备
+                  </button>
+                  <button 
+                    @click="toggleActive(emp)"
+                    class="btn text-xs px-3 py-1.5"
+                    :class="emp.is_active ? 'btn-danger bg-white hover:bg-red-50' : 'btn-secondary text-emerald-600 hover:text-emerald-700'"
+                  >
+                    {{ emp.is_active ? '停用账号' : '恢复启用' }}
+                  </button>
+                </div>
               </td>
             </tr>
             <tr v-if="employees.length === 0 && !loading">
@@ -186,6 +196,17 @@ const toggleActive = async (emp) => {
     fetchEmployees()
   } catch (err) {
     alert('操作失败 ' + err.message)
+  }
+}
+
+const unbindDevice = async (emp) => {
+  if (!confirm(`确定要解绑 ${emp.name} 的设备吗？\n解绑后该激活码可在新设备上使用。`)) return
+  try {
+    const res = await axios.put(`/api/v1/admin/employees/${emp.id}/unbind`)
+    alert(res.data.message || '解绑成功')
+    fetchEmployees()
+  } catch (err) {
+    alert('解绑失败: ' + (err.response?.data?.error || err.message))
   }
 }
 
