@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,7 +20,7 @@ import (
 // ─── 认证 ──────────────────────────────────────────
 
 type DeviceLoginReq struct {
-	ActivationCode string `json:"activation_code" binding:"required"`
+	ActivationCode string `json:"activation_code"`
 	MacAddress     string `json:"mac_address" binding:"required"`
 }
 
@@ -31,34 +32,37 @@ func DeviceLogin(c *gin.Context) {
 		return
 	}
 
-	// 先尝试 MAC 静默登录
 	var emp models.Employee
-	result := models.DB.Where("mac_address = ? AND is_active = ?", req.MacAddress, true).First(&emp)
-	if result.Error == nil {
-		token, _ := middleware.CreateToken(emp.WecomUserID, emp.Name, emp.Role)
-		c.JSON(http.StatusOK, gin.H{
-			"token":         token,
-			"employee_name": emp.Name,
-			"wecom_userid":  emp.WecomUserID,
-		})
-		return
-	}
 
-	// 激活码验证
-	result = models.DB.Where("activation_code = ? AND is_active = ?", req.ActivationCode, true).First(&emp)
-	if result.Error != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "激活码无效或已禁用"})
-		return
-	}
+	if req.ActivationCode == "" {
+		// ── 无激活码: 仅允许 MAC 静默登录 (已绑定设备重连) ──
+		result := models.DB.Where("mac_address = ? AND is_active = ?", req.MacAddress, true).First(&emp)
+		if result.Error != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "设备未注册，请输入激活码"})
+			return
+		}
+	} else {
+		// ── 有激活码: 必须校验激活码有效性 ──
+		result := models.DB.Where("activation_code = ? AND is_active = ?", req.ActivationCode, true).First(&emp)
+		if result.Error != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "激活码无效或已禁用"})
+			return
+		}
 
-	if emp.MacAddress != "" && emp.MacAddress != req.MacAddress {
-		c.JSON(http.StatusForbidden, gin.H{"error": "该激活码已绑定其他设备，请联系管理员"})
-		return
+		// 检查 MAC 绑定:
+		// - 首次激活: MAC 为空 → 绑定当前设备
+		// - 已绑定同设备: MAC 一致 → 放行
+		// - 已绑定不同设备: MAC 不一致 → 拒绝
+		if emp.MacAddress == "" {
+			// 首次激活，绑定 MAC 到此设备
+			emp.MacAddress = req.MacAddress
+			models.DB.Save(&emp)
+			log.Printf("✅ 设备绑定 | 员工=%s | MAC=%s", emp.Name, req.MacAddress)
+		} else if emp.MacAddress != req.MacAddress {
+			c.JSON(http.StatusForbidden, gin.H{"error": "该激活码已绑定其他设备，请联系管理员解绑"})
+			return
+		}
 	}
-
-	// 绑定 MAC
-	emp.MacAddress = req.MacAddress
-	models.DB.Save(&emp)
 
 	token, _ := middleware.CreateToken(emp.WecomUserID, emp.Name, emp.Role)
 	c.JSON(http.StatusOK, gin.H{
