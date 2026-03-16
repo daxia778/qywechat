@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -216,8 +218,62 @@ func (a *App) UploadScreenshot(filePath string) *OCRResult {
 	json.NewDecoder(resp.Body).Decode(&result)
 
 	if resp.StatusCode != 200 {
-		result.Error = "OCR 解析失败"
+		result.Error = "OCR 解析失败: " + result.Error
 	}
+	return &result
+}
+
+// UploadScreenshotBase64 支持从剪贴板粘贴图片 (传入完整的 base64 data URI)
+func (a *App) UploadScreenshotBase64(b64DataURL string) *OCRResult {
+	// 去除前缀 data:image/png;base64,
+	parts := strings.SplitN(b64DataURL, ",", 2)
+	if len(parts) != 2 {
+		return &OCRResult{Error: "无效的图片数据"}
+	}
+	
+	b64Data := parts[1]
+	imgBytes, err := base64.StdEncoding.DecodeString(b64Data)
+	if err != nil {
+		return &OCRResult{Error: "图片解码失败:" + err.Error()}
+	}
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", "clipboard.png")
+	if err != nil {
+		return &OCRResult{Error: "创建表单失败"}
+	}
+	
+	if _, err := io.Copy(part, bytes.NewReader(imgBytes)); err != nil {
+		return &OCRResult{Error: "复制文件失败"}
+	}
+	writer.Close()
+
+	req, _ := http.NewRequest("POST", a.serverURL+"/api/v1/orders/upload_ocr", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if a.token != "" {
+		req.Header.Set("Authorization", "Bearer "+a.token)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return &OCRResult{Error: "上传失败: " + err.Error()}
+	}
+	defer resp.Body.Close()
+
+	var result OCRResult
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	if resp.StatusCode != 200 {
+		result.Error = "OCR 解析失败: HTTP " + strconv.Itoa(resp.StatusCode)
+	}
+
+	// 如果 OCR 没有提取出内容，给予明确提示
+	if result.OrderSN == "" && result.RawPrice == "" && result.Error == "" {
+		result.Error = "截图未识别到有效订单号或金额，请手动输入或重新截图"
+	}
+
 	return &result
 }
 

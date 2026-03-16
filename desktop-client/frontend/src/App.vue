@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, onMounted, onUnmounted } from 'vue';
 
 // ══ 状态 ══
 const state = reactive({
@@ -49,6 +49,13 @@ onMounted(async () => {
   } catch (e) {
     console.error('初始化失败', e);
   }
+
+  // 监听全局粘贴事件
+  document.addEventListener('paste', handleGlobalPaste);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('paste', handleGlobalPaste);
 });
 
 // ══ 辅助 ══
@@ -128,16 +135,7 @@ const triggerGoFileSelect = async () => {
     showToast('正在通过大模型进行OCR图文解析...', 'success');
     
     const res = await window.go.main.App.UploadScreenshot(filePath);
-    
-    if (res.error) {
-       showToast(res.error, 'error');
-    } else {
-       state.orderSn = res.order_sn;
-       state.price = res.price;
-       state.rawPrice = res.raw_price || (res.price / 100).toFixed(2);
-       state.priceLocked = true;
-       showToast('OCR 解析成功，金额已锁定');
-    }
+    handleOCRResponse(res);
   } catch (err) {
     showToast('文件处理失败: ' + err, 'error');
   } finally {
@@ -145,8 +143,67 @@ const triggerGoFileSelect = async () => {
   }
 };
 
+const handleGlobalPaste = async (e) => {
+  if (!state.isLoggedIn) return; // 未登录时不处理图片粘贴
+  
+  const items = e.clipboardData?.items;
+  if (!items) return;
+
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type.indexOf('image') !== -1) {
+      e.preventDefault();
+      const file = items[i].getAsFile();
+      if (!file) continue;
+
+      // 转换为 base64
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const base64Data = event.target.result;
+        state.uploading = true;
+        showToast('检测到剪贴板图片，正在解析...', 'success');
+        try {
+          // 调用新的 base64 OCR 方法
+          const res = await window.go.main.App.UploadScreenshotBase64(base64Data);
+          handleOCRResponse(res);
+        } catch (err) {
+          showToast('剪贴板解析失败: ' + err, 'error');
+        } finally {
+          state.uploading = false;
+        }
+      };
+      reader.readAsDataURL(file);
+      break; // 只处理第一张图
+    }
+  }
+};
+
+const handleOCRResponse = (res) => {
+  if (res.error) {
+     showToast(res.error, 'error');
+  } else {
+     state.orderSn = res.order_sn;
+     state.rawPrice = res.raw_price || (res.price / 100).toFixed(2);
+     state.price = res.price;
+     state.priceLocked = true;
+     // 如果金额是 0，说明可能需要手动修改，弹个温和的提示
+     if (res.price === 0 || !res.order_sn) {
+       showToast('未完全识别，请手动补全单号或金额', 'error');
+     } else {
+       showToast('OCR 解析成功', 'success');
+     }
+  }
+};
+
+const resetOCR = () => {
+  state.orderSn = '';
+  state.rawPrice = '';
+  state.price = null;
+  state.priceLocked = false;
+  showToast('已撤销，可重新截图或粘贴');
+};
+
 const submit = async () => {
-  if (!state.priceLocked || !state.orderSn) {
+  if (!state.priceLocked) {
     showToast('请先上传订单截图进行 OCR 解析锁定单价', 'error');
     return;
   }
@@ -251,23 +308,26 @@ const submit = async () => {
           <div v-else class="upload-icon">📸</div>
           
           <div v-if="state.priceLocked" class="upload-text" style="color: var(--success)">
-            OCR 解析成功 (单号: {{ state.orderSn }})
+            OCR 解析完成 (可手动校对)
           </div>
-          <div v-else class="upload-text">点击选择或拖拽截图上传</div>
-          <div class="upload-hint">系统将自动提取价格并防篡改锁定</div>
+          <div v-else class="upload-text">点击选择、或直接 <kbd>Cmd+V</kbd> 粘贴截图</div>
+          <div class="upload-hint">支持从剪贴板直接粘贴图片</div>
         </div>
         
         <div class="form-row" style="margin-top: 12px;" v-if="state.priceLocked">
-          <div class="form-group">
-            <label class="form-label">锁定金额 (¥)</label>
-            <input :value="state.rawPrice" class="form-input locked" readonly disabled />
+          <div class="form-group" style="flex: 2;">
+            <label class="form-label">淘宝/PDD单号 (必填)</label>
+            <input v-model="state.orderSn" class="form-input" placeholder="输入订单号" />
           </div>
-          <div class="form-group">
-            <label class="form-label">防伪验证</label>
-            <div style="padding: 10px 0;">
-              <span class="status-badge success">✅ 智谱 AI 校验通过</span>
-            </div>
+          <div class="form-group" style="flex: 1;">
+            <label class="form-label">实付金额 (¥)</label>
+            <input v-model="state.rawPrice" @input="state.price = parseFloat(state.rawPrice) * 100" class="form-input" placeholder="0.00" />
           </div>
+        </div>
+        
+        <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center;" v-if="state.priceLocked">
+          <span class="status-badge success">✅ 智谱 AI 校验完成</span>
+          <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 13px;" @click="resetOCR">↺ 撤销重选</button>
         </div>
       </div>
 
