@@ -1,30 +1,24 @@
 import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
+import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  plugins: [tailwindcss(), vue()],
+  plugins: [react(), tailwindcss()],
   server: {
-    port: 5173,
+    port: 8201,
     proxy: {
-      '/api': {
-        target: 'http://localhost:8200',
-        changeOrigin: true,
-      },
+      '/api': 'http://localhost:8200',
+      '/ws': { target: 'ws://localhost:8200', ws: true },
     },
   },
   build: {
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          if (id.includes('node_modules/echarts')) {
-            return 'echarts-vendor'
-          }
-          if (id.includes('node_modules/vue') || id.includes('node_modules/vue-router')) {
-            return 'vue-vendor'
-          }
-        }
-      }
-    }
-  }
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          charts: ['echarts'],
+        },
+      },
+    },
+  },
 })
