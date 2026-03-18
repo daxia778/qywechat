@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -23,11 +24,12 @@ import (
 
 // App struct
 type App struct {
-	ctx       context.Context
-	serverURL string
-	token     string
-	empName   string
-	wecomUID  string
+	ctx        context.Context
+	serverURL  string
+	token      string
+	empName    string
+	wecomUID   string
+	machineID  string // 缓存的设备指纹，启动时生成
 }
 
 // NewApp creates a new App application struct
@@ -40,6 +42,28 @@ func NewApp() *App {
 // startup is called when the app starts
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// 生成并缓存设备指纹（多重 fallback 确保不为空）
+	mid, err := GetMachineFingerprint()
+	if err != nil || mid == "" {
+		log.Printf("⚠️ 设备指纹生成失败，使用退化方案: %v", err)
+		fallbackMAC := a.getFallbackMAC()
+		if fallbackMAC != "" && fallbackMAC != "UNKNOWN" {
+			a.machineID = "FALLBACK-" + fallbackMAC
+		} else {
+			// 最终兜底：用主机名+用户目录哈希
+			hostname, _ := os.Hostname()
+			home, _ := os.UserHomeDir()
+			raw := hostname + ":" + home + ":pdd-fallback"
+			h := fmt.Sprintf("%x", sha256.Sum256([]byte(raw)))
+			a.machineID = "HOST-" + h[:32]
+			log.Printf("⚠️ MAC 也获取失败，使用主机名哈希兜底: %s", a.machineID)
+		}
+	} else {
+		a.machineID = mid
+		log.Printf("✅ 设备指纹已生成: %s...", mid[:16])
+	}
+
 	// 自动恢复上次的登录会话
 	a.loadSession()
 }
@@ -63,28 +87,67 @@ func (a *App) saveSession() {
 		EmpName:  a.empName,
 		WecomUID: a.wecomUID,
 	}
-	b, _ := json.Marshal(data)
-	_ = os.WriteFile(sessionFilePath(), b, 0600)
-	log.Println("✅ 会话已保存到本地")
-}
+	plaintext, _ := json.Marshal(data)
 
-func (a *App) loadSession() {
-	b, err := os.ReadFile(sessionFilePath())
+	// 使用设备指纹加密 Session
+	encrypted, err := EncryptSession(plaintext, a.machineID)
 	if err != nil {
-		return // 无会话文件，需要重新登录
-	}
-
-	var data sessionData
-	if err := json.Unmarshal(b, &data); err != nil {
+		log.Printf("❌ 会话加密失败: %v", err)
 		return
 	}
 
-	if data.Token != "" {
-		a.token = data.Token
-		a.empName = data.EmpName
-		a.wecomUID = data.WecomUID
-		log.Printf("✅ 已恢复登录会话: %s", data.EmpName)
+	_ = os.WriteFile(sessionFilePath(), []byte(encrypted), 0600)
+	log.Println("✅ 会话已加密保存到本地")
+}
+
+func (a *App) loadSession() {
+	// 1. 尝试从本地加密文件恢复
+	b, err := os.ReadFile(sessionFilePath())
+	if err == nil {
+		plaintext, err := DecryptSession(string(b), a.machineID)
+		if err == nil {
+			var data sessionData
+			if err := json.Unmarshal(plaintext, &data); err == nil && data.Token != "" {
+				a.token = data.Token
+				a.empName = data.EmpName
+				a.wecomUID = data.WecomUID
+				log.Printf("✅ 已恢复本地加密会话: %s", data.EmpName)
+				return
+			}
+		}
+		log.Printf("⚠️ 本地会话无效，尝试设备指纹静默登录")
+		_ = os.Remove(sessionFilePath())
 	}
+
+	// 2. 本地会话不存在或无效，用设备指纹向服务端静默登录
+	if a.machineID == "" {
+		return
+	}
+	payload := map[string]string{
+		"activation_code": "",
+		"machine_id":      a.machineID,
+		"mac_address":     a.getFallbackMAC(),
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(a.serverURL+"/api/v1/auth/device_login", "application/json", bytes.NewReader(body))
+	if err != nil {
+		log.Printf("⚠️ 静默登录网络失败: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		log.Printf("⚠️ 设备未绑定，需要输入激活码")
+		return
+	}
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	a.token = result["token"].(string)
+	a.empName = result["employee_name"].(string)
+	a.wecomUID = result["wecom_userid"].(string)
+	a.saveSession()
+	log.Printf("✅ 设备指纹静默登录成功: %s", a.empName)
 }
 
 func (a *App) ClearSession() {
@@ -95,9 +158,15 @@ func (a *App) ClearSession() {
 	log.Println("🗑️ 会话已清除")
 }
 
-// ─── MAC 地址获取 ─────────────────────────
+// ─── 设备指纹 (替代弱 MAC 绑定) ─────────────────────────
 
-func (a *App) GetMacAddress() string {
+// GetMachineID 返回缓存的设备指纹（已在 startup 中通过 crypto.go 生成）
+func (a *App) GetMachineID() string {
+	return a.machineID
+}
+
+// getFallbackMAC 退化方案：在无法获取硬件 UUID 时回退到 MAC 地址
+func (a *App) getFallbackMAC() string {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return "UNKNOWN"
@@ -111,6 +180,11 @@ func (a *App) GetMacAddress() string {
 		}
 	}
 	return "UNKNOWN"
+}
+
+// GetMacAddress 返回 MAC 地址（暴露给前端调用）
+func (a *App) GetMacAddress() string {
+	return a.getFallbackMAC()
 }
 
 func (a *App) GetPlatform() string {
@@ -127,11 +201,10 @@ type LoginResult struct {
 }
 
 func (a *App) DeviceLogin(activationCode string) *LoginResult {
-	mac := a.GetMacAddress()
-
 	payload := map[string]string{
 		"activation_code": activationCode,
-		"mac_address":     mac,
+		"machine_id":      a.machineID,
+		"mac_address":     a.getFallbackMAC(),
 	}
 	body, _ := json.Marshal(payload)
 
@@ -181,6 +254,7 @@ type OCRResult struct {
 	OrderSN    string  `json:"order_sn"`
 	Price      int     `json:"price"`
 	RawPrice   string  `json:"raw_price"`
+	OrderTime  string  `json:"order_time"`
 	Confidence float64 `json:"confidence"`
 	Error      string  `json:"error,omitempty"`
 }
@@ -361,4 +435,37 @@ func (a *App) SetServerURL(url string) {
 
 func (a *App) GetServerURL() string {
 	return a.serverURL
+}
+
+// ─── OTA Update ────────────────────────
+
+type AppUpdateInfo struct {
+	Version      string `json:"version"`
+	ForceUpdate  bool   `json:"force_update"`
+	DownloadURL  string `json:"download_url"`
+	ReleaseNotes string `json:"release_notes"`
+	HasUpdate    bool   `json:"has_update"`
+}
+
+// CheckUpdate 检查更新
+func (a *App) CheckUpdate(currentVersion string) (*AppUpdateInfo, error) {
+	resp, err := http.Get(a.serverURL + "/api/v1/app/version")
+	if err != nil {
+		return nil, fmt.Errorf("网络超时: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("检查更新失败 (HTTP %d)", resp.StatusCode)
+	}
+
+	var info AppUpdateInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, err
+	}
+
+	if info.Version != currentVersion && info.Version != "" {
+		info.HasUpdate = true
+	}
+	return &info, nil
 }

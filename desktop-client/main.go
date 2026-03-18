@@ -33,7 +33,7 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 15, G: 15, B: 25, A: 255},
 		OnStartup:        app.startup,
-		AlwaysOnTop:      true,
+		AlwaysOnTop:      false,
 		Frameless:        false,
 		Bind: []interface{}{
 			app,

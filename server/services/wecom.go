@@ -192,7 +192,7 @@ func (w *WeComClient) NotifyNewOrder(orderSN, operatorName, topic string, pages,
 	return w.SendTextCardMessage(designerIDs,
 		fmt.Sprintf("🔔 新订单 - %s", titleTopic),
 		desc,
-		fmt.Sprintf("https://your-domain.com/api/v1/orders/grab?order_sn=%s", orderSN),
+		fmt.Sprintf("%s/grab?order_sn=%s", config.C.BaseURL, orderSN),
 	)
 }
 
@@ -207,10 +207,16 @@ func (w *WeComClient) SetupOrderGroup(orderSN, operatorID, designerID, topic str
 		snShort = snShort[len(snShort)-6:]
 	}
 
+	// 去重: 当 operatorID == designerID 时避免重复成员导致建群失败
+	members := []string{operatorID}
+	if designerID != operatorID {
+		members = append(members, designerID)
+	}
+
 	chatID, err := w.CreateGroupChat(
 		fmt.Sprintf("PPT-%s %s", snShort, topicShort),
 		designerID,
-		[]string{operatorID, designerID},
+		members,
 	)
 	if err != nil {
 		return "", err
@@ -219,6 +225,9 @@ func (w *WeComClient) SetupOrderGroup(orderSN, operatorID, designerID, topic str
 		return "", nil
 	}
 
+	// 保存群聊快照到数据库
+	SaveGroupChatSnapshot(chatID, fmt.Sprintf("PPT-%s %s", snShort, topicShort), designerID, members, orderSN)
+
 	priceYuan := float64(priceFen) / 100
 	if remark == "" {
 		remark = "无"
@@ -226,6 +235,9 @@ func (w *WeComClient) SetupOrderGroup(orderSN, operatorID, designerID, topic str
 	brief := fmt.Sprintf("📋 PPT 设计需求清单\n━━━━━━━━━━━━━━━━━\n📦 订单号: %s\n🎯 主题: %s\n📄 页数: %d页\n💰 金额: ¥%.2f\n⏰ 交付: %s\n📝 备注: %s\n━━━━━━━━━━━━━━━━━\n请尽快开始设计，完成后在群内回复「已交付」！",
 		orderSN, topic, pages, priceYuan, deadlineStr, remark)
 	_ = w.SendGroupMessage(chatID, brief)
+
+	// 记录消息日志
+	SaveMessageLog(chatID, "system", "text", brief, orderSN, "out")
 
 	return chatID, nil
 }
@@ -247,7 +259,10 @@ func (w *WeComClient) postJSON(url string, payload interface{}) error {
 }
 
 func (w *WeComClient) postJSONRaw(url string, payload interface{}) ([]byte, error) {
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("JSON序列化失败: %w", err)
+	}
 	resp, err := w.client.Post(url, "application/json", strings.NewReader(string(data)))
 	if err != nil {
 		return nil, err

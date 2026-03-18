@@ -1,0 +1,208 @@
+package services
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	"pdd-order-system/models"
+)
+
+const (
+	wecomDataRetention  = 90 * 24 * time.Hour // 保留 90 天
+	wecomCleanInterval  = 24 * time.Hour       // 每 24 小时清理一次
+	wecomSyncInterval   = 1 * time.Hour        // 每 1 小时同步一次通讯录
+)
+
+// ─── 数据采集与存储 ──────────────────────────
+
+// SaveGroupChatSnapshot 保存/更新群聊快照到数据库
+// 在创建群聊或发送群消息时自动调用
+func SaveGroupChatSnapshot(chatID, name, ownerID string, memberIDs []string, orderSN string) {
+	membersStr := strings.Join(memberIDs, ",")
+	now := time.Now()
+
+	var existing models.WecomGroupChat
+	result := models.DB.Where("chat_id = ?", chatID).First(&existing)
+
+	if result.Error != nil {
+		// 新建记录
+		models.DB.Create(&models.WecomGroupChat{
+			ChatID:    chatID,
+			Name:      name,
+			OwnerID:   ownerID,
+			MemberIDs: membersStr,
+			OrderSN:   orderSN,
+			Status:    "active",
+			SyncedAt:  now,
+		})
+		log.Printf("📝 群聊快照已保存 | chatid=%s | name=%s", chatID, name)
+	} else {
+		// 更新已有记录
+		models.DB.Model(&existing).Updates(map[string]interface{}{
+			"name":       name,
+			"owner_id":   ownerID,
+			"member_ids": membersStr,
+			"synced_at":  now,
+		})
+	}
+}
+
+// SaveMessageLog 记录一条发出的企微消息
+func SaveMessageLog(chatID, senderID, msgType, content, orderSN, direction string) {
+	models.DB.Create(&models.WecomMessageLog{
+		ChatID:    chatID,
+		SenderID:  senderID,
+		MsgType:   msgType,
+		Content:   content,
+		OrderSN:   orderSN,
+		Direction: direction,
+	})
+}
+
+// SyncWecomMembers 从企微通讯录 API 拉取部门成员列表并存入数据库
+func SyncWecomMembers() {
+	if !Wecom.IsConfigured() {
+		return
+	}
+
+	token, err := Wecom.GetAccessToken()
+	if err != nil {
+		log.Printf("❌ 同步通讯录失败 (Token): %v", err)
+		return
+	}
+
+	// 获取根部门下所有成员详情 (department_id=1 为根部门)
+	url := fmt.Sprintf("%s/user/list?access_token=%s&department_id=1&fetch_child=1", Wecom.baseURL, token)
+	resp, err := Wecom.client.Get(url)
+	if err != nil {
+		log.Printf("❌ 同步通讯录失败 (HTTP): %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		ErrCode  int    `json:"errcode"`
+		ErrMsg   string `json:"errmsg"`
+		UserList []struct {
+			UserID     string `json:"userid"`
+			Name       string `json:"name"`
+			Department []int  `json:"department"`
+			Position   string `json:"position"`
+			Mobile     string `json:"mobile"`
+			Email      string `json:"email"`
+			Avatar     string `json:"avatar"`
+			Status     int    `json:"status"`
+			IsLeader   int    `json:"isleader"`
+		} `json:"userlist"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("❌ 同步通讯录失败 (JSON): %v", err)
+		return
+	}
+	if result.ErrCode != 0 {
+		log.Printf("❌ 同步通讯录失败 (API): errcode=%d errmsg=%s", result.ErrCode, result.ErrMsg)
+		return
+	}
+
+	now := time.Now()
+	count := 0
+
+	for _, u := range result.UserList {
+		// 部门ID转字符串
+		deptParts := make([]string, len(u.Department))
+		for i, d := range u.Department {
+			deptParts[i] = fmt.Sprintf("%d", d)
+		}
+		deptStr := strings.Join(deptParts, ",")
+
+		var existing models.WecomMember
+		if err := models.DB.Where("userid = ?", u.UserID).First(&existing).Error; err != nil {
+			// 新成员
+			models.DB.Create(&models.WecomMember{
+				UserID:     u.UserID,
+				Name:       u.Name,
+				Department: deptStr,
+				Position:   u.Position,
+				Mobile:     u.Mobile,
+				Email:      u.Email,
+				Avatar:     u.Avatar,
+				Status:     u.Status,
+				IsLeader:   u.IsLeader,
+				SyncedAt:   now,
+			})
+			count++
+		} else {
+			// 更新已有成员
+			models.DB.Model(&existing).Updates(map[string]interface{}{
+				"name":       u.Name,
+				"department": deptStr,
+				"position":   u.Position,
+				"mobile":     u.Mobile,
+				"email":      u.Email,
+				"avatar":     u.Avatar,
+				"status":     u.Status,
+				"is_leader":  u.IsLeader,
+				"synced_at":  now,
+			})
+		}
+	}
+
+	log.Printf("✅ 企微通讯录同步完成 | 总计 %d 人, 新增 %d 人", len(result.UserList), count)
+}
+
+// ─── 定时同步调度器 ──────────────────────────
+
+// StartWecomSyncScheduler 启动企微数据定时同步
+func StartWecomSyncScheduler() {
+	log.Printf("✅ 企微通讯录同步调度器已启动 (间隔 %v)", wecomSyncInterval)
+
+	go func() {
+		// 启动 30 秒后首次同步 (等企微客户端初始化完成)
+		time.Sleep(30 * time.Second)
+		SyncWecomMembers()
+
+		ticker := time.NewTicker(wecomSyncInterval)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			SyncWecomMembers()
+		}
+	}()
+}
+
+// ─── 90 天数据清理 ──────────────────────────
+
+// StartWecomDataCleanupScheduler 启动企微历史数据 90 天过期清理
+func StartWecomDataCleanupScheduler() {
+	log.Printf("✅ 企微数据清理调度器已启动 (保留 %v, 间隔 %v)", wecomDataRetention, wecomCleanInterval)
+
+	go func() {
+		ticker := time.NewTicker(wecomCleanInterval)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			cleanWecomData()
+		}
+	}()
+}
+
+func cleanWecomData() {
+	threshold := time.Now().Add(-wecomDataRetention)
+
+	// 清理过期群聊快照
+	r1 := models.DB.Where("synced_at < ?", threshold).Delete(&models.WecomGroupChat{})
+	// 清理过期成员快照
+	r2 := models.DB.Where("synced_at < ?", threshold).Delete(&models.WecomMember{})
+	// 清理过期消息日志
+	r3 := models.DB.Where("created_at < ?", threshold).Delete(&models.WecomMessageLog{})
+
+	total := r1.RowsAffected + r2.RowsAffected + r3.RowsAffected
+	if total > 0 {
+		log.Printf("🗑️ 企微数据清理完成 | 群聊快照=%d, 成员快照=%d, 消息日志=%d",
+			r1.RowsAffected, r2.RowsAffected, r3.RowsAffected)
+	}
+}

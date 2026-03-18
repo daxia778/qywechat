@@ -14,8 +14,8 @@ export function GetEmployeeName() {
   return window['go']['main']['App']['GetEmployeeName']();
 }
 
-export function GetMacAddress() {
-  return window['go']['main']['App']['GetMacAddress']();
+export function GetMachineID() {
+  return window['go']['main']['App']['GetMachineID']();
 }
 
 export function GetPlatform() {
@@ -44,4 +44,8 @@ export function SubmitOrder(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
 
 export function UploadScreenshot(arg1) {
   return window['go']['main']['App']['UploadScreenshot'](arg1);
+}
+
+export function CheckUpdate(arg1) {
+  return window['go']['main']['App']['CheckUpdate'](arg1);
 }

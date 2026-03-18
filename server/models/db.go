@@ -5,45 +5,132 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
+	"pdd-order-system/config"
+
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-	"time"
 )
 
-var DB *gorm.DB
+var (
+	DB      *gorm.DB
+	writeMu sync.Mutex // 全局写串行化锁，防止 SQLite 写冲突
+)
 
-// InitDB 初始化数据库连接（SQLite + WAL 模式）
-func InitDB(dbPath string) {
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		log.Fatalf("❌ 创建数据库目录失败: %v", err)
+// WriteTx 写事务包装（兼容混合模式）
+// 对于 SQLite 强制串行写防 locked 错误；对于 Postgres 直接执行无锁并发
+func WriteTx(fn func(tx *gorm.DB) error) error {
+	if config.C.DBType == "sqlite" {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+	}
+	return DB.Transaction(fn)
+}
+
+// InitDB 初始化数据库连接
+func InitDB() {
+	var err error
+	var dialector gorm.Dialector
+
+	if config.C.DBType == "postgres" {
+		// PostgreSQL 初始化
+		dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=Asia/Shanghai",
+			config.C.PGHost, config.C.PGUser, config.C.PGPassword, config.C.PGDBName, config.C.PGPort)
+		dialector = postgres.Open(dsn)
+	} else {
+		// SQLite 初始化
+		dbPath := config.C.DBPath
+		dir := filepath.Dir(dbPath)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			log.Fatalf("❌ 创建数据库目录失败: %v", err)
+		}
+		dsn := fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL&_cache_size=-64000&_foreign_keys=ON", dbPath)
+		dialector = sqlite.Open(dsn)
 	}
 
-	var err error
-	DB, err = gorm.Open(sqlite.Open(fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL&_cache_size=-64000", dbPath)), &gorm.Config{
+	DB, err = gorm.Open(dialector, &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Warn),
 	})
 	if err != nil {
-		log.Fatalf("❌ 数据库连接失败: %v", err)
+		log.Fatalf("❌ 数据库连接失败 (%s): %v", config.C.DBType, err)
 	}
 
-	// 获取通用数据库对象 sql.DB，设置连接池
 	sqlDB, err := DB.DB()
 	if err != nil {
 		log.Fatalf("❌ 获取 sql.DB 失败: %v", err)
 	}
 
-	// 针对 SQLite WAL，适度限制连接池
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
-	sqlDB.SetConnMaxLifetime(time.Hour)
+	// SQLite 最佳实践: 单写连接 + 多读连接
+	sqlDB.SetMaxIdleConns(4)
+	sqlDB.SetMaxOpenConns(8)
+	sqlDB.SetConnMaxLifetime(30 * time.Minute)
 
-	// 自动建表
-	if err := DB.AutoMigrate(&Employee{}, &Order{}); err != nil {
+	// 自动建表与迁移
+	if err := DB.AutoMigrate(&Employee{}, &Order{}, &AuditLog{}, &WecomGroupChat{}, &WecomMember{}, &WecomMessageLog{}, &AppVersion{}, &Notification{}, &OrderTimeline{}); err != nil {
 		log.Fatalf("❌ 数据库迁移失败: %v", err)
 	}
 
-	log.Println("✅ 数据库初始化完成 (SQLite WAL 模式)")
+	// 手动创建复合索引（AutoMigrate 可能不覆盖所有场景）
+	ensureIndexes()
+
+	log.Printf("✅ 数据库初始化完成 (Driver: %s)", config.C.DBType)
+
+	// 种子数据: 自动创建默认管理员账户
+	seedDefaultAdmin()
+}
+
+// ensureIndexes 创建业务常用的复合索引
+func ensureIndexes() {
+	indexes := []string{
+		"CREATE INDEX IF NOT EXISTS idx_orders_operator_status ON orders(operator_id, status)",
+		"CREATE INDEX IF NOT EXISTS idx_orders_designer_status ON orders(designer_id, status)",
+		"CREATE INDEX IF NOT EXISTS idx_orders_deadline ON orders(deadline, deadline_reminded) WHERE deadline IS NOT NULL",
+		"CREATE INDEX IF NOT EXISTS idx_employees_role_active ON employees(role, is_active)",
+		"CREATE INDEX IF NOT EXISTS idx_employees_machine_id ON employees(machine_id) WHERE machine_id != ''",
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_employees_username ON employees(username) WHERE username != ''",
+		"CREATE INDEX IF NOT EXISTS idx_orders_wecom_chat_id ON orders(wecom_chat_id) WHERE wecom_chat_id != ''",
+		"CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read)",
+	}
+	for _, sql := range indexes {
+		if err := DB.Exec(sql).Error; err != nil {
+			log.Printf("⚠️  索引创建跳过: %v", err)
+		}
+	}
+}
+
+// seedDefaultAdmin 如果没有管理员账户，自动创建默认管理员
+func seedDefaultAdmin() {
+	var count int64
+	DB.Model(&Employee{}).Where("role = ? AND username != ''", "admin").Count(&count)
+	if count > 0 {
+		return // 已有管理员账户，跳过
+	}
+
+	username := config.C.AdminDefaultUsername
+	password := config.C.AdminDefaultPassword
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("❌ 创建默认管理员失败: %v", err)
+		return
+	}
+
+	admin := Employee{
+		WecomUserID:  "admin",
+		Name:         "系统管理员",
+		Role:         "admin",
+		Username:     username,
+		PasswordHash: string(hashed),
+		IsActive:     true,
+	}
+	if err := DB.Create(&admin).Error; err != nil {
+		log.Printf("⚠️  默认管理员创建跳过 (可能已存在): %v", err)
+		return
+	}
+	log.Printf("✅ 已创建默认管理员账户: %s (密码已设置，请通过环境变量 ADMIN_DEFAULT_PASSWORD 查看)", username)
 }
