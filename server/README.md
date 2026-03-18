@@ -22,7 +22,8 @@ go mod tidy
 # 3. 构建 & 运行
 go build -o pdd-server .
 ./pdd-server
-# 服务启动在 http://localhost:8200
+# 后端 API 启动在 http://localhost:8201 (内部端口，不直接访问)
+# 统一入口请访问 http://localhost:8200 (前端 dev server 或生产构建)
 ```
 
 ## API 接口
