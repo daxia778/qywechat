@@ -11,8 +11,8 @@ import (
 	"pdd-order-system/config"
 
 	"golang.org/x/crypto/bcrypt"
+	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -71,7 +71,7 @@ func InitDB() {
 	sqlDB.SetConnMaxLifetime(30 * time.Minute)
 
 	// 自动建表与迁移
-	if err := DB.AutoMigrate(&Employee{}, &Order{}, &AuditLog{}, &WecomGroupChat{}, &WecomMember{}, &WecomMessageLog{}, &AppVersion{}, &Notification{}, &OrderTimeline{}); err != nil {
+	if err := DB.AutoMigrate(&Employee{}, &Order{}, &Customer{}, &AuditLog{}, &WecomGroupChat{}, &WecomMember{}, &WecomMessageLog{}, &AppVersion{}, &Notification{}, &OrderTimeline{}); err != nil {
 		log.Fatalf("❌ 数据库迁移失败: %v", err)
 	}
 

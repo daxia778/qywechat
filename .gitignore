@@ -6,9 +6,14 @@
 
 # Server
 server/pdd-server
+server/pdd-order-system
+server/pdd-server-linux
 server/data/
 server/uploads/
 server/.env
+server/*.db
+server/*.db-wal
+server/*.db-shm
 
 # Desktop
 desktop-client/build/bin/
@@ -21,3 +26,7 @@ desktop-client/PDD 派单助手.app/
 # Admin Web
 admin-web/node_modules/
 admin-web/dist/
+admin-web/.vite/
+
+# Backup
+admin-web-vue-backup/

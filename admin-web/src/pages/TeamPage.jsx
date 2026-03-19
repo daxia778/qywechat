@@ -85,6 +85,14 @@ export default function TeamPage() {
                 <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                   <div className={`h-2 rounded-full transition-all duration-700 ease-out ${getLoadColorClass(member.active_orders)}`} style={{ width: `${Math.min((member.active_orders / 10) * 100, 100)}%` }} />
                 </div>
+                {member.grab_timeout_rate !== undefined && (
+                  <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-200">
+                    <span className="text-[12px] font-medium text-slate-500">异常抢单率</span>
+                    <span className={`text-[13px] font-bold tabular-nums ${member.grab_timeout_rate > 20 ? 'text-red-600' : member.grab_timeout_rate === 0 ? 'text-green-600' : 'text-slate-700'}`}>
+                      {(member.grab_timeout_rate || 0).toFixed(1)}%
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           ))}

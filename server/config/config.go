@@ -25,6 +25,7 @@ type Config struct {
 	WecomDefaultNotifyIDs  []string
 	WecomToken             string // 回调 Token (用于签名验证)
 	WecomEncodingAESKey    string // 回调 EncodingAESKey (用于消息解密)
+	WecomContactSecret     string // 客户联系 Secret（与应用 Secret 不同）
 
 	// OCR / AI Vision
 	OCRProvider    string // "zhipu" | "dashscope"
@@ -82,6 +83,7 @@ func Init() {
 		WecomDefaultNotifyIDs:   splitCSV(getEnv("WECOM_DEFAULT_NOTIFY_IDS", "")),
 		WecomToken:              getEnv("WECOM_TOKEN", ""),
 		WecomEncodingAESKey:     getEnv("WECOM_ENCODING_AES_KEY", ""),
+		WecomContactSecret:     getEnv("WECOM_CONTACT_SECRET", ""),
 		OCRProvider:             getEnv("OCR_PROVIDER", "zhipu"),
 		ZhipuAPIKey:             getEnv("ZHIPU_API_KEY", ""),
 		DashscopeAPIKey:         getEnv("DASHSCOPE_API_KEY", ""),

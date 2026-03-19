@@ -92,9 +92,11 @@ export default function AppShell() {
     const handler = () => fetchNotifications();
     on('order_updated', handler);
     on('notification', handler);
+    on('grab_alert', handler);
     return () => {
       off('order_updated', handler);
       off('notification', handler);
+      off('grab_alert', handler);
     };
   }, [on, off, fetchNotifications]);
 

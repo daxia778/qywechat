@@ -25,9 +25,21 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 		orderSN = GenerateOrderSN()
 	}
 
+	// 查找或创建顾客
+	var customerID uint
+	if customerContact != "" {
+		customer, err := FindOrCreateCustomer(customerContact)
+		if err != nil {
+			log.Printf("⚠️  顾客匹配失败，继续创建订单: %v", err)
+		} else if customer != nil {
+			customerID = customer.ID
+		}
+	}
+
 	order := &models.Order{
 		OrderSN:         orderSN,
 		CustomerContact: customerContact,
+		CustomerID:      customerID,
 		Price:           price,
 		OperatorID:      operatorID,
 		Topic:           topic,
@@ -51,6 +63,16 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 	}
 	
 	log.Printf("✅ 订单创建 | sn=%s | operator=%s | price=%d", orderSN, operatorID, price)
+
+	// 异步更新顾客统计
+	if customerID > 0 {
+		go func() {
+			if err := UpdateCustomerStats(customerID); err != nil {
+				log.Printf("⚠️  更新顾客统计失败: customerID=%d err=%v", customerID, err)
+			}
+		}()
+	}
+
 	return order, nil
 }
 
@@ -63,7 +85,7 @@ func GrabOrder(orderID uint, designerUserID string) (*models.Order, error) {
 		// 原子操作: 单条 UPDATE ... WHERE 保证并发场景下只有一个人能抢到
 		result := tx.Model(&models.Order{}).
 			Where("id = ? AND status = ?", orderID, models.StatusPending).
-			Updates(map[string]interface{}{
+			Updates(map[string]any{
 				"designer_id": designerUserID,
 				"status":      models.StatusGroupCreated,
 				"assigned_at": &now,
@@ -382,6 +404,13 @@ type DashboardStats struct {
 	LastWeekOrderCount  int              `json:"last_week_order_count"`
 	AvgCompletionHours  float64          `json:"avg_completion_hours"`
 	DesignerRankings    []DesignerRank   `json:"designer_rankings"`
+
+	// Phase 3: 顾客与异常统计
+	TotalCustomers    int64   `json:"total_customers"`
+	TodayNewCustomers int64   `json:"today_new_customers"`
+	RepeatCustomers   int64   `json:"repeat_customers"`
+	RepeatRate        float64 `json:"repeat_rate"`
+	GrabAlertCount    int64   `json:"grab_alert_count"`
 }
 
 // DesignerRank 设计师绩效排名
@@ -519,6 +548,21 @@ func GetDashboardStats() *DashboardStats {
 		}
 	}
 	stats.DesignerRankings = rankings
+
+	// ── Phase 3: 顾客统计 ──
+	models.DB.Model(&models.Customer{}).Count(&stats.TotalCustomers)
+	models.DB.Model(&models.Customer{}).Where("created_at >= ?", todayStart).Count(&stats.TodayNewCustomers)
+	models.DB.Model(&models.Customer{}).Where("total_orders > 1").Count(&stats.RepeatCustomers)
+	if stats.TotalCustomers > 0 {
+		stats.RepeatRate = float64(stats.RepeatCustomers) / float64(stats.TotalCustomers) * 100
+	}
+
+	// ── 异常抢单数 ──
+	grabThreshold := time.Now().Add(-30 * time.Minute)
+	models.DB.Model(&models.Order{}).Where(
+		"status = ? AND assigned_at IS NOT NULL AND assigned_at < ? AND grab_alert_sent = ?",
+		models.StatusGroupCreated, grabThreshold, false,
+	).Count(&stats.GrabAlertCount)
 
 	return stats
 }

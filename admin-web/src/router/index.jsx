@@ -11,6 +11,7 @@ const OrderDetailPage = lazy(() => import('../pages/OrderDetailPage'));
 const TeamPage = lazy(() => import('../pages/TeamPage'));
 const EmployeesPage = lazy(() => import('../pages/EmployeesPage'));
 const RevenuePage = lazy(() => import('../pages/RevenuePage'));
+const CustomersPage = lazy(() => import('../pages/CustomersPage'));
 
 function LoadingFallback() {
   return (
@@ -55,6 +56,7 @@ export default function AppRouter() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/orders/:id" element={<OrderDetailPage />} />
+              <Route path="/customers" element={<CustomersPage />} />
               <Route path="/team" element={<TeamPage />} />
               <Route element={<RequireRole roles={['admin']} />}>
                 <Route path="/employees" element={<EmployeesPage />} />

@@ -33,6 +33,7 @@ type Order struct {
 	ID              uint       `gorm:"primaryKey" json:"id"`
 	OrderSN         string     `gorm:"column:order_sn;uniqueIndex;size:64" json:"order_sn"`
 	CustomerContact string     `gorm:"column:customer_contact;size:64" json:"customer_contact,omitempty"`
+	CustomerID      uint       `gorm:"column:customer_id;index" json:"customer_id"`
 	Price           int        `gorm:"column:price;not null;default:0" json:"price"`
 	OperatorID      string     `gorm:"column:operator_id;size:64;not null" json:"operator_id"`
 	DesignerID      string     `gorm:"column:designer_id;size:64" json:"designer_id,omitempty"`
@@ -52,6 +53,7 @@ type Order struct {
 	ClosedAt        *time.Time `json:"closed_at,omitempty"`
 	DeadlineReminded bool      `gorm:"column:deadline_reminded;default:false" json:"deadline_reminded"`
 	AssignRetryCount int       `gorm:"column:assign_retry_count;default:0" json:"assign_retry_count"`
+	GrabAlertSent    bool      `gorm:"column:grab_alert_sent;default:false" json:"grab_alert_sent"`
 }
 
 // OrderStatus 状态机常量

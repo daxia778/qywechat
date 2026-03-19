@@ -254,7 +254,11 @@ export default function OrdersPage() {
                     <Link to={`/orders/${order.id}`} className="font-semibold text-brand-500 hover:underline text-[13px] cursor-pointer">{order.order_sn}</Link>
                     {order.topic && <div className="text-[12px] text-slate-500 mt-1 max-w-[180px] truncate" title={order.topic}>{order.topic}</div>}
                   </td>
-                  <td className="text-[13px] text-slate-700 font-medium">{order.customer_contact || '-'}</td>
+                  <td className="text-[13px] text-slate-700 font-medium">
+                    {order.customer_contact ? (
+                      <Link to={`/customers?keyword=${encodeURIComponent(order.customer_contact)}`} className="text-brand-500 hover:underline cursor-pointer">{order.customer_contact}</Link>
+                    ) : '-'}
+                  </td>
                   <td className="text-[14px] font-bold text-slate-800 tabular-nums">&yen;{order.price ? (order.price / 100).toFixed(2) : '0.00'}</td>
                   <td className="text-[12px]">
                     <div className="flex flex-col gap-1.5">

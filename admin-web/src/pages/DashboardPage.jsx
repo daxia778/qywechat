@@ -232,6 +232,33 @@ export default function DashboardPage() {
           <h4 className="text-2xl lg:text-[28px] font-bold text-green-700 font-[Outfit] tabular-nums leading-tight">&yen;{(profitData.net_profit / 100).toFixed(2)}</h4>
           <span className="text-xs lg:text-[13px] font-medium text-slate-500 mt-1 block">本月净利润</span>
         </div>
+        {/* Customer Stats */}
+        {stats.total_customers !== undefined && (
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.03)] transition-shadow p-5 lg:p-6 group hover:border-cyan-200 transition-all duration-200">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center transition-colors bg-cyan-50 group-hover:bg-cyan-100">
+                <svg className="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              </div>
+            </div>
+            <h4 className="text-2xl lg:text-[28px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">{stats.total_customers}</h4>
+            <span className="text-xs lg:text-[13px] font-medium text-slate-500 mt-1 block">
+              顾客 · 今日新增 {stats.today_new_customers || 0} | 复购率 {(stats.repeat_rate || 0).toFixed(1)}%
+            </span>
+          </div>
+        )}
+        {/* Grab Alert */}
+        {stats.grab_alert_count !== undefined && (
+          <div className={`bg-white rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.03)] transition-shadow p-5 lg:p-6 group transition-all duration-200 border ${stats.grab_alert_count > 0 ? 'border-red-300 hover:border-red-400' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className="flex items-center justify-between mb-4">
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center transition-colors ${stats.grab_alert_count > 0 ? 'bg-red-50 group-hover:bg-red-100' : 'bg-slate-50 group-hover:bg-slate-100'}`}>
+                <svg className={`w-5 h-5 ${stats.grab_alert_count > 0 ? 'text-red-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+              </div>
+              {stats.grab_alert_count > 0 && <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-500 bg-red-50 px-2 py-0.5 rounded-full animate-pulse">异常</span>}
+            </div>
+            <h4 className={`text-2xl lg:text-[28px] font-bold font-[Outfit] tabular-nums leading-tight ${stats.grab_alert_count > 0 ? 'text-red-600' : 'text-slate-800'}`}>{stats.grab_alert_count}</h4>
+            <span className="text-xs lg:text-[13px] font-medium text-slate-500 mt-1 block">异常抢单</span>
+          </div>
+        )}
       </div>
 
       {/* Monthly Chart + Team Load */}

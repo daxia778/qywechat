@@ -1,22 +1,33 @@
 @import "tailwindcss";
 
 /* ══════════════════════════════════════════
-   DESIGN TOKENS — PDD 派单中控 (TailAdmin Style)
+   DESIGN TOKENS — Brave Style Dark Theme
    ══════════════════════════════════════════ */
 @theme {
-  --color-brand-25: #F5F8FF;
-  --color-brand-50: #EFF4FF;
-  --color-brand-100: #D1E0FF;
-  --color-brand-500: #465FFF;
-  --color-brand-600: #3641F5;
-  --color-brand-700: #2B35CF;
+  --color-brand-25: #1E293B; /* Slate 800 for hovers */
+  --color-brand-50: rgba(139, 92, 246, 0.1); /* Violet tint for backgrounds */
+  --color-brand-100: rgba(139, 92, 246, 0.2); 
+  --color-brand-500: #8B5CF6; /* Brave-like Violet/Purple Accent */
+  --color-brand-600: #7C3AED;
+  --color-brand-700: #6D28D9;
 
-  --color-success: #22AD5C;
-  --color-success-bg: #DAF8E6;
+  /* Vibrant Accent Colors (Neon style) */
+  --color-accent-pink: #EC4899;
+  --color-accent-blue: #3B82F6;
+  --color-accent-orange: #F97316;
+  --color-accent-teal: #14B8A6;
+
+  /* Status Colors (Adapted for Dark Mode) */
+  --color-success: #10B981;
+  --color-success-bg: rgba(16, 185, 129, 0.15);
   --color-warning: #F59E0B;
-  --color-warning-bg: #FEF4E4;
-  --color-danger: #F04438;
-  --color-danger-bg: #FEE4E2;
+  --color-warning-bg: rgba(245, 158, 11, 0.15);
+  --color-danger: #EF4444;
+  --color-danger-bg: rgba(239, 68, 68, 0.15);
+
+  /* Dark mode surfaces */
+  --color-surface: #111827; /* Gray 900 for cards */
+  --color-surface-hover: #1F2937; /* Gray 800 */
 }
 
 /* ══ Base Reset ══ */
@@ -28,8 +39,8 @@
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-  background-color: #F1F5F9;
-  color: #1E293B;
+  background-color: #030712; /* Very dark background (Gray 950) */
+  color: #F8FAFC; /* Slate 50 text */
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -102,7 +113,7 @@ h6 {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%);
+  background: linear-gradient(90deg, #1E293B 25%, #334155 50%, #1E293B 75%);
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.8s ease-in-out infinite;
   border-radius: 6px;
@@ -334,7 +345,7 @@ h6 {
 }
 
 /* ══════════════════════════════════════════
-   GLOBAL TABLE STYLES
+   GLOBAL TABLE STYLES (Dark Mode)
    ══════════════════════════════════════════ */
 table {
   width: 100%;
@@ -346,20 +357,20 @@ th {
   padding: 14px 16px;
   font-size: 12px;
   font-weight: 600;
-  color: #64748B;
+  color: #94A3B8; /* Slate 400 */
   text-transform: uppercase;
   letter-spacing: 0.05em;
   white-space: nowrap;
-  border-bottom: 1px solid #E2E8F0;
+  border-bottom: 1px solid #334155; /* Slate 700 */
   text-align: left;
-  background: #F8FAFC;
+  background: #0F172A; /* Slate 900 */
 }
 
 td {
   padding: 14px 16px;
   font-size: 13px;
-  color: #334155;
-  border-bottom: 1px solid #F1F5F9;
+  color: #E2E8F0; /* Slate 200 */
+  border-bottom: 1px solid #1E293B; /* Slate 800 */
   vertical-align: middle;
 }
 
@@ -368,7 +379,33 @@ tbody tr {
 }
 
 tbody tr:hover {
-  background-color: #FAFBFC;
+  background-color: #1E293B; /* Slate 800 */
+}
+
+/* ══════════════════════════════════════════
+   GLASSMORPHISM & SHADOWS (Brave Style)
+   ══════════════════════════════════════════ */
+.glass-panel {
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel:hover {
+  border-color: rgba(139, 92, 246, 0.4); /* Violet glow edge */
+  box-shadow: 0 8px 32px -4px rgba(139, 92, 246, 0.15), 0 4px 12px -2px rgba(0, 0, 0, 0.5);
+  transform: translateY(-2px);
+}
+
+.text-glow {
+  text-shadow: 0 0 12px rgba(139, 92, 246, 0.6);
+}
+
+.bg-glow {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.4);
 }
 
 /* ══ Modal animation ══ */

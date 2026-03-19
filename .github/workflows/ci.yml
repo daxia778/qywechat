@@ -3,69 +3,111 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
 jobs:
-  test:
+  # ─── 后端 (Go) ─────────────────────────────
+  backend:
+    name: Backend Build & Test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Go
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.23'
+          cache-dependency-path: server/go.sum
 
-      - name: Install C compiler
-        run: sudo apt-get update && sudo apt-get install -y gcc
+      - name: Download dependencies
+        run: go mod download
 
       - name: Build
-        run: go build ./...
-        working-directory: server
         env:
-          CGO_ENABLED: 1
+          CGO_ENABLED: '0'
+        run: go build -ldflags="-s -w" -o pdd-server .
 
-      - name: Test
-        run: go test ./... -v -count=1 -race
-        working-directory: server
+      - name: Run tests
         env:
-          CGO_ENABLED: 1
+          CGO_ENABLED: '0'
+        run: go test ./... -v -count=1
 
-  build-frontend:
+  # ─── 前端 (React/Vite) ─────────────────────
+  frontend:
+    name: Frontend Build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin-web
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: admin-web/package-lock.json
 
       - name: Install dependencies
         run: npm ci
-        working-directory: admin-web
 
       - name: Build
         run: npm run build
-        working-directory: admin-web
 
-  docker:
-    needs: [test, build-frontend]
+  # ─── Release 构建 (仅 tag 触发) ─────────────
+  release:
+    name: Build Release Artifacts
+    needs: [backend, frontend]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t pdd-order-system:latest .
-
-      - name: Save artifact
-        run: docker save pdd-order-system:latest | gzip > pdd-order-system.tar.gz
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          name: docker-image
-          path: pdd-order-system.tar.gz
-          retention-days: 7
+          go-version: '1.23'
+          cache-dependency-path: server/go.sum
+
+      - name: Build Linux AMD64
+        working-directory: server
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
+        run: go build -ldflags="-s -w" -o ../pdd-server-linux-amd64 .
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: admin-web/package-lock.json
+
+      - name: Build Frontend
+        working-directory: admin-web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package frontend
+        run: tar -czf admin-web-dist.tar.gz -C admin-web/dist .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            pdd-server-linux-amd64
+            admin-web-dist.tar.gz

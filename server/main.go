@@ -40,6 +40,9 @@ func main() {
 	// 初始化企微客户端
 	services.InitWecom()
 
+	// 顾客数据迁移（从已有订单回填，幂等）
+	services.MigrateCustomersFromOrders()
+
 	// 启动 SQLite 定时备份调度器
 	services.StartBackupScheduler()
 
@@ -48,6 +51,9 @@ func main() {
 
 	// 启动交付截止倒计时提醒调度器
 	services.StartDeadlineReminderWatcher()
+
+	// 启动恶意抢单检测调度器
+	services.Monitor.Start()
 
 	// 启动上传文件定时清理 (7天过期)
 	services.StartUploadCleanupScheduler()
@@ -174,6 +180,28 @@ func main() {
 			admin.POST("/versions", handlers.CreateAppVersion)
 			admin.GET("/activation_codes", handlers.ListActivationCodes)
 			admin.PUT("/activation_codes/:id/pause", handlers.PauseActivationCode)
+
+			// 抢单监控
+			admin.GET("/grab_alerts", handlers.GetGrabAlerts)
+
+			// 顾客管理
+			admin.GET("/customers", handlers.ListCustomers)
+			admin.GET("/customers/:id", handlers.GetCustomer)
+			admin.PUT("/customers/:id", handlers.UpdateCustomer)
+
+			// 客户联系（联系我）
+			admin.POST("/contact_way", handlers.CreateContactWay)
+			admin.GET("/contact_ways", handlers.ListContactWays)
+
+			// 企微数据查看
+			admin.GET("/wecom/members", handlers.ListWecomMembers)
+			admin.GET("/wecom/groups", handlers.ListWecomGroups)
+			admin.GET("/wecom/groups/:chat_id/messages", handlers.GetWecomGroupMessages)
+			admin.GET("/wecom/diagnostic", handlers.WecomDiagnostic)
+			admin.POST("/wecom/sync", func(c *gin.Context) {
+				go services.SyncWecomMembers()
+				c.JSON(200, gin.H{"message": "通讯录同步已触发，请查看日志"})
+			})
 
 			// Phase 2: 通知
 			admin.GET("/notifications", handlers.ListNotifications)

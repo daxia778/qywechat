@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { getOrderDetail, getOrderTimeline, updateOrderStatus } from '../api/orders';
+import { getCustomerDetail } from '../api/customers';
 import { STATUS_MAP, STATUS_BADGE_MAP } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
@@ -28,6 +29,7 @@ export default function OrderDetailPage() {
     platform_fee_rate: 0, designer_rate: 0,
   });
   const [people, setPeople] = useState({ operator_name: '', designer_name: '' });
+  const [customer, setCustomer] = useState(null);
   const [modal, setModal] = useState({
     show: false, title: '', message: '', type: 'info', detail: null,
     showInput: false, inputPlaceholder: '', confirmText: '确认',
@@ -59,6 +61,17 @@ export default function OrderDetailPage() {
   }, [id, toast]);
 
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
+
+  // Fetch customer details when order has customer_id
+  useEffect(() => {
+    if (order.customer_id) {
+      getCustomerDetail(order.customer_id)
+        .then((res) => setCustomer(res.data.data || res.data))
+        .catch(() => setCustomer(null));
+    } else {
+      setCustomer(null);
+    }
+  }, [order.customer_id]);
 
   const doUpdateStatus = async (newStatus, refundReason = '') => {
     try {
@@ -162,7 +175,14 @@ export default function OrderDetailPage() {
               </div>
               <div>
                 <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">客户</span>
-                <p className="text-sm font-semibold text-slate-800 mt-1">{order.customer_contact || '-'}</p>
+                <p className="text-sm font-semibold text-slate-800 mt-1 flex items-center gap-1.5">
+                  <span>{order.customer_contact || '-'}</span>
+                  {order.customer_contact && (
+                    <Link to={`/customers?keyword=${encodeURIComponent(order.customer_contact)}`} className="text-brand-500 hover:text-brand-600 transition-colors" title="查看顾客详情">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                    </Link>
+                  )}
+                </p>
               </div>
               <div>
                 <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">主题</span>
@@ -202,6 +222,55 @@ export default function OrderDetailPage() {
               )}
             </div>
           </div>
+
+          {/* Customer Info */}
+          {customer && (
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)]">
+              <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-cyan-50">
+                    <svg className="w-4 h-4 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                  </div>
+                  <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">顾客信息</h2>
+                </div>
+                {order.wecom_chat_id && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-success-bg text-green-900">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    已建群
+                  </span>
+                )}
+              </div>
+              <div className="p-6 grid grid-cols-2 gap-y-5 gap-x-8">
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">昵称</span>
+                  <p className="text-sm font-semibold text-slate-800 mt-1">{customer.nickname || '-'}</p>
+                </div>
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">微信号</span>
+                  <p className="text-sm font-semibold text-slate-800 mt-1">{customer.wechat_id || '-'}</p>
+                </div>
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">手机号</span>
+                  <p className="text-sm font-semibold text-slate-800 mt-1">{customer.mobile || '-'}</p>
+                </div>
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">历史订单数</span>
+                  <p className="text-sm font-semibold text-slate-800 mt-1">{customer.total_orders || 0}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Group Chat Indicator (when no customer but has chat) */}
+          {!customer && order.wecom_chat_id && (
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] px-6 py-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-success-bg">
+                <svg className="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              </div>
+              <span className="text-sm font-semibold text-slate-700">企微群聊已创建</span>
+              <span className="text-xs text-slate-400 font-mono">{order.wecom_chat_id}</span>
+            </div>
+          )}
 
           {/* Profit */}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)]">

@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"encoding/xml"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"pdd-order-system/config"
 	"pdd-order-system/middleware"
@@ -25,6 +27,14 @@ type WecomMessage struct {
 	MsgId        string `xml:"MsgId"`
 	AgentID      int    `xml:"AgentID"`
 	ChatID       string `xml:"ChatId"` // 群聊ID (群聊消息时存在)
+
+	// 事件回调字段
+	Event          string `xml:"Event"`
+	ChangeType     string `xml:"ChangeType"`
+	UserID         string `xml:"UserID"`
+	ExternalUserID string `xml:"ExternalUserID"`
+	State          string `xml:"State"`
+	WelcomeCode    string `xml:"WelcomeCode"`
 }
 
 // WecomCallback 接收企微回调 (用于实现自动交付)
@@ -78,6 +88,13 @@ func WecomCallback(c *gin.Context) {
 		return
 	}
 
+	// 事件回调: 外部联系人添加
+	if msg.MsgType == "event" && msg.Event == "change_external_contact" && msg.ChangeType == "add_external_contact" {
+		handleAddExternalContact(msg)
+		c.String(http.StatusOK, "success")
+		return
+	}
+
 	// 文本消息且包含"已交付"或"已发货"
 	if msg.MsgType == "text" && (strings.Contains(msg.Content, "已交付") || strings.Contains(msg.Content, "已发货")) {
 		designerID := msg.FromUserName
@@ -109,4 +126,164 @@ func WecomCallback(c *gin.Context) {
 	}
 
 	c.String(http.StatusOK, "success")
+}
+
+// handleAddExternalContact 处理外部联系人添加事件
+// 当客户通过「联系我」二维码添加企业员工时触发
+func handleAddExternalContact(msg WecomMessage) {
+	externalUserID := msg.ExternalUserID
+	userID := msg.UserID
+	if externalUserID == "" {
+		log.Println("⚠️ add_external_contact 事件缺少 ExternalUserID，跳过")
+		return
+	}
+
+	log.Printf("📥 收到外部联系人添加事件 | external_user_id=%s | user_id=%s | state=%s", externalUserID, userID, msg.State)
+
+	// 尝试从企微获取外部联系人详情（需要客户联系 Secret 已配置）
+	nickname := ""
+	if services.Wecom.IsContactConfigured() {
+		detail, err := services.Wecom.GetExternalContactDetail(externalUserID)
+		if err != nil {
+			log.Printf("⚠️ 获取外部联系人详情失败: %v", err)
+		} else if extContact, ok := detail["external_contact"].(map[string]any); ok {
+			if name, ok := extContact["name"].(string); ok {
+				nickname = name
+			}
+		}
+	}
+
+	// 查找是否已有该 ExternalUserID 的客户记录
+	var customer models.Customer
+	result := models.DB.Where("external_user_id = ?", externalUserID).First(&customer)
+	if result.Error != nil {
+		// 不存在，创建新客户记录
+		customer = models.Customer{
+			ExternalUserID: externalUserID,
+			Nickname:       nickname,
+			Remark:         "企微自动添加 (员工: " + userID + ")",
+		}
+		if err := models.DB.Create(&customer).Error; err != nil {
+			log.Printf("❌ 创建客户记录失败: %v", err)
+			return
+		}
+		log.Printf("✅ 新客户记录已创建 | id=%d | external_user_id=%s | nickname=%s", customer.ID, externalUserID, nickname)
+	} else {
+		// 已存在，更新昵称（如果之前为空）
+		updates := map[string]any{}
+		if customer.Nickname == "" && nickname != "" {
+			updates["nickname"] = nickname
+		}
+		if len(updates) > 0 {
+			models.DB.Model(&customer).Updates(updates)
+			log.Printf("✅ 客户记录已更新 | id=%d | external_user_id=%s", customer.ID, externalUserID)
+		} else {
+			log.Printf("ℹ️ 客户记录已存在，无需更新 | id=%d | external_user_id=%s", customer.ID, externalUserID)
+		}
+	}
+}
+
+// WecomDiagnostic 企微 API 连通性诊断
+// 管理员可通过此接口快速检查企微配置和各 API 的可用状态
+func WecomDiagnostic(c *gin.Context) {
+	type apiResult struct {
+		Name    string `json:"name"`
+		Status  string `json:"status"` // "ok" | "error" | "skipped"
+		ErrCode int    `json:"err_code,omitempty"`
+		ErrMsg  string `json:"err_msg,omitempty"`
+		Latency string `json:"latency"`
+	}
+
+	results := []apiResult{}
+
+	// 基础配置检查
+	configured := config.C.WecomCorpID != "" && config.C.WecomCorpSecret != ""
+	callbackConfigured := config.C.WecomToken != "" && config.C.WecomEncodingAESKey != ""
+
+	if !configured {
+		c.JSON(200, gin.H{
+			"configured":          false,
+			"callback_configured": false,
+			"message":             "企微未配置 (WECOM_CORP_ID / WECOM_CORP_SECRET 为空)",
+			"results":             results,
+		})
+		return
+	}
+
+	// 1. 测试 gettoken
+	t0 := time.Now()
+	token, err := services.Wecom.GetAccessToken()
+	d0 := time.Since(t0)
+	if err != nil {
+		results = append(results, apiResult{
+			Name:    "获取 access_token",
+			Status:  "error",
+			ErrMsg:  err.Error(),
+			Latency: d0.Round(time.Millisecond).String(),
+		})
+		c.JSON(200, gin.H{
+			"configured":          true,
+			"callback_configured": callbackConfigured,
+			"corp_id":             config.C.WecomCorpID,
+			"agent_id":            config.C.WecomAgentID,
+			"results":             results,
+		})
+		return
+	}
+	results = append(results, apiResult{
+		Name:    "获取 access_token",
+		Status:  "ok",
+		Latency: d0.Round(time.Millisecond).String(),
+	})
+
+	// 2. 测试 department/list (需要 IP 白名单)
+	t1 := time.Now()
+	resp1, err1 := services.Wecom.TestDepartmentList(token)
+	d1 := time.Since(t1)
+	if err1 != nil {
+		results = append(results, apiResult{
+			Name:    "获取部门列表 (IP白名单测试)",
+			Status:  "error",
+			ErrMsg:  err1.Error(),
+			Latency: d1.Round(time.Millisecond).String(),
+		})
+	} else {
+		results = append(results, apiResult{
+			Name:    "获取部门列表 (IP白名单测试)",
+			Status:  resp1.Status,
+			ErrCode: resp1.ErrCode,
+			ErrMsg:  resp1.ErrMsg,
+			Latency: d1.Round(time.Millisecond).String(),
+		})
+	}
+
+	// 3. 测试发送消息 (dry run - 发给管理员自己)
+	t2 := time.Now()
+	resp2, err2 := services.Wecom.TestSendMessage(token)
+	d2 := time.Since(t2)
+	if err2 != nil {
+		results = append(results, apiResult{
+			Name:    "发送应用消息",
+			Status:  "error",
+			ErrMsg:  err2.Error(),
+			Latency: d2.Round(time.Millisecond).String(),
+		})
+	} else {
+		results = append(results, apiResult{
+			Name:    "发送应用消息",
+			Status:  resp2.Status,
+			ErrCode: resp2.ErrCode,
+			ErrMsg:  resp2.ErrMsg,
+			Latency: d2.Round(time.Millisecond).String(),
+		})
+	}
+
+	c.JSON(200, gin.H{
+		"configured":          true,
+		"callback_configured": callbackConfigured,
+		"corp_id":             config.C.WecomCorpID,
+		"agent_id":            config.C.WecomAgentID,
+		"callback_url":        fmt.Sprintf("%s/api/v1/wecom/callback", config.C.BaseURL),
+		"results":             results,
+	})
 }

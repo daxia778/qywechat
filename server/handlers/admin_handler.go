@@ -259,11 +259,12 @@ func GetTeamWorkload(c *gin.Context) {
 	models.DB.Where("is_active = ?", true).Find(&employees)
 
 	type WorkloadItem struct {
-		Name         string `json:"name"`
-		WecomUserID  string `json:"wecom_userid"`
-		Role         string `json:"role"`
-		Status       string `json:"status"`
-		ActiveOrders int64  `json:"active_orders"`
+		Name             string  `json:"name"`
+		WecomUserID      string  `json:"wecom_userid"`
+		Role             string  `json:"role"`
+		Status           string  `json:"status"`
+		ActiveOrders     int64   `json:"active_orders"`
+		GrabTimeoutRate  float64 `json:"grab_timeout_rate"`
 	}
 
 	// 批量查询设计师活跃订单数
@@ -296,6 +297,17 @@ func GetTeamWorkload(c *gin.Context) {
 		operatorMap[r.UserID] = r.Count
 	}
 
+	// 批量查询设计师抢单超时率
+	grabStats, _ := services.GetDesignerGrabStats()
+	timeoutRateMap := make(map[string]float64, len(grabStats))
+	for _, s := range grabStats {
+		if uid, ok := s["designer_id"].(string); ok {
+			if rate, ok := s["timeout_rate"].(float64); ok {
+				timeoutRateMap[uid] = rate
+			}
+		}
+	}
+
 	result := make([]WorkloadItem, 0, len(employees))
 	for _, d := range employees {
 		var count int64
@@ -307,15 +319,28 @@ func GetTeamWorkload(c *gin.Context) {
 		}
 
 		result = append(result, WorkloadItem{
-			Name:         d.Name,
-			WecomUserID:  d.WecomUserID,
-			Role:         d.Role,
-			Status:       d.Status,
-			ActiveOrders: count,
+			Name:            d.Name,
+			WecomUserID:     d.WecomUserID,
+			Role:            d.Role,
+			Status:          d.Status,
+			ActiveOrders:    count,
+			GrabTimeoutRate: timeoutRateMap[d.WecomUserID],
 		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": result})
+}
+
+// ─── 抢单监控 ──────────────────────────────────────────
+
+// GetGrabAlerts 获取当前超时抢单列表
+func GetGrabAlerts(c *gin.Context) {
+	alerts, err := services.GetGrabAlerts()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": alerts, "total": len(alerts)})
 }
 
 // ─── 激活码管理 ──────────────────────────────────────────
@@ -330,6 +355,39 @@ func ListActivationCodes(c *gin.Context) {
 // PauseActivationCode 远程暂停或恢复激活码 (复用 toggleEmployeeActive)
 func PauseActivationCode(c *gin.Context) {
 	toggleEmployeeActive(c, true)
+}
+
+// ─── 企微数据查看 ──────────────────────────────────────────
+
+// ListWecomMembers GET /api/v1/admin/wecom/members
+// 查看企微通讯录成员
+func ListWecomMembers(c *gin.Context) {
+	keyword := c.Query("keyword")
+	query := models.DB.Model(&models.WecomMember{})
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("name LIKE ? OR userid LIKE ?", like, like)
+	}
+	var members []models.WecomMember
+	query.Order("name ASC").Find(&members)
+	c.JSON(200, gin.H{"data": members, "total": len(members)})
+}
+
+// ListWecomGroups GET /api/v1/admin/wecom/groups
+// 查看企微群聊列表
+func ListWecomGroups(c *gin.Context) {
+	var groups []models.WecomGroupChat
+	models.DB.Order("synced_at DESC").Find(&groups)
+	c.JSON(200, gin.H{"data": groups, "total": len(groups)})
+}
+
+// GetWecomGroupMessages GET /api/v1/admin/wecom/groups/:chat_id/messages
+// 查看群消息记录
+func GetWecomGroupMessages(c *gin.Context) {
+	chatID := c.Param("chat_id")
+	var messages []models.WecomMessageLog
+	models.DB.Where("chat_id = ?", chatID).Order("created_at ASC").Find(&messages)
+	c.JSON(200, gin.H{"data": messages, "total": len(messages)})
 }
 
 // ─── 审计日志 ──────────────────────────────────────────
