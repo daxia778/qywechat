@@ -1,6 +1,6 @@
 import { createContext, useState, useCallback, useEffect } from 'react';
 import { validateToken, adminLogin } from '../api/auth';
-import { getToken, getUserName, getUserId, getRole, setAuth, clearAuth } from '../utils/storage';
+import { getToken, getUserName, getUserId, getRole, setAuth, clearAuth, setRole as setStoredRole, setStoredUserId } from '../utils/storage';
 
 export const AuthContext = createContext(null);
 
@@ -42,10 +42,11 @@ export function AuthProvider({ children }) {
       const data = res.data;
       if (data.role) {
         setRole(data.role);
-        localStorage.setItem('pdd_role', data.role);
+        setStoredRole(data.role);
       }
       if (data.wecom_userid) {
         setUserId(data.wecom_userid);
+        setStoredUserId(data.wecom_userid);
       }
       setReady(true);
       return true;

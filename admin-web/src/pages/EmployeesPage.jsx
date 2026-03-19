@@ -18,7 +18,7 @@ export default function EmployeesPage() {
   const [searchKeyword, setSearchKeyword] = useState('');
   const [form, setForm] = useState({ wecom_userid: '', name: '', role: 'operator', username: '', password: '' });
   const [codeModal, setCodeModal] = useState({ show: false, code: '' });
-  const [confirmModal, setConfirmModal] = useState({ show: false, title: '', message: '', type: 'info', confirmText: '确认', _action: null });
+  const [confirmModal, setConfirmModal] = useState({ show: false, title: '', message: '', type: 'info', confirmText: '确认' });
 
   // Feature B: Expanded row
   const [expandedRowId, setExpandedRowId] = useState(null);
@@ -91,13 +91,16 @@ export default function EmployeesPage() {
     fetchEmployees();
   }, [fetchEmployees]);
 
+  const confirmActionRef = useRef(null);
+
   const showConfirm = (opts, action) => {
-    setConfirmModal({ show: true, ...opts, _action: action });
+    confirmActionRef.current = action;
+    setConfirmModal({ show: true, ...opts });
   };
 
   const onConfirmAction = () => {
     setConfirmModal((m) => ({ ...m, show: false }));
-    confirmModal._action?.();
+    confirmActionRef.current?.();
   };
 
   // Feature A: Inline status toggle with confirmation (unified for all roles)
@@ -172,20 +175,6 @@ export default function EmployeesPage() {
       setSortField(field);
       setSortDir('asc');
     }
-  };
-
-  const SortIcon = ({ field }) => {
-    const isActive = sortField === field;
-    return (
-      <span className={`inline-flex flex-col ml-1.5 -mb-0.5 ${isActive ? 'text-[#465FFF]' : 'text-slate-300'}`}>
-        <svg className={`w-3 h-3 -mb-1 ${isActive && sortDir === 'asc' ? 'text-[#465FFF]' : ''}`} viewBox="0 0 12 12" fill="currentColor">
-          <path d="M6 2L10 7H2L6 2Z" />
-        </svg>
-        <svg className={`w-3 h-3 ${isActive && sortDir === 'desc' ? 'text-[#465FFF]' : ''}`} viewBox="0 0 12 12" fill="currentColor">
-          <path d="M6 10L2 5H10L6 10Z" />
-        </svg>
-      </span>
-    );
   };
 
   // Feature D: Selection helpers
@@ -270,8 +259,8 @@ export default function EmployeesPage() {
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 pt-6 pb-2">
               <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center bg-[#DAF8E6] shrink-0">
-                  <svg className="w-5 h-5 text-[#22AD5C]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center bg-success-bg shrink-0">
+                  <svg className="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
                 <h3 className="text-lg font-bold text-slate-800">员工添加成功</h3>
               </div>
@@ -280,7 +269,7 @@ export default function EmployeesPage() {
               <p className="text-sm text-slate-600 mb-3">请保存以下激活码，此码仅显示一次：</p>
               <div className="bg-slate-50 rounded-xl p-4 flex items-center justify-between border border-slate-100">
                 <code className="text-2xl font-bold font-mono text-slate-800 tracking-[0.3em] tabular-nums">{codeModal.code}</code>
-                <button onClick={() => copyCode(codeModal.code)} className="inline-flex items-center justify-center gap-2 py-1.5 px-3 text-[12px] font-semibold rounded-xl text-white bg-[#465FFF] hover:bg-[#3641F5] transition-all duration-150 cursor-pointer border-none shadow-sm">复制</button>
+                <button onClick={() => copyCode(codeModal.code)} className="inline-flex items-center justify-center gap-2 py-1.5 px-3 text-[12px] font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm">复制</button>
               </div>
             </div>
             <div className="px-6 pb-6 pt-2 flex justify-end">
@@ -296,7 +285,7 @@ export default function EmployeesPage() {
           <h1 className="text-[26px] font-extrabold text-slate-800 font-[Outfit] tracking-tight">员工管理</h1>
           <p className="text-sm text-slate-500 mt-1">团队成员与权限管理</p>
         </div>
-        <button onClick={() => { setForm({ wecom_userid: '', name: '', role: 'operator', username: '', password: '' }); setShowAddModal(true); }} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-[#465FFF] hover:bg-[#3641F5] transition-all duration-150 cursor-pointer border-none shadow-sm">
+        <button onClick={() => { setForm({ wecom_userid: '', name: '', role: 'operator', username: '', password: '' }); setShowAddModal(true); }} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm">
           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
           <span>添加员工</span>
         </button>
@@ -306,8 +295,8 @@ export default function EmployeesPage() {
       <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] flex flex-col overflow-hidden">
         <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#EFF4FF]">
-              <svg className="w-4 h-4 text-[#465FFF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-brand-50">
+              <svg className="w-4 h-4 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
             </div>
             <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">员工目录</h2>
           </div>
@@ -317,7 +306,7 @@ export default function EmployeesPage() {
               <div className="relative" ref={batchMenuRef}>
                 <button
                   onClick={() => setShowBatchMenu((v) => !v)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold text-white bg-[#465FFF] hover:bg-[#3641F5] rounded-lg transition-colors shadow-sm"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors shadow-sm"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7" /></svg>
                   批量操作
@@ -346,7 +335,7 @@ export default function EmployeesPage() {
               </div>
             )}
             <div className="relative w-56">
-              <input value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)} type="text" placeholder="搜索员工..." aria-label="搜索员工" className="w-full px-4 py-1.5 pl-9 text-[13px] text-slate-800 bg-white border border-slate-200 rounded-lg outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-[#465FFF] focus:ring-2 focus:ring-[#465FFF]/10" />
+              <input value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)} type="text" placeholder="搜索员工..." aria-label="搜索员工" className="w-full px-4 py-1.5 pl-9 text-[13px] text-slate-800 bg-white border border-slate-200 rounded-lg outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10" />
               <svg className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             </div>
           </div>
@@ -355,7 +344,7 @@ export default function EmployeesPage() {
         <div className="w-full overflow-x-auto min-h-[400px] relative">
           {loading && <LoadingSpinner />}
           <table>
-            <thead className="bg-[#F8FAFC]">
+            <thead className="bg-slate-50">
               <tr>
                 {/* Feature D: Checkbox column (admin only) */}
                 {isAdmin && (
@@ -365,30 +354,30 @@ export default function EmployeesPage() {
                       checked={allSelected}
                       ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
                       onChange={toggleSelectAll}
-                      className="w-4 h-4 rounded border-slate-300 text-[#465FFF] focus:ring-[#465FFF] cursor-pointer"
+                      className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-brand-500 cursor-pointer"
                     />
                   </th>
                 )}
                 {/* Feature C: Sortable headers */}
                 <th className={isAdmin ? 'pl-2' : 'pl-6'}>
-                  <button onClick={() => handleSort('name')} className="inline-flex items-center gap-0.5 hover:text-[#465FFF] transition-colors font-semibold text-inherit cursor-pointer select-none bg-transparent border-none p-0">
+                  <button onClick={() => handleSort('name')} className="inline-flex items-center gap-0.5 hover:text-brand-500 transition-colors font-semibold text-inherit cursor-pointer select-none bg-transparent border-none p-0">
                     员工
-                    <SortIcon field="name" />
+                    <SortIcon field="name" sortField={sortField} sortDir={sortDir} />
                   </button>
                 </th>
                 <th>
-                  <button onClick={() => handleSort('role')} className="inline-flex items-center gap-0.5 hover:text-[#465FFF] transition-colors font-semibold text-inherit cursor-pointer select-none bg-transparent border-none p-0">
+                  <button onClick={() => handleSort('role')} className="inline-flex items-center gap-0.5 hover:text-brand-500 transition-colors font-semibold text-inherit cursor-pointer select-none bg-transparent border-none p-0">
                     角色
-                    <SortIcon field="role" />
+                    <SortIcon field="role" sortField={sortField} sortDir={sortDir} />
                   </button>
                 </th>
                 <th>激活码</th>
                 <th>设备指纹</th>
                 <th>最后活跃</th>
                 <th>
-                  <button onClick={() => handleSort('status')} className="inline-flex items-center gap-0.5 hover:text-[#465FFF] transition-colors font-semibold text-inherit cursor-pointer select-none bg-transparent border-none p-0">
+                  <button onClick={() => handleSort('status')} className="inline-flex items-center gap-0.5 hover:text-brand-500 transition-colors font-semibold text-inherit cursor-pointer select-none bg-transparent border-none p-0">
                     状态
-                    <SortIcon field="status" />
+                    <SortIcon field="status" sortField={sortField} sortDir={sortDir} />
                   </button>
                 </th>
                 <th className="text-right pr-6">操作</th>
@@ -428,7 +417,7 @@ export default function EmployeesPage() {
       {showAddModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-fade-in-up">
-            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-[#F8FAFC]">
+            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
               <h3 className="text-lg font-bold text-slate-800 font-[Outfit]">添加成员</h3>
               <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600 bg-transparent py-1 px-1 -mr-2 rounded hover:bg-slate-200 transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -437,16 +426,16 @@ export default function EmployeesPage() {
             <form onSubmit={submitAdd} className="p-6">
               <div className="mb-5">
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">企微 UserID</label>
-                <input value={form.wecom_userid} onChange={(e) => setForm({ ...form, wecom_userid: e.target.value })} type="text" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-[#465FFF] focus:ring-2 focus:ring-[#465FFF]/10" placeholder="企微中的唯一标识" required />
+                <input value={form.wecom_userid} onChange={(e) => setForm({ ...form, wecom_userid: e.target.value })} type="text" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10" placeholder="企微中的唯一标识" required />
               </div>
               <div className="mb-5">
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">姓名</label>
-                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} type="text" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-[#465FFF] focus:ring-2 focus:ring-[#465FFF]/10" placeholder="员工真实姓名" required />
+                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} type="text" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10" placeholder="员工真实姓名" required />
               </div>
               <div className="mb-5">
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">系统角色</label>
                 <div className="relative">
-                  <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-[#465FFF] focus:ring-2 focus:ring-[#465FFF]/10 appearance-none bg-white font-medium" required>
+                  <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 appearance-none bg-white font-medium" required>
                     <option value="operator">客服管家</option>
                     <option value="designer">设计师</option>
                     <option value="admin">管理员</option>
@@ -460,17 +449,17 @@ export default function EmployeesPage() {
                 <>
                   <div className="mb-5">
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">用户名</label>
-                    <input value={form.username || ''} onChange={(e) => setForm({ ...form, username: e.target.value })} type="text" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-[#465FFF] focus:ring-2 focus:ring-[#465FFF]/10" placeholder="登录用户名" required />
+                    <input value={form.username || ''} onChange={(e) => setForm({ ...form, username: e.target.value })} type="text" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10" placeholder="登录用户名" required />
                   </div>
                   <div className="mb-5">
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">初始密码</label>
-                    <input value={form.password || ''} onChange={(e) => setForm({ ...form, password: e.target.value })} type="text" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-[#465FFF] focus:ring-2 focus:ring-[#465FFF]/10" placeholder="初始登录密码" required />
+                    <input value={form.password || ''} onChange={(e) => setForm({ ...form, password: e.target.value })} type="password" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10" placeholder="初始登录密码" required autoComplete="new-password" />
                   </div>
                 </>
               )}
               <div className="mt-8 flex justify-end gap-3">
                 <button type="button" onClick={() => setShowAddModal(false)} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm">取消</button>
-                <button type="submit" className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-[#465FFF] hover:bg-[#3641F5] transition-all duration-150 cursor-pointer border-none shadow-sm" disabled={adding}>
+                <button type="submit" className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm" disabled={adding}>
                   {adding ? '保存中...' : (form.role === 'admin' ? '创建管理员' : '生成激活码并保存')}
                 </button>
               </div>
@@ -482,14 +471,28 @@ export default function EmployeesPage() {
   );
 }
 
+function SortIcon({ field, sortField, sortDir }) {
+  const isActive = sortField === field;
+  return (
+    <span className={`inline-flex flex-col ml-1.5 -mb-0.5 ${isActive ? 'text-brand-500' : 'text-slate-300'}`}>
+      <svg className={`w-3 h-3 -mb-1 ${isActive && sortDir === 'asc' ? 'text-brand-500' : ''}`} viewBox="0 0 12 12" fill="currentColor">
+        <path d="M6 2L10 7H2L6 2Z" />
+      </svg>
+      <svg className={`w-3 h-3 ${isActive && sortDir === 'desc' ? 'text-brand-500' : ''}`} viewBox="0 0 12 12" fill="currentColor">
+        <path d="M6 10L2 5H10L6 10Z" />
+      </svg>
+    </span>
+  );
+}
+
 // Extracted row component for clarity
 function EmployeeRow({ emp, isAdmin, isExpanded, isSelected, onToggleExpand, onToggleSelect, onToggleStatus, onUnbind }) {
   const totalCols = isAdmin ? 9 : 8;
   const BADGE_VARIANT_CLASSES = {
-    success: 'bg-[#DAF8E6] text-green-900',
-    warning: 'bg-[#FEF4E4] text-amber-800',
-    danger: 'bg-[#FEE4E2] text-red-800',
-    primary: 'bg-[#EFF4FF] text-[#465FFF]',
+    success: 'bg-success-bg text-green-900',
+    warning: 'bg-warning-bg text-amber-800',
+    danger: 'bg-danger-bg text-red-800',
+    primary: 'bg-brand-50 text-brand-500',
     secondary: 'bg-slate-100 text-slate-500',
   };
 
@@ -510,7 +513,7 @@ function EmployeeRow({ emp, isAdmin, isExpanded, isSelected, onToggleExpand, onT
               type="checkbox"
               checked={isSelected}
               onChange={onToggleSelect}
-              className="w-4 h-4 rounded border-slate-300 text-[#465FFF] focus:ring-[#465FFF] cursor-pointer"
+              className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-brand-500 cursor-pointer"
             />
           </td>
         )}
@@ -556,12 +559,12 @@ function EmployeeRow({ emp, isAdmin, isExpanded, isSelected, onToggleExpand, onT
               role="switch"
               aria-checked={emp.is_active}
               aria-label={`${emp.name} 状态切换`}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#465FFF] ${emp.is_active ? 'bg-[#22AD5C]' : 'bg-slate-300'}`}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-brand-500 ${emp.is_active ? 'bg-success' : 'bg-slate-300'}`}
               title={emp.is_active ? '点击禁用' : '点击启用'}
             >
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${emp.is_active ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
-            <span className={`text-[13px] font-medium ${emp.is_active ? 'text-[#22AD5C]' : 'text-slate-400'}`}>
+            <span className={`text-[13px] font-medium ${emp.is_active ? 'text-success' : 'text-slate-400'}`}>
               {emp.is_active ? '已启用' : '已禁用'}
             </span>
           </div>

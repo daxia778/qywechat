@@ -37,30 +37,43 @@ func GetRevenueChart(c *gin.Context) {
 		OrderCount int    `json:"order_count"`
 	}
 
-	result := make([]DayData, 0, days)
-	for i := days - 1; i >= 0; i-- {
-		d := time.Now().AddDate(0, 0, -i).Truncate(24 * time.Hour)
-		end := d.Add(24 * time.Hour)
+	// 单次聚合查询替代 N+1 循环
+	startDate := time.Now().AddDate(0, 0, -(days - 1)).Truncate(24 * time.Hour)
 
-		var orders []models.Order
-		models.DB.Where("created_at >= ? AND created_at < ?", d, end).Find(&orders)
+	type AggRow struct {
+		Day        string `gorm:"column:day"`
+		Revenue    int    `gorm:"column:revenue"`
+		OrderCount int    `gorm:"column:order_count"`
+	}
+	var rows []AggRow
+	models.DB.Model(&models.Order{}).
+		Select("strftime('%Y-%m-%d', created_at) as day, COALESCE(SUM(price), 0) as revenue, COUNT(*) as order_count").
+		Where("created_at >= ?", startDate).
+		Group("day").
+		Order("day ASC").
+		Find(&rows)
 
-		revenue := 0
-		for _, o := range orders {
-			revenue += o.Price
-		}
-		result = append(result, DayData{
-			Date:       d.Format("2006-01-02"),
-			Revenue:    revenue,
-			OrderCount: len(orders),
-		})
+	// 构建日期到聚合结果的映射
+	dayMap := make(map[string]AggRow, len(rows))
+	for _, r := range rows {
+		dayMap[r.Day] = r
 	}
 
+	// 填充完整日期范围（含无数据的日期）
+	result := make([]DayData, 0, days)
 	totalRevenue := 0
 	totalOrders := 0
-	for _, d := range result {
-		totalRevenue += d.Revenue
-		totalOrders += d.OrderCount
+	for i := days - 1; i >= 0; i-- {
+		d := time.Now().AddDate(0, 0, -i).Truncate(24 * time.Hour)
+		dateStr := d.Format("2006-01-02")
+		dd := DayData{Date: dateStr}
+		if agg, ok := dayMap[dateStr]; ok {
+			dd.Revenue = agg.Revenue
+			dd.OrderCount = agg.OrderCount
+		}
+		result = append(result, dd)
+		totalRevenue += dd.Revenue
+		totalOrders += dd.OrderCount
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -253,20 +266,44 @@ func GetTeamWorkload(c *gin.Context) {
 		ActiveOrders int64  `json:"active_orders"`
 	}
 
+	// 批量查询设计师活跃订单数
+	type CountRow struct {
+		UserID string `gorm:"column:user_id"`
+		Count  int64  `gorm:"column:cnt"`
+	}
+	var designerCounts []CountRow
+	models.DB.Model(&models.Order{}).
+		Select("designer_id as user_id, COUNT(*) as cnt").
+		Where("status IN ?", []string{models.StatusGroupCreated, models.StatusDesigning}).
+		Group("designer_id").
+		Find(&designerCounts)
+
+	// 批量查询客服/管理员活跃订单数
+	var operatorCounts []CountRow
+	models.DB.Model(&models.Order{}).
+		Select("operator_id as user_id, COUNT(*) as cnt").
+		Where("status IN ?", []string{models.StatusPending, models.StatusGroupCreated, models.StatusDesigning, models.StatusDelivered}).
+		Group("operator_id").
+		Find(&operatorCounts)
+
+	// 构建映射
+	designerMap := make(map[string]int64, len(designerCounts))
+	for _, r := range designerCounts {
+		designerMap[r.UserID] = r.Count
+	}
+	operatorMap := make(map[string]int64, len(operatorCounts))
+	for _, r := range operatorCounts {
+		operatorMap[r.UserID] = r.Count
+	}
+
 	result := make([]WorkloadItem, 0, len(employees))
 	for _, d := range employees {
 		var count int64
 		switch d.Role {
 		case "designer":
-			models.DB.Model(&models.Order{}).Where(
-				"designer_id = ? AND status IN ?", d.WecomUserID,
-				[]string{models.StatusGroupCreated, models.StatusDesigning},
-			).Count(&count)
+			count = designerMap[d.WecomUserID]
 		case "operator", "admin":
-			models.DB.Model(&models.Order{}).Where(
-				"operator_id = ? AND status IN ?", d.WecomUserID,
-				[]string{models.StatusPending, models.StatusGroupCreated, models.StatusDesigning, models.StatusDelivered},
-			).Count(&count)
+			count = operatorMap[d.WecomUserID]
 		}
 
 		result = append(result, WorkloadItem{

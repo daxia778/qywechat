@@ -41,7 +41,7 @@ build_admin() {
   info "构建管理端前端 (Vue3)..."
   cd "$SCRIPT_DIR/admin-web"
 
-  npm install --silent 2>/dev/null || warn "npm install 可能有警告"
+  npm ci --silent 2>/dev/null || warn "npm ci 可能有警告"
   npm run build
 
   info "管理端前端构建完成 ✅ → admin-web/dist/"

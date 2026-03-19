@@ -63,7 +63,7 @@ func WecomCallback(c *gin.Context) {
 	timestamp := c.Query("timestamp")
 	nonce := c.Query("nonce")
 
-	reqBody, _ := io.ReadAll(c.Request.Body)
+	reqBody, _ := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20)) // 限制 1MB
 	wxcpt := middleware.NewWXBizMsgCrypt(config.C.WecomToken, config.C.WecomEncodingAESKey, config.C.WecomCorpID, middleware.XmlType)
 
 	msgBytes, err := wxcpt.DecryptMsg(msgSignature, timestamp, nonce, reqBody)

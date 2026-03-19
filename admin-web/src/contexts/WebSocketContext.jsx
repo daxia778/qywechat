@@ -4,6 +4,7 @@ import { getToken } from '../utils/storage';
 /** Connection state constants */
 export const WS_STATE = {
   CONNECTED: 'connected',
+  AUTHENTICATING: 'authenticating',
   RECONNECTING: 'reconnecting',
   DISCONNECTED: 'disconnected',
 };
@@ -12,6 +13,8 @@ export const WebSocketContext = createContext(null);
 
 export function WebSocketProvider({ children }) {
   const [connectionState, setConnectionState] = useState(WS_STATE.DISCONNECTED);
+  const connectionStateRef = useRef(connectionState);
+  connectionStateRef.current = connectionState;
   const listenersRef = useRef(new Map());
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
@@ -102,17 +105,16 @@ export function WebSocketProvider({ children }) {
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${protocol}//${window.location.host}/api/v1/ws?token=${token}`;
+    const url = `${protocol}//${window.location.host}/api/v1/ws`;
 
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      retryCountRef.current = 0;
-      setConnectionState(WS_STATE.CONNECTED);
-      startHeartbeat();
-      flushMessageQueue();
-      console.log('[WS] Connected');
+      // Authenticate via first message instead of query string to avoid token leaking in logs
+      ws.send(JSON.stringify({ type: 'auth', token }));
+      setConnectionState(WS_STATE.AUTHENTICATING);
+      console.log('[WS] Socket opened, authenticating...');
     };
 
     ws.onmessage = (event) => {
@@ -120,6 +122,23 @@ export function WebSocketProvider({ children }) {
         const data = JSON.parse(event.data);
         // Silently consume pong responses from the server
         if (data.type === 'pong') return;
+
+        // Handle auth_ok: transition to CONNECTED only after server confirms auth
+        if (data.type === 'auth_ok') {
+          retryCountRef.current = 0;
+          setConnectionState(WS_STATE.CONNECTED);
+          startHeartbeat();
+          flushMessageQueue();
+          console.log('[WS] Authenticated and connected');
+          return;
+        }
+
+        // Handle auth error from server
+        if (data.type === 'error' && connectionStateRef.current !== WS_STATE.CONNECTED) {
+          console.error('[WS] Auth failed:', data.message);
+          ws.close();
+          return;
+        }
 
         const cbs = listenersRef.current.get(data.type);
         if (cbs) cbs.forEach((cb) => cb(data.payload));

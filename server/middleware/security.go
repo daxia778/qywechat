@@ -159,6 +159,7 @@ func SecurityHeaders() gin.HandlerFunc {
 // ─── 请求体大小防护 ─────────────────────────────────────
 
 // MaxBodySize 限制请求体大小 (防止 DoS 大包攻击)
+// 同时处理 Content-Length 已知和 chunked (Content-Length=-1) 的情况
 func MaxBodySize(maxBytes int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request.ContentLength > maxBytes {
@@ -168,6 +169,7 @@ func MaxBodySize(maxBytes int64) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		// MaxBytesReader 同样限制 chunked 传输 (ContentLength == -1 时仍有效)
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
 		c.Next()
 	}

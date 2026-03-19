@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -211,14 +212,7 @@ func UpdateOrderStatus(c *gin.Context) {
 		return
 	}
 
-	hasRole := false
-	for _, r := range allowedRoles {
-		if r == roleStr {
-			hasRole = true
-			break
-		}
-	}
-	if !hasRole {
+	if !slices.Contains(allowedRoles, roleStr) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "当前角色无权流转到该状态"})
 		return
 	}
@@ -298,6 +292,24 @@ func ListOrders(c *gin.Context) {
 
 	query := models.DB.Model(&models.Order{})
 
+	// 角色权限过滤: 非 admin 用户只能查看自己相关的订单
+	role, _ := c.Get("role")
+	roleStr, _ := role.(string)
+	userID, _ := c.Get("wecom_userid")
+	uidStr, _ := userID.(string)
+
+	switch roleStr {
+	case "admin":
+		// admin 可查看所有订单
+	case "operator":
+		query = query.Where("operator_id = ?", uidStr)
+	case "designer":
+		query = query.Where("designer_id = ?", uidStr)
+	default:
+		c.JSON(http.StatusForbidden, gin.H{"error": "未知角色，无权访问"})
+		return
+	}
+
 	if status != "" {
 		query = query.Where("status = ?", status)
 	}
@@ -340,33 +352,28 @@ func GetOrder(c *gin.Context) {
 		return
 	}
 
-	var order models.Order
-	if err := models.DB.First(&order, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
-		return
-	}
-
-	// 🔒 角色权限校验: 客服只能查看自己录入的订单, 设计师只能查看指派给自己的订单, admin 可查看所有
+	// 先鉴权再查库，统一返回 404 避免信息泄露
 	role, _ := c.Get("role")
 	roleStr, _ := role.(string)
 	userID, _ := c.Get("wecom_userid")
 	uidStr, _ := userID.(string)
 
+	query := models.DB.Model(&models.Order{}).Where("id = ?", uint(id))
 	switch roleStr {
 	case "admin":
 		// admin 可查看所有订单
 	case "operator":
-		if order.OperatorID != uidStr {
-			c.JSON(http.StatusForbidden, gin.H{"error": "只能查看自己录入的订单"})
-			return
-		}
+		query = query.Where("operator_id = ?", uidStr)
 	case "designer":
-		if order.DesignerID != uidStr {
-			c.JSON(http.StatusForbidden, gin.H{"error": "只能查看指派给自己的订单"})
-			return
-		}
+		query = query.Where("designer_id = ?", uidStr)
 	default:
-		c.JSON(http.StatusForbidden, gin.H{"error": "未知角色，无权访问"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
+		return
+	}
+
+	var order models.Order
+	if err := query.First(&order).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
 		return
 	}
 

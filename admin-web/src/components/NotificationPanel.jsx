@@ -6,7 +6,7 @@ export default function NotificationPanel({ notifications, unreadCount, onMarkRe
       <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-center">
         <span className="font-semibold text-slate-800 text-sm">通知中心</span>
         {unreadCount > 0 && (
-          <button onClick={onMarkAllRead} className="text-xs text-[#465FFF] hover:underline font-medium bg-transparent border-none cursor-pointer">全部已读</button>
+          <button onClick={onMarkAllRead} className="text-xs text-brand-500 hover:underline font-medium bg-transparent border-none cursor-pointer">全部已读</button>
         )}
       </div>
       <div className="max-h-[320px] overflow-y-auto">
@@ -23,10 +23,10 @@ export default function NotificationPanel({ notifications, unreadCount, onMarkRe
               tabIndex={0}
               onClick={() => onMarkRead(n)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onMarkRead(n); } }}
-              className={`px-4 py-3 border-b border-slate-50/80 hover:bg-slate-50 cursor-pointer transition-colors ${!n.is_read ? 'bg-[#F5F8FF]' : ''}`}
+              className={`px-4 py-3 border-b border-slate-50/80 hover:bg-slate-50 cursor-pointer transition-colors ${!n.is_read ? 'bg-brand-25' : ''}`}
             >
               <div className="flex items-start gap-2">
-                {!n.is_read && <div className="w-2 h-2 rounded-full bg-[#465FFF] mt-1.5 shrink-0" />}
+                {!n.is_read && <div className="w-2 h-2 rounded-full bg-brand-500 mt-1.5 shrink-0" />}
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-slate-800 truncate">{n.title}</div>
                   <div className="text-xs text-slate-500 mt-0.5 line-clamp-2">{n.content}</div>

@@ -8,7 +8,7 @@ COPY admin-web/ ./
 RUN npm run build
 
 # Stage 2: Go 后端构建
-FROM golang:1.25-alpine AS backend
+FROM golang:1.24-alpine AS backend
 RUN apk add --no-cache build-base
 WORKDIR /build/server
 COPY server/go.mod server/go.sum ./
@@ -18,7 +18,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /pdd-server .
 
 # Stage 3: 最终运行镜像
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata sqlite-libs
 ENV TZ=Asia/Shanghai
 
 WORKDIR /app

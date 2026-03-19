@@ -333,6 +333,44 @@ h6 {
   cursor: not-allowed;
 }
 
+/* ══════════════════════════════════════════
+   GLOBAL TABLE STYLES
+   ══════════════════════════════════════════ */
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+th {
+  padding: 14px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748B;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  border-bottom: 1px solid #E2E8F0;
+  text-align: left;
+  background: #F8FAFC;
+}
+
+td {
+  padding: 14px 16px;
+  font-size: 13px;
+  color: #334155;
+  border-bottom: 1px solid #F1F5F9;
+  vertical-align: middle;
+}
+
+tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+tbody tr:hover {
+  background-color: #FAFBFC;
+}
+
 /* ══ Modal animation ══ */
 @keyframes modal-in {
   from {

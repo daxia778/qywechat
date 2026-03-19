@@ -8,7 +8,7 @@ services:
     environment:
       POSTGRES_DB: pdd_order
       POSTGRES_USER: pdd
-      POSTGRES_PASSWORD: ${PG_PASSWORD:-changeme}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?PG_PASSWORD must be set}
     volumes:
       - pg_data:/var/lib/postgresql/data
     # 不暴露数据库端口到宿主机，仅通过 Docker 内部网络访问
@@ -31,11 +31,11 @@ services:
       PG_HOST: postgres
       PG_PORT: 5432
       PG_USER: pdd
-      PG_PASSWORD: ${PG_PASSWORD:-changeme}
+      PG_PASSWORD: ${PG_PASSWORD:?PG_PASSWORD must be set}
       PG_DBNAME: pdd_order
       SERVER_PORT: 8201
       BASE_URL: ${BASE_URL:-http://localhost:8200}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-please-change-this}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}
       JWT_EXPIRE_MINUTES: 1440
       GIN_MODE: release
       WECOM_CORP_ID: ${WECOM_CORP_ID:-}
@@ -46,7 +46,7 @@ services:
       ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       ADMIN_DEFAULT_USERNAME: ${ADMIN_DEFAULT_USERNAME:-admin}
-      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:-admin888}
+      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:?ADMIN_DEFAULT_PASSWORD must be set}
     volumes:
       - app_uploads:/app/uploads
       - app_data:/app/data

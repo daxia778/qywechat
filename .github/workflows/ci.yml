@@ -17,13 +17,20 @@ jobs:
         with:
           go-version: '1.24'
 
+      - name: Install C compiler
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
       - name: Build
         run: go build ./...
         working-directory: server
+        env:
+          CGO_ENABLED: 1
 
       - name: Test
         run: go test ./... -v -count=1 -race
         working-directory: server
+        env:
+          CGO_ENABLED: 1
 
   build-frontend:
     runs-on: ubuntu-latest

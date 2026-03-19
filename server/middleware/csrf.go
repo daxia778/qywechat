@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -64,6 +65,37 @@ func CSRFMiddleware() gin.HandlerFunc {
 			// 生成新 token 并返回在响应头
 			token := generateCSRFToken()
 			csrf.mu.Lock()
+			// 防止内存耗尽: 如果 token 数量超过上限，清理最旧的 token
+			const maxCSRFTokens = 10000
+			if len(csrf.tokens) >= maxCSRFTokens {
+				// 删除所有过期 token
+				now := time.Now()
+				for k, v := range csrf.tokens {
+					if now.Sub(v) > 30*time.Minute {
+						delete(csrf.tokens, k)
+					}
+				}
+				// 仍超限时，淘汰最旧的 50% 而非全部清空
+				if len(csrf.tokens) >= maxCSRFTokens {
+					type entry struct {
+						key string
+						ts  time.Time
+					}
+					entries := make([]entry, 0, len(csrf.tokens))
+					for k, v := range csrf.tokens {
+						entries = append(entries, entry{k, v})
+					}
+					// 按时间升序排序（最旧的在前）
+					sort.Slice(entries, func(i, j int) bool {
+						return entries[i].ts.Before(entries[j].ts)
+					})
+					// 淘汰前 50%
+					evictCount := len(entries) / 2
+					for i := 0; i < evictCount; i++ {
+						delete(csrf.tokens, entries[i].key)
+					}
+				}
+			}
 			csrf.tokens[token] = time.Now()
 			csrf.mu.Unlock()
 			c.Header("X-CSRF-Token", token)

@@ -83,8 +83,8 @@ export default function ConfirmModal({
   if (!visible) return null;
 
   const iconBg = type === 'danger' ? 'bg-red-100' : type === 'warning' ? 'bg-amber-100' : 'bg-blue-100';
-  const iconColor = type === 'danger' ? 'text-red-500' : type === 'warning' ? 'text-amber-500' : 'text-[#465FFF]';
-  const btnClass = type === 'danger' ? 'bg-red-500 hover:bg-red-600' : type === 'warning' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-[#465FFF] hover:bg-[#3641F5]';
+  const iconColor = type === 'danger' ? 'text-red-500' : type === 'warning' ? 'text-amber-500' : 'text-brand-500';
+  const btnClass = type === 'danger' ? 'bg-red-500 hover:bg-red-600' : type === 'warning' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-brand-500 hover:bg-brand-600';
 
   return (
     <div

@@ -12,10 +12,10 @@ import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const BADGE_VARIANT_CLASSES = {
-  success: 'bg-[#DAF8E6] text-green-900',
-  warning: 'bg-[#FEF4E4] text-amber-800',
-  danger: 'bg-[#FEE4E2] text-red-800',
-  primary: 'bg-[#EFF4FF] text-[#465FFF]',
+  success: 'bg-success-bg text-green-900',
+  warning: 'bg-warning-bg text-amber-800',
+  danger: 'bg-danger-bg text-red-800',
+  primary: 'bg-brand-50 text-brand-500',
   secondary: 'bg-slate-100 text-slate-500',
 };
 
@@ -73,15 +73,15 @@ export default function OrdersPage() {
     fetchOrders(true);
   }, [currentStatus, currentPage, fetchOrders]);
 
-  // Debounced search
+  // Debounced search — only update searchTerm state; the useEffect on
+  // [currentStatus, currentPage, fetchOrders] will handle the actual fetch.
   useEffect(() => {
     clearTimeout(searchTimerRef.current);
     searchTimerRef.current = setTimeout(() => {
       setCurrentPage(0);
-      fetchOrders();
     }, 400);
     return () => clearTimeout(searchTimerRef.current);
-  }, [searchKeyword, fetchOrders]);
+  }, [searchKeyword]);
 
   usePolling(fetchOrders, 60000);
 
@@ -194,14 +194,14 @@ export default function OrdersPage() {
                 onClick={() => { setCurrentStatus(s.value); setCurrentPage(0); }}
                 className={`pb-3 px-3 text-[13px] font-semibold border-b-2 transition-all whitespace-nowrap bg-transparent cursor-pointer rounded-t-md ${
                   currentStatus === s.value
-                    ? 'border-[#465FFF] text-[#465FFF]'
+                    ? 'border-brand-500 text-brand-500'
                     : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
                 }`}
               >
                 {s.label}
-                {s.value === 'PENDING' && orders.filter((o) => o.status === 'PENDING').length > 0 && (
-                  <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-[#FEF4E4] text-[#F59E0B] text-[10px] font-bold">
-                    {orders.filter((o) => o.status === 'PENDING').length}
+                {s.value === 'PENDING' && currentStatus === 'PENDING' && totalOrders > 0 && (
+                  <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-warning-bg text-warning text-[10px] font-bold" title={`共 ${totalOrders} 条待处理订单`}>
+                    {totalOrders}
                   </span>
                 )}
               </button>
@@ -215,7 +215,7 @@ export default function OrdersPage() {
                 type="text"
                 placeholder="搜索订单..."
                 aria-label="搜索订单"
-                className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-[#465FFF] focus:ring-2 focus:ring-[#465FFF]/10 py-1.5 pl-9 text-[13px] rounded-lg"
+                className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 py-1.5 pl-9 text-[13px] rounded-lg"
               />
               <svg className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             </div>
@@ -251,7 +251,7 @@ export default function OrdersPage() {
               {orders.map((order) => (
                 <tr key={order.id} className="group transition-colors hover:bg-[#FAFBFC]">
                   <td className="pl-6">
-                    <Link to={`/orders/${order.id}`} className="font-semibold text-[#465FFF] hover:underline text-[13px] cursor-pointer">{order.order_sn}</Link>
+                    <Link to={`/orders/${order.id}`} className="font-semibold text-brand-500 hover:underline text-[13px] cursor-pointer">{order.order_sn}</Link>
                     {order.topic && <div className="text-[12px] text-slate-500 mt-1 max-w-[180px] truncate" title={order.topic}>{order.topic}</div>}
                   </td>
                   <td className="text-[13px] text-slate-700 font-medium">{order.customer_contact || '-'}</td>
@@ -275,16 +275,16 @@ export default function OrdersPage() {
                     <div className="text-[12px] text-slate-500 mb-2.5 font-medium tabular-nums">{formatTime(order.created_at)}</div>
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
                       {order.status === 'PENDING' && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
-                        <button onClick={() => doUpdateStatus(order, 'GROUP_CREATED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-[#465FFF] hover:bg-[#3641F5] transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px]">确认建群</button>
+                        <button onClick={() => doUpdateStatus(order, 'GROUP_CREATED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">确认建群</button>
                       )}
                       {order.status === 'GROUP_CREATED' && !order.designer_id && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
-                        <button onClick={() => doUpdateStatus(order, 'DESIGNING')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-[#465FFF] hover:bg-[#3641F5] transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px]">分配设计</button>
+                        <button onClick={() => doUpdateStatus(order, 'DESIGNING')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">分配设计</button>
                       )}
                       {order.status === 'DESIGNING' && (role === 'admin' || (role === 'designer' && order.designer_id === userId)) && (
-                        <button onClick={() => doUpdateStatus(order, 'DELIVERED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-[#22AD5C] text-[#22AD5C] hover:bg-[#DAF8E6] text-[11px] bg-white">标记交付</button>
+                        <button onClick={() => doUpdateStatus(order, 'DELIVERED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg text-[11px] bg-white active:scale-[0.98]">标记交付</button>
                       )}
                       {order.status === 'DELIVERED' && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
-                        <button onClick={() => confirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-[#465FFF] hover:bg-[#3641F5] transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px]">标记完成</button>
+                        <button onClick={() => confirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">标记完成</button>
                       )}
                       {hasMoreActions(order) && (
                         <div className="relative">

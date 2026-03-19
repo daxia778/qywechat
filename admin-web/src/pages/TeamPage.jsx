@@ -5,9 +5,9 @@ import { getTeamWorkload } from '../api/admin';
 
 const getLoadColorClass = (count, isText = false) => {
   if (count === 0) return isText ? 'text-slate-400' : 'bg-slate-400';
-  if (count <= 3) return isText ? 'text-[#22AD5C]' : 'bg-[#22AD5C]';
-  if (count <= 7) return isText ? 'text-[#F59E0B]' : 'bg-[#F59E0B]';
-  return isText ? 'text-[#F04438]' : 'bg-[#F04438]';
+  if (count <= 3) return isText ? 'text-success' : 'bg-success';
+  if (count <= 7) return isText ? 'text-warning' : 'bg-warning';
+  return isText ? 'text-danger' : 'bg-danger';
 };
 
 export default function TeamPage() {
@@ -58,10 +58,10 @@ export default function TeamPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {team.map((member) => (
-            <div key={member.userid} className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] overflow-hidden flex flex-col hover:border-[#D1E0FF] transition-colors">
+            <div key={member.userid} className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] overflow-hidden flex flex-col hover:border-brand-100 transition-colors">
               <div className="p-6 flex items-start justify-between border-b border-slate-100">
                 <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-full bg-[#EFF4FF] border border-[#D1E0FF] flex items-center justify-center text-[#465FFF] font-bold text-[15px] shrink-0">
+                  <div className="w-11 h-11 rounded-full bg-brand-50 border border-brand-100 flex items-center justify-center text-brand-500 font-bold text-[15px] shrink-0">
                     {member.name?.substring(0, 1).toUpperCase()}
                   </div>
                   <div>
@@ -69,8 +69,8 @@ export default function TeamPage() {
                     <div className="text-[12px] text-slate-500 mt-0.5 truncate max-w-[120px]" title={member.userid}>{member.userid}</div>
                   </div>
                 </div>
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide self-start ${member.status === 'idle' ? 'bg-[#DAF8E6] text-green-900' : 'bg-[#FEF4E4] text-amber-800'}`}>
-                  <span className={`w-2 h-2 rounded-full ${member.status === 'idle' ? 'bg-[#22AD5C]' : 'bg-[#F59E0B] animate-pulse'}`} />
+                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide self-start ${member.status === 'idle' ? 'bg-success-bg text-green-900' : 'bg-warning-bg text-amber-800'}`}>
+                  <span className={`w-2 h-2 rounded-full ${member.status === 'idle' ? 'bg-success' : 'bg-warning animate-pulse'}`} />
                   {member.status === 'idle' ? '空闲' : '忙碌'}
                 </span>
               </div>

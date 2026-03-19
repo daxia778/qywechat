@@ -333,7 +333,7 @@ export default function DashboardPage() {
                         : <span className="text-sm text-slate-400 pl-2">#{i + 1}</span>}
                     </td>
                     <td className="py-3.5 px-4 text-[13px] border-b border-slate-100 font-semibold text-slate-800">{d.name}</td>
-                    <td className="py-3.5 px-4 text-[13px] text-slate-700 border-b border-slate-100"><span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#DAF8E6] text-green-900">{d.completed_count}</span></td>
+                    <td className="py-3.5 px-4 text-[13px] text-slate-700 border-b border-slate-100"><span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-success-bg text-green-900">{d.completed_count}</span></td>
                     <td className="py-3.5 px-4 text-[13px] text-slate-700 border-b border-slate-100"><span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-brand-50 text-brand-500">{d.active_count}</span></td>
                     <td className="py-3.5 px-4 border-b border-slate-100 text-right pr-6 text-sm text-slate-600 tabular-nums">{d.avg_hours ? d.avg_hours.toFixed(1) + 'h' : '-'}</td>
                   </tr>

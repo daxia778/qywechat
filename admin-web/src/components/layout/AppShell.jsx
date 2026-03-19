@@ -196,13 +196,14 @@ export default function AppShell() {
                   }`}
                 >
                   {isActive && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[60%] bg-[#465FFF] rounded-r" />
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[60%] bg-brand-500 rounded-r" />
                   )}
                   <div
-                    className={`shrink-0 flex items-center w-5 h-5 transition-colors duration-200 ${isActive ? 'text-[#465FFF]' : 'text-slate-400 group-hover:text-slate-200'}`}
-                    dangerouslySetInnerHTML={{ __html: route.icon }}
+                    className={`shrink-0 flex items-center w-5 h-5 transition-colors duration-200 ${isActive ? 'text-brand-500' : 'text-slate-400 group-hover:text-slate-200'}`}
                     aria-hidden="true"
-                  />
+                  >
+                    {route.icon}
+                  </div>
                   {(!collapsed || mobileOpen) && (
                     <span className="text-[14px] font-medium">{route.title}</span>
                   )}
@@ -216,7 +217,7 @@ export default function AppShell() {
         {(!collapsed || mobileOpen) && (
           <div className="px-4 py-4 border-t border-white/[0.06]">
             <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.04]">
-              <div className="w-8 h-8 rounded-full bg-[#465FFF]/20 text-[#8DA0FF] font-semibold text-xs flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-full bg-brand-500/20 text-[#8DA0FF] font-semibold text-xs flex items-center justify-center shrink-0">
                 {userInitials}
               </div>
               <div className="min-w-0">
@@ -317,7 +318,7 @@ export default function AppShell() {
 
             {/* User */}
             <div className="flex items-center gap-2.5 hover:bg-slate-50 p-1.5 pr-3 rounded-xl cursor-pointer transition-colors border border-transparent hover:border-slate-200/80">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#465FFF]/20 to-[#465FFF]/10 text-[#465FFF] font-bold text-sm flex items-center justify-center overflow-hidden shrink-0 ring-2 ring-white">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500/20 to-brand-500/10 text-brand-500 font-bold text-sm flex items-center justify-center overflow-hidden shrink-0 ring-2 ring-white">
                 {userInitials}
               </div>
               <div className="hidden md:block text-right">

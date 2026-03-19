@@ -50,8 +50,8 @@ func TestExtractFromRawText(t *testing.T) {
 	}
 }
 
-func TestParseDashscopeContent(t *testing.T) {
-	// Dashscope might wrap JSON in markdown blocks
+func TestParseOCRJSON(t *testing.T) {
+	// OCR JSON parser handles markdown-wrapped JSON blocks
 	tests := []struct {
 		name       string
 		content    string
@@ -80,24 +80,24 @@ func TestParseDashscopeContent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := parseDashscopeContent(tt.content)
+			result := parseOCRJSON(tt.content)
 			
 			if tt.wantSN == "" {
 				if result != nil {
-					t.Errorf("parseDashscopeContent() expected nil for invalid JSON")
+					t.Errorf("parseOCRJSON() expected nil for invalid JSON")
 				}
 				return
 			}
 			
 			if result == nil {
-				t.Fatalf("parseDashscopeContent() returned nil unexpectedly")
+				t.Fatalf("parseOCRJSON() returned nil unexpectedly")
 			}
 
 			if result.OrderSN != tt.wantSN {
-				t.Errorf("parseDashscopeContent() OrderSN = %v, want %v", result.OrderSN, tt.wantSN)
+				t.Errorf("parseOCRJSON() OrderSN = %v, want %v", result.OrderSN, tt.wantSN)
 			}
 			if result.Price != tt.wantPrice {
-				t.Errorf("parseDashscopeContent() Price = %v, want %v", result.Price, tt.wantPrice)
+				t.Errorf("parseOCRJSON() Price = %v, want %v", result.Price, tt.wantPrice)
 			}
 		})
 	}
