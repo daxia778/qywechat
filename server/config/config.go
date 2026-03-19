@@ -64,6 +64,9 @@ type Config struct {
 
 	// Deploy
 	DeployMode string // "debug" | "production"
+
+	// Security
+	AdminAllowedIPs []string // IP 白名单 (逗号分隔), 空则不限制
 }
 
 var C *Config
@@ -106,6 +109,7 @@ func Init() {
 		OSSRegion:               getEnv("OSS_REGION", ""),
 		OSSBaseURL:              getEnv("OSS_BASE_URL", ""),
 		DeployMode:              getEnv("DEPLOY_MODE", "debug"),
+		AdminAllowedIPs:         splitCSV(getEnv("ADMIN_ALLOWED_IPS", "")),
 	}
 
 	// 🔒 安全校验: 非 debug 模式下禁止使用默认 JWT 密钥

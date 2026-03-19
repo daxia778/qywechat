@@ -101,14 +101,46 @@ func BruteForceGuard() gin.HandlerFunc {
 
 // SuspiciousRequestFilter 可疑请求过滤中间件
 // 拦截常见的攻击探测路径 (如 PHP/wp-admin/env 等扫描器)
+// 同时过滤已知恶意 User-Agent
 func SuspiciousRequestFilter() gin.HandlerFunc {
 	blockedPatterns := []string{
-		".php", ".asp", ".aspx", ".jsp",
+		// 脚本/CMS 探测
+		".php", ".asp", ".aspx", ".jsp", ".cgi",
 		"wp-admin", "wp-login", "wp-content", "wordpress",
-		".env", ".git", ".svn", ".htaccess",
 		"phpmyadmin", "adminer", "shell",
-		"../", "..\\",         // 路径穿越
-		"<script", "%3Cscript", // XSS 探测
+		"cgi-bin", "manager/html", "invoker/readonly",
+
+		// 敏感文件探测
+		".env", ".git", ".svn", ".htaccess", ".DS_Store",
+		"config.yml", "config.yaml", "config.json",
+		"web.config", "database.yml",
+
+		// 路径穿越
+		"../", "..\\",
+
+		// XSS 探测
+		"<script", "%3Cscript",
+
+		// SQL 注入探测
+		"union+select", "union%20select", "' or '1'='1",
+		"1=1--", "' or 1=1", "select+from", "select%20from",
+		"drop+table", "drop%20table",
+
+		// 其他攻击特征
+		"eval(", "exec(", "system(",
+		"/actuator", "/jolokia", "/console",
+		"/debug/", "/trace/", "/metrics",
+	}
+
+	// 已知扫描器 / 攻击工具 User-Agent 关键词 (小写匹配)
+	blockedUAs := []string{
+		"sqlmap", "nmap", "masscan", "nikto", "dirbuster",
+		"gobuster", "wfuzz", "hydra", "metasploit",
+		"burp", "zap", "acunetix", "nessus", "openvas",
+		"shodan", "censys", "zgrab",
+		"python-requests/", "go-http-client/", // 通用客户端（可选，根据需要启用）
+		"curl/",  // 裸 curl 探测
+		"wget/",  // 裸 wget 探测
 	}
 
 	return func(c *gin.Context) {
@@ -118,10 +150,27 @@ func SuspiciousRequestFilter() gin.HandlerFunc {
 
 		for _, pattern := range blockedPatterns {
 			if strings.Contains(combined, pattern) {
-				log.Printf("🛡️ 拦截可疑请求: IP=%s Path=%s", c.ClientIP(), c.Request.URL.Path)
+				log.Printf("🛡️ 拦截可疑请求: IP=%s Path=%s UA=%s", c.ClientIP(), c.Request.URL.Path, c.Request.UserAgent())
 				c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
 				c.Abort()
 				return
+			}
+		}
+
+		// User-Agent 黑名单检查
+		ua := strings.ToLower(c.Request.UserAgent())
+		if ua == "" {
+			// 空 UA 通常是扫描器，但某些合法工具也可能没有 UA
+			// 仅记录不拦截，避免误伤（如企微回调可能无 UA）
+			log.Printf("⚠️ 空 User-Agent 请求: IP=%s Path=%s", c.ClientIP(), c.Request.URL.Path)
+		} else {
+			for _, blocked := range blockedUAs {
+				if strings.Contains(ua, blocked) {
+					log.Printf("🛡️ 拦截恶意 UA: IP=%s UA=%s Path=%s", c.ClientIP(), c.Request.UserAgent(), c.Request.URL.Path)
+					c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
+					c.Abort()
+					return
+				}
 			}
 		}
 

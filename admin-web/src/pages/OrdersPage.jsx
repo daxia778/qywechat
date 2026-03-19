@@ -6,18 +6,10 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { usePolling } from '../hooks/usePolling';
 import { listOrders, updateOrderStatus } from '../api/orders';
 import { exportOrdersCSV } from '../api/admin';
-import { STATUS_MAP, STATUS_BADGE_MAP, ORDER_STATUSES } from '../utils/constants';
+import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ORDER_STATUSES } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
-
-const BADGE_VARIANT_CLASSES = {
-  success: 'bg-success-bg text-green-900',
-  warning: 'bg-warning-bg text-amber-800',
-  danger: 'bg-danger-bg text-red-800',
-  primary: 'bg-brand-50 text-brand-500',
-  secondary: 'bg-slate-100 text-slate-500',
-};
 
 export default function OrdersPage() {
   const { role, userId } = useAuth();
@@ -70,7 +62,7 @@ export default function OrdersPage() {
   }, [currentPage, currentStatus, searchKeyword, toast]);
 
   useEffect(() => {
-    fetchOrders(true);
+    fetchOrders();
   }, [currentStatus, currentPage, fetchOrders]);
 
   // Debounced search — only update searchTerm state; the useEffect on
@@ -182,7 +174,7 @@ export default function OrdersPage() {
       </div>
 
       {/* Main Card */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] flex flex-col overflow-hidden">
+      <div className="bg-white border-2 border-slate-200 rounded-2xl flex flex-col overflow-hidden hover:border-brand-200 transition-colors">
         {/* Tabs & Search */}
         <div className="px-6 border-b border-slate-200 bg-white flex justify-between items-end gap-4">
           <div className="flex gap-1 overflow-x-auto scrollbar-hide pt-3" role="tablist" aria-label="订单状态筛选">

@@ -2,14 +2,14 @@ import { createPortal } from 'react-dom';
 import { useToast } from '../hooks/useToast';
 
 const toastClasses = {
-  success: 'bg-emerald-50/95 border-emerald-200 text-emerald-800',
+  success: 'bg-white/95 border-slate-200 text-slate-600',
   error: 'bg-red-50/95 border-red-200 text-red-800',
   warning: 'bg-amber-50/95 border-amber-200 text-amber-800',
   info: 'bg-blue-50/95 border-blue-200 text-blue-800',
 };
 
 const toastIcons = {
-  success: '\u2705', error: '\u274C', warning: '\u26A0\uFE0F', info: '\u2139\uFE0F',
+  success: '\u2714\uFE0F', error: '\u274C', warning: '\u26A0\uFE0F', info: '\u2139\uFE0F',
 };
 
 export default function ToastContainer() {
@@ -20,9 +20,9 @@ export default function ToastContainer() {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={`pointer-events-auto min-w-[320px] max-w-[420px] rounded-xl shadow-lg border backdrop-blur-sm px-4 py-3 flex items-start gap-3 animate-fade-in-up ${toastClasses[t.type] || toastClasses.info}`}
+          className={`pointer-events-auto min-w-[240px] max-w-[360px] rounded-xl shadow-md border backdrop-blur-sm px-3.5 py-2.5 flex items-center gap-2.5 animate-fade-in-up ${toastClasses[t.type] || toastClasses.info}`}
         >
-          <div className="text-lg shrink-0 mt-0.5">{toastIcons[t.type] || toastIcons.info}</div>
+          <div className="text-sm shrink-0">{toastIcons[t.type] || toastIcons.info}</div>
           <div className="flex-1 min-w-0">
             {t.title && <div className="font-semibold text-sm mb-0.5">{t.title}</div>}
             <div className="text-sm opacity-90">{t.message}</div>

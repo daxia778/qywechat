@@ -128,12 +128,12 @@ export default function AppShell() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F1F5F9] font-sans text-slate-800">
+    <div className="flex h-screen overflow-hidden bg-surface font-sans text-[#1C1C28]">
       {/* Logout Confirm */}
       {showLogoutConfirm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="logout-dialog-title" onKeyDown={(e) => { if (e.key === 'Escape') setShowLogoutConfirm(false); }}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setShowLogoutConfirm(false)} aria-hidden="true" />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up">
+          <div className="relative bg-white rounded-2xl border-2 border-slate-200 w-full max-w-sm overflow-hidden animate-fade-in-up">
             <div className="px-6 pt-6 pb-2">
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0" aria-hidden="true">
@@ -160,13 +160,13 @@ export default function AppShell() {
 
       {/* Sidebar */}
       <aside
-        className={`flex flex-col shrink-0 bg-[#1C2434] text-slate-300 z-50 transition-all duration-300 ease-in-out ${
+        className={`flex flex-col shrink-0 bg-gradient-to-b from-[#3D28B2] to-[#2D1D8A] text-white/80 z-50 transition-all duration-300 ease-in-out border-r-2 border-[#4A32C8]/30 ${
           collapsed ? 'w-[80px]' : 'w-[280px]'
         } ${mobileOpen ? 'fixed inset-y-0 left-0 w-[280px] shadow-2xl' : 'hidden lg:flex'}`}
       >
         {/* Logo */}
-        <div className={`flex items-center shrink-0 h-[72px] transition-all duration-300 border-b border-white/[0.06] ${collapsed && !mobileOpen ? 'px-4 justify-center' : 'px-6 gap-3'}`}>
-          <div className="w-10 h-10 shrink-0 bg-gradient-to-br from-indigo-500 to-[#465FFF] rounded-xl flex items-center justify-center text-white font-bold text-lg tracking-wider shadow-lg shadow-indigo-500/20">
+        <div className={`flex items-center shrink-0 h-[72px] transition-all duration-300 border-b border-white/10 ${collapsed && !mobileOpen ? 'px-4 justify-center' : 'px-6 gap-3'}`}>
+          <div className="w-10 h-10 shrink-0 bg-white/15 backdrop-blur rounded-xl flex items-center justify-center text-white font-bold text-lg tracking-wider border border-white/20">
             PD
           </div>
           {(!collapsed || mobileOpen) && (
@@ -178,7 +178,7 @@ export default function AppShell() {
         <div className="flex-1 overflow-y-auto py-5 scrollbar-hide">
           <nav className="px-3 space-y-0.5" aria-label="主导航菜单">
             {(!collapsed || mobileOpen) && (
-              <p className="px-4 mb-3 mt-1 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.15em]">菜单</p>
+              <p className="px-4 mb-3 mt-1 text-[11px] font-semibold text-white/40 uppercase tracking-[0.15em]">菜单</p>
             )}
             {filteredNavRoutes.map((route) => {
               const isActive = location.pathname === route.path || (route.path !== '/' && location.pathname.startsWith(route.path));
@@ -189,19 +189,19 @@ export default function AppShell() {
                   onClick={() => setMobileOpen(false)}
                   title={collapsed && !mobileOpen ? route.title : ''}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`flex items-center gap-3 no-underline transition-all duration-200 ease-in-out group rounded-lg relative ${
+                  className={`flex items-center gap-3 no-underline transition-all duration-200 ease-in-out group rounded-xl relative ${
                     collapsed && !mobileOpen ? 'justify-center p-3' : 'px-4 py-2.5'
                   } ${
                     isActive
-                      ? 'bg-white/[0.08] text-white'
-                      : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-200'
+                      ? 'bg-white/15 text-white shadow-[0_0_12px_rgba(255,255,255,0.08)]'
+                      : 'text-white/60 hover:bg-white/10 hover:text-white'
                   }`}
                 >
                   {isActive && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[60%] bg-brand-500 rounded-r" />
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[60%] bg-white rounded-r shadow-[0_0_8px_rgba(255,255,255,0.6)]" />
                   )}
                   <div
-                    className={`shrink-0 flex items-center w-5 h-5 transition-colors duration-200 ${isActive ? 'text-brand-500' : 'text-slate-400 group-hover:text-slate-200'}`}
+                    className={`shrink-0 flex items-center w-5 h-5 transition-colors duration-200 ${isActive ? 'text-white' : 'text-white/50 group-hover:text-white'}`}
                     aria-hidden="true"
                   >
                     {route.icon}
@@ -217,14 +217,14 @@ export default function AppShell() {
 
         {/* Sidebar Footer */}
         {(!collapsed || mobileOpen) && (
-          <div className="px-4 py-4 border-t border-white/[0.06]">
-            <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.04]">
-              <div className="w-8 h-8 rounded-full bg-brand-500/20 text-[#8DA0FF] font-semibold text-xs flex items-center justify-center shrink-0">
+          <div className="px-4 py-4 border-t border-white/10">
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/10 border border-white/10">
+              <div className="w-8 h-8 rounded-full bg-white/20 text-white font-semibold text-xs flex items-center justify-center shrink-0">
                 {userInitials}
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-medium text-slate-200 truncate">{userName}</div>
-                <div className="text-[11px] text-slate-500">{currentRoleName}</div>
+                <div className="text-sm font-medium text-white truncate">{userName}</div>
+                <div className="text-[11px] text-white/50">{currentRoleName}</div>
               </div>
             </div>
           </div>
@@ -234,7 +234,7 @@ export default function AppShell() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {/* Header */}
-        <header className="h-[72px] flex items-center justify-between px-5 lg:px-8 bg-white border-b border-slate-200/80 shrink-0 sticky top-0 z-40 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+        <header className="h-[72px] flex items-center justify-between px-5 lg:px-8 bg-white border-b-2 border-slate-200 shrink-0 sticky top-0 z-40">
           <div className="flex items-center gap-3">
             <button onClick={() => setMobileOpen(!mobileOpen)} className="p-2 -ml-1 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors lg:hidden" aria-label="打开导航菜单">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
@@ -335,7 +335,7 @@ export default function AppShell() {
         </header>
 
         {/* Page */}
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-5 lg:p-8 scroll-smooth">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-6 lg:p-8 scroll-smooth bg-surface">
           <div className="page-enter">
             <Outlet />
           </div>

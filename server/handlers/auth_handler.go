@@ -32,8 +32,9 @@ func DeviceLogin(c *gin.Context) {
 	var emp models.Employee
 
 	if req.ActivationCode == "" {
-		// ── 无激活码: 仅允许已绑定设备静默重连 ──
-		result := models.DB.Where("machine_id = ? AND is_active = ?", req.MachineID, true).First(&emp)
+		// ── 无激活码: 仅允许已绑定的非管理员设备静默重连 ──
+		// 注意: admin 角色不走设备认证，避免同一台开发机上 admin 被误匹配
+		result := models.DB.Where("machine_id = ? AND is_active = ? AND role != 'admin'", req.MachineID, true).First(&emp)
 		if result.Error != nil {
 			middleware.RecordLoginFail(c.ClientIP())
 			c.JSON(http.StatusForbidden, gin.H{"error": "设备未注册，请输入激活码"})

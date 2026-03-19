@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { listEmployees, createEmployee, toggleEmployee, unbindDevice as apiUnbind, pauseActivationCode as apiPause, batchToggleEmployees, batchDeleteEmployees } from '../api/admin';
-import { ROLE_MAP, ROLE_CLASS_MAP, ROLE_AVATAR_CLASS_MAP } from '../utils/constants';
+import { ROLE_MAP, ROLE_CLASS_MAP, ROLE_AVATAR_CLASS_MAP, BADGE_VARIANT_CLASSES } from '../utils/constants';
 import { formatDate } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -292,7 +292,7 @@ export default function EmployeesPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] flex flex-col overflow-hidden">
+      <div className="bg-white border-2 border-slate-200 rounded-2xl flex flex-col overflow-hidden">
         <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-brand-50">

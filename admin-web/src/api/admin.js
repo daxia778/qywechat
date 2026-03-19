@@ -9,6 +9,7 @@ export const unbindDevice = (id) => client.put(`/admin/employees/${id}/unbind`);
 export const getTeamWorkload = () => client.get('/admin/team_workload');
 export const getProfitSummary = (month) => client.get('/admin/profit_breakdown', { params: { month } });
 export const pauseActivationCode = (id) => client.put(`/admin/activation_codes/${id}/pause`);
+export const listActivationCodes = (status) => client.get('/admin/activation_codes', { params: status ? { status } : {} });
 export const deleteEmployee = (id) => client.delete(`/admin/employees/${id}`);
 export const batchToggleEmployees = (ids, active) => client.put('/admin/employees/batch_toggle', { ids, active });
 export const batchDeleteEmployees = (ids) => client.post('/admin/employees/batch_delete', { ids });

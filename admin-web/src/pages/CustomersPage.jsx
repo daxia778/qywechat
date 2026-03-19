@@ -2,17 +2,9 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useToast } from '../hooks/useToast';
 import { listCustomers, getCustomerDetail, updateCustomer } from '../api/customers';
-import { STATUS_MAP, STATUS_BADGE_MAP } from '../utils/constants';
+import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
-
-const BADGE_VARIANT_CLASSES = {
-  success: 'bg-success-bg text-green-900',
-  warning: 'bg-warning-bg text-amber-800',
-  danger: 'bg-danger-bg text-red-800',
-  primary: 'bg-brand-50 text-brand-500',
-  secondary: 'bg-slate-100 text-slate-500',
-};
 
 export default function CustomersPage() {
   const { toast } = useToast();
@@ -54,7 +46,7 @@ export default function CustomersPage() {
   }, [currentPage, debouncedKeyword, toast]);
 
   useEffect(() => {
-    fetchCustomers(true);
+    fetchCustomers();
   }, [currentPage, debouncedKeyword, fetchCustomers]);
 
   // Debounce search input
@@ -145,7 +137,7 @@ export default function CustomersPage() {
       </div>
 
       {/* Main Card */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] flex flex-col overflow-hidden">
+      <div className="bg-white border-2 border-slate-200 rounded-2xl flex flex-col overflow-hidden">
         {/* Search Header */}
         <div className="px-6 py-4 border-b border-slate-200 bg-white flex justify-between items-center gap-4">
           <div className="flex items-center gap-2">

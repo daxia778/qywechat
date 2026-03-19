@@ -165,8 +165,8 @@ export default function RevenuePage() {
             data: revenueData,
             smooth: 0.4,
             symbolSize: 8,
-            itemStyle: { color: '#465FFF' },
-            lineStyle: { width: 3, color: '#465FFF' },
+            itemStyle: { color: '#434FCF' },
+            lineStyle: { width: 3, color: '#434FCF' },
             areaStyle: {
               color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
                 { offset: 0, color: 'rgba(70,95,255,0.2)' },
@@ -451,7 +451,7 @@ export default function RevenuePage() {
       {/* ── KPI Cards with comparison deltas (C) ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
         {/* total revenue */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] p-5 lg:p-6 group hover:border-brand-100 transition-all duration-200">
+        <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 lg:p-6 group hover:border-brand-100 transition-all duration-200">
           <div className="flex items-center justify-between mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-brand-50 group-hover:bg-brand-100 transition-colors">
               <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -463,7 +463,7 @@ export default function RevenuePage() {
         </div>
 
         {/* total orders */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] p-5 lg:p-6 group hover:border-amber-200 transition-all duration-200">
+        <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 lg:p-6 group hover:border-amber-200 transition-all duration-200">
           <div className="flex items-center justify-between mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-amber-50 group-hover:bg-amber-100 transition-colors">
               <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
@@ -475,7 +475,7 @@ export default function RevenuePage() {
         </div>
 
         {/* avg order value */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] p-5 lg:p-6 group hover:border-emerald-200 transition-all duration-200">
+        <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 lg:p-6 group hover:border-emerald-200 transition-all duration-200">
           <div className="flex items-center justify-between mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-emerald-50 group-hover:bg-emerald-100 transition-colors">
               <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
@@ -487,7 +487,7 @@ export default function RevenuePage() {
         </div>
 
         {/* net profit rate */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] p-5 lg:p-6 group hover:border-purple-200 transition-all duration-200">
+        <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 lg:p-6 group hover:border-purple-200 transition-all duration-200">
           <div className="flex items-center justify-between mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-purple-50 group-hover:bg-purple-100 transition-colors">
               <svg className="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
@@ -499,7 +499,7 @@ export default function RevenuePage() {
       </div>
 
       {/* ── Revenue & Orders chart (existing) ── */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] flex flex-col">
+      <div className="bg-white border-2 border-slate-200 rounded-2xl flex flex-col">
         <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">营收与订单趋势</h2>
@@ -515,7 +515,7 @@ export default function RevenuePage() {
       </div>
 
       {/* ── A. Profit breakdown chart ── */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] flex flex-col">
+      <div className="bg-white border-2 border-slate-200 rounded-2xl flex flex-col">
         <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">利润构成分析</h2>
@@ -540,7 +540,7 @@ export default function RevenuePage() {
       </div>
 
       {/* ── B. Top designers table ── */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)]">
+      <div className="bg-white border-2 border-slate-200 rounded-2xl">
         <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">Top 设计师排行</h2>

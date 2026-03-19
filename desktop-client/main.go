@@ -21,7 +21,7 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:     "PDD 派单助手",
+		Title:     "单管家",
 		Width:     420,
 		Height:    680,
 		MinWidth:  380,
@@ -31,7 +31,7 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 15, G: 15, B: 25, A: 255},
+		BackgroundColour: &options.RGBA{R: 247, G: 248, B: 250, A: 255},
 		OnStartup:        app.startup,
 		AlwaysOnTop:      false,
 		Frameless:        false,
@@ -44,7 +44,7 @@ func main() {
 				HideTitle:                 true,
 				FullSizeContent:           true,
 			},
-			Appearance: mac.NSAppearanceNameDarkAqua,
+			Appearance: mac.NSAppearanceNameAqua,
 		},
 	})
 

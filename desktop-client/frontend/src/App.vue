@@ -425,6 +425,7 @@ const submit = async () => {
 </script>
 
 <template>
+  <!-- 顶部标题栏（纯拖拽区） -->
   <div class="drag-bar"></div>
   
   <div class="app-container">
@@ -434,7 +435,7 @@ const submit = async () => {
       <div class="login-logo">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
       </div>
-      <h1 class="login-title">PDD 派单助手</h1>
+      <h1 class="login-title">单管家</h1>
       <div class="login-subtitle">客服坐席专用高频效能终端</div>
       
       <div class="login-form">
@@ -463,29 +464,17 @@ const submit = async () => {
 
     <!-- 主界面 -->
     <div v-else>
-      <div class="user-bar">
-        <div class="user-info">
-          <div class="user-avatar">{{ state.empName.charAt(0) }}</div>
-          <div>
-            <div class="user-name">{{ state.empName }}</div>
-            <div class="user-role flex items-center gap-1.5" style="display: flex; gap: 6px; align-items: center;">
-              <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10B981; box-shadow: 0 0 8px #10B981;"></span>
-              客服坐席 (企微: {{ state.wecomUid }})
-            </div>
-          </div>
+      <!-- 用户欢迎条 -->
+      <div class="welcome-row">
+        <div class="welcome-left">
+          <div class="welcome-avatar">{{ state.empName.charAt(0) }}</div>
+          <span class="welcome-text">{{ state.empName }}，开始派单吧</span>
         </div>
-        <button class="btn-logout" @click="handleLogout" title="退出登录">
-          <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H8a3 3 0 01-3-3V7a3 3 0 013-3h2a3 3 0 013 3v1" /></svg>
-        </button>
-      </div>
-      
-      <div class="app-header">
-        <h1>新建派单</h1>
-        <div class="subtitle">拖拽或粘贴拼多多订单截图自动解析</div>
+        <button class="btn-logout-text" @click="handleLogout">退出</button>
       </div>
 
       <!-- OCR 上传 -->
-      <div class="card" style="margin-top: -12px;">
+      <div class="card">
         <div class="card-title">
           <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
           订单智能解析提取

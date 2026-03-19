@@ -345,11 +345,20 @@ func GetGrabAlerts(c *gin.Context) {
 
 // ─── 激活码管理 ──────────────────────────────────────────
 
-// ListActivationCodes 列出所有具有激活码的员工设备状态
+// ListActivationCodes 列出所有非 admin 员工的设备绑定状态
+// 查询参数: ?status=bound (已绑定) | unbound (未绑定) | 空=全部
 func ListActivationCodes(c *gin.Context) {
+	status := c.Query("status")
 	var employees []models.Employee
-	models.DB.Where("activation_code != '' AND role != 'admin'").Find(&employees)
-	c.JSON(http.StatusOK, gin.H{"data": employees})
+	query := models.DB.Where("role != 'admin'")
+	switch status {
+	case "bound":
+		query = query.Where("machine_id != ''")
+	case "unbound":
+		query = query.Where("machine_id = ''")
+	}
+	query.Order("created_at DESC").Find(&employees)
+	c.JSON(http.StatusOK, gin.H{"data": employees, "total": len(employees)})
 }
 
 // PauseActivationCode 远程暂停或恢复激活码 (复用 toggleEmployeeActive)

@@ -1,0 +1,42 @@
+# ═══════════════════════════════════════════════════
+# 单管家 - 轻量部署 (SQLite + 裸 IP, 无 Nginx)
+# 用法: docker compose -f docker-compose.lite.yml up -d
+# ═══════════════════════════════════════════════════
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DB_TYPE: sqlite
+      DB_PATH: /app/data/pdd_order.db
+      SERVER_PORT: 8201
+      DEPLOY_MODE: production
+      BASE_URL: ${BASE_URL:-http://120.26.139.90:8200}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}
+      JWT_EXPIRE_MINUTES: 1440
+      GIN_MODE: release
+      ADMIN_DEFAULT_USERNAME: ${ADMIN_DEFAULT_USERNAME:-admin}
+      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:?ADMIN_DEFAULT_PASSWORD must be set}
+      ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-}
+      WECOM_CORP_ID: ${WECOM_CORP_ID:-}
+      WECOM_CORP_SECRET: ${WECOM_CORP_SECRET:-}
+      WECOM_AGENT_ID: ${WECOM_AGENT_ID:-0}
+      WECOM_TOKEN: ${WECOM_TOKEN:-}
+      WECOM_ENCODING_AES_KEY: ${WECOM_ENCODING_AES_KEY:-}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+    volumes:
+      # 直接挂载到宿主机目录，方便备份
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    ports:
+      - "8200:8201"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8201/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

@@ -1,22 +1,88 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, Component } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import AppShell from '../components/layout/AppShell';
 
-// Lazy-loaded page components for code splitting
-const LoginPage = lazy(() => import('../pages/LoginPage'));
-const DashboardPage = lazy(() => import('../pages/DashboardPage'));
-const OrdersPage = lazy(() => import('../pages/OrdersPage'));
-const OrderDetailPage = lazy(() => import('../pages/OrderDetailPage'));
-const TeamPage = lazy(() => import('../pages/TeamPage'));
-const EmployeesPage = lazy(() => import('../pages/EmployeesPage'));
-const RevenuePage = lazy(() => import('../pages/RevenuePage'));
-const CustomersPage = lazy(() => import('../pages/CustomersPage'));
+// ── Lazy-load with auto-retry on chunk failure ──
+// When Vite rebuilds, old chunk hashes become invalid (404).
+// This wrapper retries 3 times, then force-reloads the page.
+function lazyWithRetry(importFn) {
+  return lazy(() =>
+    importFn().catch((err) => {
+      const hasReloaded = sessionStorage.getItem('chunk_reload');
+      if (!hasReloaded) {
+        sessionStorage.setItem('chunk_reload', '1');
+        window.location.reload();
+        return new Promise(() => {}); // never resolves — page reloads
+      }
+      sessionStorage.removeItem('chunk_reload');
+      throw err; // let ErrorBoundary catch it
+    })
+  );
+}
+
+// ── Error Boundary: catch render crashes gracefully ──
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, errorMsg: '' };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, errorMsg: error?.message || '未知错误' };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          justifyContent: 'center', height: '100%', minHeight: '300px', gap: '16px',
+        }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: 16,
+            background: '#F5F3FF', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#434FCF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
+          <p style={{ color: '#64748B', fontSize: 14 }}>页面加载遇到问题</p>
+          <button
+            onClick={() => { sessionStorage.removeItem('chunk_reload'); window.location.reload(); }}
+            style={{
+              padding: '10px 24px', borderRadius: 12, border: '2px solid #434FCF',
+              background: '#434FCF', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer',
+            }}
+          >
+            重新加载
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ── Lazy-loaded page components ──
+const LoginPage = lazyWithRetry(() => import('../pages/LoginPage'));
+const DashboardPage = lazyWithRetry(() => import('../pages/DashboardPage'));
+const OrdersPage = lazyWithRetry(() => import('../pages/OrdersPage'));
+const OrderDetailPage = lazyWithRetry(() => import('../pages/OrderDetailPage'));
+const TeamPage = lazyWithRetry(() => import('../pages/TeamPage'));
+const EmployeesPage = lazyWithRetry(() => import('../pages/EmployeesPage'));
+const RevenuePage = lazyWithRetry(() => import('../pages/RevenuePage'));
+const CustomersPage = lazyWithRetry(() => import('../pages/CustomersPage'));
+const ActivationCodesPage = lazyWithRetry(() => import('../pages/ActivationCodesPage'));
 
 function LoadingFallback() {
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: '200px' }}>
-      <span style={{ color: '#999', fontSize: '14px' }}>Loading...</span>
+    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: '200px', gap: '12px' }}>
+      <div style={{
+        width: 32, height: 32, borderRadius: '50%',
+        border: '3px solid #E5E7EB', borderTopColor: '#434FCF',
+        animation: 'spin 0.6s linear infinite',
+      }} />
+      <span style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500 }}>加载中...</span>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
@@ -48,25 +114,28 @@ function LoginGuard() {
 export default function AppRouter() {
   return (
     <BrowserRouter>
-      <Suspense fallback={<LoadingFallback />}>
-        <Routes>
-          <Route path="/login" element={<LoginGuard />} />
-          <Route element={<RequireAuth />}>
-            <Route element={<AppShell />}>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/orders" element={<OrdersPage />} />
-              <Route path="/orders/:id" element={<OrderDetailPage />} />
-              <Route path="/customers" element={<CustomersPage />} />
-              <Route path="/team" element={<TeamPage />} />
-              <Route element={<RequireRole roles={['admin']} />}>
-                <Route path="/employees" element={<EmployeesPage />} />
-                <Route path="/revenue" element={<RevenuePage />} />
+      <ErrorBoundary>
+        <Suspense fallback={<LoadingFallback />}>
+          <Routes>
+            <Route path="/login" element={<LoginGuard />} />
+            <Route element={<RequireAuth />}>
+              <Route element={<AppShell />}>
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/orders" element={<OrdersPage />} />
+                <Route path="/orders/:id" element={<OrderDetailPage />} />
+                <Route path="/customers" element={<CustomersPage />} />
+                <Route path="/team" element={<TeamPage />} />
+                <Route element={<RequireRole roles={['admin']} />}>
+                  <Route path="/employees" element={<EmployeesPage />} />
+                  <Route path="/activation-codes" element={<ActivationCodesPage />} />
+                  <Route path="/revenue" element={<RevenuePage />} />
+                </Route>
               </Route>
             </Route>
-          </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Suspense>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

@@ -29,7 +29,7 @@ export default function TeamPage() {
   }, [toast]);
 
   useEffect(() => {
-    fetchTeam(true);
+    fetchTeam();
   }, [fetchTeam]);
 
   usePolling(fetchTeam, 30000);
@@ -48,7 +48,7 @@ export default function TeamPage() {
       </div>
 
       {team.length === 0 && !loading ? (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] p-20 flex flex-col items-center justify-center text-slate-400">
+        <div className="bg-white border-2 border-slate-200 rounded-2xl p-20 flex flex-col items-center justify-center text-slate-400">
           <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-full flex items-center justify-center mb-5">
             <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
           </div>
@@ -58,10 +58,10 @@ export default function TeamPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {team.map((member) => (
-            <div key={member.userid} className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] overflow-hidden flex flex-col hover:border-brand-100 transition-colors">
+            <div key={member.userid} className="bg-white border-2 border-slate-200 rounded-2xl overflow-hidden flex flex-col hover:border-brand-100 transition-colors">
               <div className="p-6 flex items-start justify-between border-b border-slate-100">
                 <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-full bg-brand-50 border border-brand-100 flex items-center justify-center text-brand-500 font-bold text-[15px] shrink-0">
+                  <div className="w-11 h-11 rounded-full bg-gradient-to-br from-brand-500/20 to-brand-200/30 border-2 border-brand-200 flex items-center justify-center text-brand-500 font-bold text-[15px] shrink-0">
                     {member.name?.substring(0, 1).toUpperCase()}
                   </div>
                   <div>

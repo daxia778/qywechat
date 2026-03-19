@@ -61,21 +61,21 @@ export default function DashboardPage() {
     chartInstanceRef.current.setOption({
       tooltip: {
         trigger: 'axis', backgroundColor: '#fff', padding: [10, 14],
-        textStyle: { color: '#1E293B', fontSize: 13, fontFamily: 'Inter' },
-        borderColor: '#E2E8F0', borderWidth: 1,
-        extraCssText: 'box-shadow: 0 4px 12px rgba(0,0,0,0.08); border-radius: 10px;',
-        axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(70,95,255,0.04)' } },
+        textStyle: { color: '#1C1C28', fontSize: 13, fontFamily: 'Inter' },
+        borderColor: '#E5E7EB', borderWidth: 2,
+        extraCssText: 'border-radius: 12px;',
+        axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(67,79,207,0.04)' } },
       },
       grid: { top: 20, right: 16, bottom: 24, left: 16, containLabel: true },
       xAxis: {
         type: 'category', data: months,
-        axisLine: { lineStyle: { color: '#E2E8F0' } },
+        axisLine: { lineStyle: { color: '#E5E7EB' } },
         axisLabel: { color: '#64748B', fontSize: 12, margin: 12, fontFamily: 'Inter' },
         axisTick: { show: false },
       },
       yAxis: {
         type: 'value',
-        splitLine: { lineStyle: { color: '#F1F5F9', type: 'dashed' } },
+        splitLine: { lineStyle: { color: '#F5F3FF', type: 'dashed' } },
         axisLabel: { color: '#94A3B8', fontSize: 12, fontFamily: 'Inter' },
         axisLine: { show: false }, axisTick: { show: false },
       },
@@ -83,14 +83,14 @@ export default function DashboardPage() {
         type: 'bar', data, barWidth: '14',
         itemStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: '#465FFF' }, { offset: 1, color: '#6366F1' },
+            { offset: 0, color: '#434FCF' }, { offset: 1, color: '#8B5CF6' },
           ]),
           borderRadius: [6, 6, 0, 0],
         },
         emphasis: {
           itemStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: '#3641F5' }, { offset: 1, color: '#4F46E5' },
+              { offset: 0, color: '#3B3FBF' }, { offset: 1, color: '#7C3AED' },
             ]),
           },
         },
@@ -159,7 +159,7 @@ export default function DashboardPage() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 lg:gap-5">
         {/* Total Orders */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.03)] transition-shadow p-5 lg:p-6 group hover:border-brand-100 transition-all duration-200">
+        <div className="bg-white border-2 border-slate-200 rounded-2xl brave-shadow p-5 lg:p-6 group hover:border-brand-100 transition-all duration-200">
           <div className="flex items-center justify-between mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center transition-colors bg-brand-50 group-hover:bg-brand-100">
               <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
@@ -180,7 +180,7 @@ export default function DashboardPage() {
           <span className="text-xs lg:text-[13px] font-medium text-slate-500 mt-1 block">总订单</span>
         </div>
         {/* Pending */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.03)] transition-shadow p-5 lg:p-6 group hover:border-amber-200 transition-all duration-200">
+        <div className="bg-white border-2 border-slate-200 rounded-2xl brave-shadow p-5 lg:p-6 group hover:border-amber-200 transition-all duration-200">
           <div className="flex items-center justify-between mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center transition-colors bg-amber-50 group-hover:bg-amber-100">
               <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -191,7 +191,7 @@ export default function DashboardPage() {
           <span className="text-xs lg:text-[13px] font-medium text-slate-500 mt-1 block">待处理</span>
         </div>
         {/* Designing */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.03)] transition-shadow p-5 lg:p-6 group hover:border-purple-200 transition-all duration-200">
+        <div className="bg-white border-2 border-slate-200 rounded-2xl brave-shadow p-5 lg:p-6 group hover:border-purple-200 transition-all duration-200">
           <div className="flex items-center justify-between mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center transition-colors bg-purple-50 group-hover:bg-purple-100">
               <svg className="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.25 9.75L16.5 12l-2.25 2.25m-4.5 0L7.5 12l2.25-2.25M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z" /></svg>
@@ -201,7 +201,7 @@ export default function DashboardPage() {
           <span className="text-xs lg:text-[13px] font-medium text-slate-500 mt-1 block">设计中</span>
         </div>
         {/* Revenue */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.03)] transition-shadow p-5 lg:p-6 group hover:border-emerald-200 transition-all duration-200">
+        <div className="bg-white border-2 border-slate-200 rounded-2xl brave-shadow p-5 lg:p-6 group hover:border-emerald-200 transition-all duration-200">
           <div className="flex items-center justify-between mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center transition-colors bg-emerald-50 group-hover:bg-emerald-100">
               <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -215,7 +215,7 @@ export default function DashboardPage() {
           <span className="text-xs lg:text-[13px] font-medium text-slate-500 mt-1 block">今日营收</span>
         </div>
         {/* Net Profit */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.03)] transition-shadow p-5 lg:p-6 group hover:border-green-200 transition-all duration-200">
+        <div className="bg-white border-2 border-slate-200 rounded-2xl brave-shadow p-5 lg:p-6 group hover:border-green-200 transition-all duration-200">
           <div className="flex items-center justify-between mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center transition-colors bg-green-50 group-hover:bg-green-100">
               <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" /></svg>
@@ -234,7 +234,7 @@ export default function DashboardPage() {
         </div>
         {/* Customer Stats */}
         {stats.total_customers !== undefined && (
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.03)] transition-shadow p-5 lg:p-6 group hover:border-cyan-200 transition-all duration-200">
+          <div className="bg-white border-2 border-slate-200 rounded-2xl brave-shadow p-5 lg:p-6 group hover:border-cyan-200 transition-all duration-200">
             <div className="flex items-center justify-between mb-4">
               <div className="w-11 h-11 rounded-xl flex items-center justify-center transition-colors bg-cyan-50 group-hover:bg-cyan-100">
                 <svg className="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
@@ -248,7 +248,7 @@ export default function DashboardPage() {
         )}
         {/* Grab Alert */}
         {stats.grab_alert_count !== undefined && (
-          <div className={`bg-white rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.03)] transition-shadow p-5 lg:p-6 group transition-all duration-200 border ${stats.grab_alert_count > 0 ? 'border-red-300 hover:border-red-400' : 'border-slate-200 hover:border-slate-300'}`}>
+          <div className={`bg-white rounded-2xl brave-shadow p-5 lg:p-6 group transition-all duration-200 border ${stats.grab_alert_count > 0 ? 'border-red-300 hover:border-red-400' : 'border-slate-200 hover:border-slate-300'}`}>
             <div className="flex items-center justify-between mb-4">
               <div className={`w-11 h-11 rounded-xl flex items-center justify-center transition-colors ${stats.grab_alert_count > 0 ? 'bg-red-50 group-hover:bg-red-100' : 'bg-slate-50 group-hover:bg-slate-100'}`}>
                 <svg className={`w-5 h-5 ${stats.grab_alert_count > 0 ? 'text-red-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
@@ -263,7 +263,7 @@ export default function DashboardPage() {
 
       {/* Monthly Chart + Team Load */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 lg:gap-6">
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.03)] transition-shadow xl:col-span-2 flex flex-col min-h-0">
+        <div className="bg-white border-2 border-slate-200 rounded-2xl brave-shadow xl:col-span-2 flex flex-col min-h-0">
           <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
             <div>
               <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">月度销量</h2>
@@ -277,7 +277,7 @@ export default function DashboardPage() {
           <div className="p-5 lg:p-6 flex-1 min-h-[340px] lg:min-h-[380px]" ref={barChartRef} />
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.03)] transition-shadow xl:col-span-1 flex flex-col min-h-0">
+        <div className="bg-white border-2 border-slate-200 rounded-2xl xl:col-span-1 flex flex-col min-h-0 hover:border-brand-200 transition-colors">
           <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
             <div>
               <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">团队负载</h2>
@@ -322,7 +322,7 @@ export default function DashboardPage() {
 
       {/* Designer Rankings */}
       {stats.designer_rankings?.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.03)] transition-shadow">
+        <div className="bg-white border-2 border-slate-200 rounded-2xl hover:border-brand-200 transition-colors">
           <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
             <div>
               <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">设计师排行</h2>
@@ -341,7 +341,7 @@ export default function DashboardPage() {
           </div>
           <div className="w-full overflow-x-auto">
             <table className="w-full border-separate border-spacing-0 text-left">
-              <thead className="bg-[#F8FAFC]">
+              <thead>
                 <tr>
                   <th className="py-3.5 px-4 font-semibold text-xs text-slate-500 uppercase tracking-wider bg-slate-50 border-b border-slate-200 whitespace-nowrap pl-6">排名</th>
                   <th className="py-3.5 px-4 font-semibold text-xs text-slate-500 uppercase tracking-wider bg-slate-50 border-b border-slate-200 whitespace-nowrap">姓名</th>
@@ -352,11 +352,11 @@ export default function DashboardPage() {
               </thead>
               <tbody>
                 {displayedRankings.map((d, i) => (
-                  <tr key={d.wecom_userid || i} className="hover:bg-[#FAFBFC]">
+                  <tr key={d.wecom_userid || i} className="hover:bg-brand-25">
                     <td className="py-3.5 px-4 text-[13px] text-slate-700 border-b border-slate-100 pl-6">
-                      {i === 0 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-50 text-amber-500 text-sm font-bold">1</span>
-                        : i === 1 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-100 text-slate-500 text-sm font-bold">2</span>
-                        : i === 2 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-orange-50 text-orange-400 text-sm font-bold">3</span>
+                      {i === 0 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-brand-50 text-brand-500 text-sm font-bold border-2 border-brand-200">1</span>
+                        : i === 1 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-brand-50 text-brand-500/70 text-sm font-bold border-2 border-brand-100">2</span>
+                        : i === 2 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-brand-50 text-brand-500/50 text-sm font-bold border-2 border-brand-100">3</span>
                         : <span className="text-sm text-slate-400 pl-2">#{i + 1}</span>}
                     </td>
                     <td className="py-3.5 px-4 text-[13px] border-b border-slate-100 font-semibold text-slate-800">{d.name}</td>

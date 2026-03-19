@@ -33,9 +33,17 @@ export const ROLE_CLASS_MAP = {
 };
 
 export const ROLE_AVATAR_CLASS_MAP = {
-  operator: 'bg-[#465FFF]',
-  designer: 'bg-[#9333EA]',
-  admin: 'bg-[#F59E0B]',
+  operator: 'bg-[#434FCF]',
+  designer: 'bg-[#8B5CF6]',
+  admin: 'bg-[#FF6B2C]',
+};
+
+export const BADGE_VARIANT_CLASSES = {
+  success: 'bg-success-bg text-green-800 border-green-200',
+  warning: 'bg-warning-bg text-amber-800 border-amber-200',
+  danger: 'bg-danger-bg text-red-800 border-red-200',
+  primary: 'bg-brand-50 text-brand-500 border-brand-200',
+  secondary: 'bg-slate-50 text-slate-600 border-slate-200',
 };
 
 const svgProps = { xmlns: 'http://www.w3.org/2000/svg', fill: 'none', viewBox: '0 0 24 24', strokeWidth: 2, stroke: 'currentColor', className: 'w-5 h-5' };
@@ -71,6 +79,12 @@ export const NAV_ROUTES = [
     title: '员工管理',
     roles: ['admin'],
     icon: NavIcon({ d: 'M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm-1.875 6.75a4.5 4.5 0 00-4.125 2.694v.006h8.25v-.006a4.5 4.5 0 00-4.125-2.694z' }),
+  },
+  {
+    path: '/activation-codes',
+    title: '设备管理',
+    roles: ['admin'],
+    icon: NavIcon({ d: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' }),
   },
   {
     path: '/revenue',

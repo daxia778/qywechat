@@ -20,7 +20,7 @@ export function ToastProvider({ children }) {
     const timer = setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
       timersRef.current.delete(id);
-    }, 4000);
+    }, type === 'error' ? 5000 : 2500);
     timersRef.current.set(id, timer);
     return id;
   }, []);

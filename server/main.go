@@ -164,9 +164,9 @@ func main() {
 			orderAuth.GET("/:id/timeline", handlers.GetOrderTimeline)
 		}
 
-		// 管理端 (需要 JWT + Admin 角色)
+		// 管理端 (需要 JWT + Admin 角色 + IP 白名单)
 		admin := v1.Group("/admin")
-		admin.Use(middleware.JWTAuth(), middleware.AdminOnly())
+		admin.Use(middleware.JWTAuth(), middleware.AdminOnly(), middleware.AdminIPWhitelist())
 		{
 			admin.GET("/dashboard", handlers.GetDashboard)
 			admin.GET("/revenue_chart", handlers.GetRevenueChart)

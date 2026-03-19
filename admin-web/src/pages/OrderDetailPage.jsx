@@ -4,17 +4,9 @@ import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { getOrderDetail, getOrderTimeline, updateOrderStatus } from '../api/orders';
 import { getCustomerDetail } from '../api/customers';
-import { STATUS_MAP, STATUS_BADGE_MAP } from '../utils/constants';
+import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
-
-const BADGE_VARIANT_CLASSES = {
-  success: 'bg-success-bg text-green-900',
-  warning: 'bg-warning-bg text-amber-800',
-  danger: 'bg-danger-bg text-red-800',
-  primary: 'bg-brand-50 text-brand-500',
-  secondary: 'bg-slate-100 text-slate-500',
-};
 
 export default function OrderDetailPage() {
   const { id } = useParams();
@@ -159,7 +151,7 @@ export default function OrderDetailPage() {
         {/* Left */}
         <div className="xl:col-span-2 flex flex-col gap-6">
           {/* Basic Info */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)]">
+          <div className="bg-white border-2 border-slate-200 rounded-2xl">
             <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-brand-50">
@@ -225,7 +217,7 @@ export default function OrderDetailPage() {
 
           {/* Customer Info */}
           {customer && (
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)]">
+            <div className="bg-white border-2 border-slate-200 rounded-2xl">
               <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-cyan-50">
@@ -263,7 +255,7 @@ export default function OrderDetailPage() {
 
           {/* Group Chat Indicator (when no customer but has chat) */}
           {!customer && order.wecom_chat_id && (
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] px-6 py-4 flex items-center gap-3">
+            <div className="bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-success-bg">
                 <svg className="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
               </div>
@@ -273,7 +265,7 @@ export default function OrderDetailPage() {
           )}
 
           {/* Profit */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)]">
+          <div className="bg-white border-2 border-slate-200 rounded-2xl">
             <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-success-bg">
@@ -307,7 +299,7 @@ export default function OrderDetailPage() {
 
         {/* Right: Timeline */}
         <div className="xl:col-span-1">
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] h-full">
+          <div className="bg-white border-2 border-slate-200 rounded-2xl h-full">
             <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-brand-50">

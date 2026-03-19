@@ -1,5 +1,25 @@
 export namespace main {
 	
+	export class AppUpdateInfo {
+	    version: string;
+	    force_update: boolean;
+	    download_url: string;
+	    release_notes: string;
+	    has_update: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppUpdateInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.force_update = source["force_update"];
+	        this.download_url = source["download_url"];
+	        this.release_notes = source["release_notes"];
+	        this.has_update = source["has_update"];
+	    }
+	}
 	export class LoginResult {
 	    success: boolean;
 	    message: string;
@@ -22,6 +42,7 @@ export namespace main {
 	    order_sn: string;
 	    price: number;
 	    raw_price: string;
+	    order_time: string;
 	    confidence: number;
 	    error?: string;
 	
@@ -34,6 +55,7 @@ export namespace main {
 	        this.order_sn = source["order_sn"];
 	        this.price = source["price"];
 	        this.raw_price = source["raw_price"];
+	        this.order_time = source["order_time"];
 	        this.confidence = source["confidence"];
 	        this.error = source["error"];
 	    }
