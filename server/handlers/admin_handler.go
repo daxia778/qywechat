@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"pdd-order-system/middleware"
 	"pdd-order-system/models"
 	"pdd-order-system/services"
 
@@ -90,12 +89,26 @@ func GetRevenueChart(c *gin.Context) {
 // ─── 员工管理 ──────────────────────────────────────────
 
 type CreateEmployeeReq struct {
-	WecomUserID    string `json:"wecom_userid" binding:"required"`
-	Name           string `json:"name" binding:"required"`
-	Role           string `json:"role" binding:"required"`
-	ActivationCode string `json:"activation_code"`
-	Username       string `json:"username"`
-	Password       string `json:"password"`
+	Name string `json:"name" binding:"required"`
+	Role string `json:"role" binding:"required"`
+}
+
+// generateUsername 根据角色自动生成用户名: designer_001, sales_001, follow_001
+func generateUsername(role string) string {
+	var count int64
+	models.DB.Model(&models.Employee{}).Where("role = ?", role).Count(&count)
+	return fmt.Sprintf("%s_%03d", role, count+1)
+}
+
+// generateRandomPassword 生成 8 位随机密码 (大小写字母+数字)
+func generateRandomPassword() string {
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, 8)
+	for i := range b {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		b[i] = chars[n.Int64()]
+	}
+	return string(b)
 }
 
 // ListEmployees 员工列表
@@ -110,7 +123,7 @@ func ListEmployees(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": employees})
 }
 
-// CreateEmployee 添加员工
+// CreateEmployee 添加员工 (V2: 自动生成账号密码)
 func CreateEmployee(c *gin.Context) {
 	var req CreateEmployeeReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -119,79 +132,102 @@ func CreateEmployee(c *gin.Context) {
 	}
 
 	// 校验角色
-	if req.Role != "operator" && req.Role != "designer" && req.Role != "admin" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "角色必须是 operator/designer/admin"})
+	if !models.IsValidRole(req.Role) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "角色必须是 sales/designer/follow/admin"})
 		return
 	}
 
-	var existing models.Employee
-	if err := models.DB.Where("wecom_userid = ?", req.WecomUserID).First(&existing).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "该企微UserID已存在"})
+	// 自动生成用户名
+	username := generateUsername(req.Role)
+	if req.Role == "admin" {
+		username = "admin" // admin 用户名保持自定义
+	}
+
+	// 检查用户名唯一性
+	var userExist int64
+	models.DB.Model(&models.Employee{}).Where("username = ?", username).Count(&userExist)
+	if userExist > 0 {
+		// 用户名已存在，递增序号
+		for i := 0; i < 100; i++ {
+			var cnt int64
+			models.DB.Model(&models.Employee{}).Where("role = ?", req.Role).Count(&cnt)
+			username = fmt.Sprintf("%s_%03d", req.Role, cnt+1+int64(i))
+			models.DB.Model(&models.Employee{}).Where("username = ?", username).Count(&userExist)
+			if userExist == 0 {
+				break
+			}
+		}
+	}
+
+	// 生成随机密码
+	plainPassword := generateRandomPassword()
+	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码加密失败"})
 		return
 	}
 
 	emp := models.Employee{
-		WecomUserID: req.WecomUserID,
-		Name:        req.Name,
-		Role:        req.Role,
+		WecomUserID:  username, // 默认用 username 作为 wecom_userid，后续可通过通讯录同步覆盖
+		Name:         req.Name,
+		Role:         req.Role,
+		Username:     username,
+		PasswordHash: string(hashedPwd),
 	}
 
-	if req.Role == "admin" {
-		if req.Username == "" || req.Password == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "管理员角色必须提供用户名和密码"})
-			return
-		}
-		if err := middleware.ValidatePasswordStrength(req.Password); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		var userExist int64
-		models.DB.Model(&models.Employee{}).Where("username = ?", req.Username).Count(&userExist)
-		if userExist > 0 {
-			c.JSON(http.StatusConflict, gin.H{"error": "用户名已存在"})
-			return
-		}
-
-		hashedPwd, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "密码加密失败"})
-			return
-		}
-		emp.Username = req.Username
-		emp.PasswordHash = string(hashedPwd)
-	} else {
-		// 校验激活码不能为空，防止空字符串通过 bcrypt 哈希后可被空密码匹配
-		if req.ActivationCode == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "非管理员角色必须提供激活码"})
-			return
-		}
-		// Bcrypt 加密 ActivationCode
-		hashedCode, err := bcrypt.GenerateFromPassword([]byte(req.ActivationCode), bcrypt.DefaultCost)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "加密激活码失败"})
-			return
-		}
-		emp.ActivationCode = string(hashedCode)
-		// 保存明文前缀用于缩小登录时 bcrypt 扫描范围
-		prefix := req.ActivationCode
-		if len(prefix) > 4 {
-			prefix = prefix[:4]
-		}
-		emp.ActivationCodePrefix = prefix
+	if err := models.DB.Create(&emp).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建员工失败: " + err.Error()})
+		return
 	}
-
-	models.DB.Create(&emp)
 
 	userID, _ := c.Get("wecom_userid")
 	userName, _ := c.Get("name")
-	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, req.WecomUserID, "添加员工: "+req.Name+" 角色: "+req.Role, c.ClientIP())
+	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "添加员工: "+req.Name+" 角色: "+req.Role, c.ClientIP())
 
-	// 返回时显示原始激活码（仅此一次可见，之后无法找回）
-	emp.ActivationCode = ""
+	log.Printf("✅ 创建员工 | %s | 用户名=%s | 角色=%s", req.Name, username, req.Role)
+
 	c.JSON(http.StatusOK, gin.H{
-		"employee":              emp,
-		"activation_code_plain": req.ActivationCode,
-		"notice":                "⚠️ 激活码仅显示一次，请立即记录并告知员工！",
+		"employee": emp,
+		"username": username,
+		"password": plainPassword,
+		"notice":   "⚠️ 账号密码仅显示一次，请立即记录并告知员工！",
+	})
+}
+
+// ResetPassword 重置员工密码 (管理员操作)
+// PUT /api/v1/admin/employees/:id/reset_password
+func ResetPassword(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的员工ID"})
+		return
+	}
+
+	var emp models.Employee
+	if err := models.DB.First(&emp, uint(id)).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "员工不存在"})
+		return
+	}
+
+	plainPassword := generateRandomPassword()
+	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码加密失败"})
+		return
+	}
+
+	models.DB.Model(&emp).Update("password_hash", string(hashedPwd))
+
+	userID, _ := c.Get("wecom_userid")
+	userName, _ := c.Get("name")
+	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "重置密码: "+emp.Name, c.ClientIP())
+
+	log.Printf("🔑 密码已重置 | 员工=%s", emp.Name)
+
+	c.JSON(http.StatusOK, gin.H{
+		"password": plainPassword,
+		"notice":   "⚠️ 新密码仅显示一次，请立即告知员工！",
 	})
 }
 

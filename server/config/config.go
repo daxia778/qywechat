@@ -45,9 +45,10 @@ type Config struct {
 	GrabOrderTimeoutSeconds int
 
 	// 分润配置 (百分比，0-100)
-	PlatformFeeRate       int // 平台扣点 (如 PDD 抽佣)
-	DesignerCommissionRate int // 设计师抽成
-	OperatorCommissionRate int // 客服提成
+	PlatformFeeRate        int // 平台扣点 (如 PDD 抽佣)
+	DesignerCommissionRate  int // 设计师抽成
+	SalesCommissionRate     int // 谈单客服提成
+	FollowCommissionRate    int // 跟单客服提成
 
 	// Server
 	ServerPort string
@@ -97,8 +98,9 @@ func Init() {
 		CORSOrigins:             splitCSV(getEnv("CORS_ORIGINS", "http://localhost:8200")),
 		GrabOrderTimeoutSeconds: getEnvInt("GRAB_ORDER_TIMEOUT_SECONDS", 300),
 		PlatformFeeRate:         getEnvInt("PLATFORM_FEE_RATE", 5),
-		DesignerCommissionRate:  getEnvInt("DESIGNER_COMMISSION_RATE", 50),
-		OperatorCommissionRate:  getEnvInt("OPERATOR_COMMISSION_RATE", 10),
+		DesignerCommissionRate:  getEnvInt("DESIGNER_COMMISSION_RATE", 40),
+		SalesCommissionRate:     getEnvInt("SALES_COMMISSION_RATE", 10),
+		FollowCommissionRate:    getEnvInt("FOLLOW_COMMISSION_RATE", 5),
 		ServerPort:              getEnv("SERVER_PORT", "8201"),
 		BaseURL:                 getEnv("BASE_URL", "http://localhost:8200"),
 		OSSProvider:             getEnv("OSS_PROVIDER", "local"),

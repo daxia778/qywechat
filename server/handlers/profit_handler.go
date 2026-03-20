@@ -29,7 +29,8 @@ func GetProfitBreakdown(c *gin.Context) {
 		TotalPrice         int    `json:"total_price"`
 		PlatformFee        int    `json:"platform_fee"`
 		DesignerCommission int    `json:"designer_commission"`
-		OperatorCommission int    `json:"operator_commission"`
+		SalesCommission    int    `json:"sales_commission"`
+		FollowCommission   int    `json:"follow_commission"`
 		NetProfit          int    `json:"net_profit"`
 		DesignerID         string `json:"designer_id"`
 		OperatorID         string `json:"operator_id"`
@@ -37,23 +38,26 @@ func GetProfitBreakdown(c *gin.Context) {
 
 	platformRate := config.C.PlatformFeeRate
 	designerRate := config.C.DesignerCommissionRate
-	operatorRate := config.C.OperatorCommissionRate
+	salesRate := config.C.SalesCommissionRate
+	followRate := config.C.FollowCommissionRate
 
 	items := make([]ProfitItem, 0, len(orders))
-	var totalRevenue, totalPlatformFee, totalDesigner, totalOperator, totalNet int
+	var totalRevenue, totalPlatformFee, totalDesigner, totalSales, totalFollow, totalNet int
 
 	for _, o := range orders {
 		pf := o.Price * platformRate / 100
 		dc := o.Price * designerRate / 100
-		oc := o.Price * operatorRate / 100
-		np := o.Price - pf - dc - oc
+		sc := o.Price * salesRate / 100
+		fc := o.Price * followRate / 100
+		np := o.Price - pf - dc - sc - fc
 
 		items = append(items, ProfitItem{
 			OrderSN:            o.OrderSN,
 			TotalPrice:         o.Price,
 			PlatformFee:        pf,
 			DesignerCommission: dc,
-			OperatorCommission: oc,
+			SalesCommission:    sc,
+			FollowCommission:   fc,
 			NetProfit:          np,
 			DesignerID:         o.DesignerID,
 			OperatorID:         o.OperatorID,
@@ -62,7 +66,8 @@ func GetProfitBreakdown(c *gin.Context) {
 		totalRevenue += o.Price
 		totalPlatformFee += pf
 		totalDesigner += dc
-		totalOperator += oc
+		totalSales += sc
+		totalFollow += fc
 		totalNet += np
 	}
 
@@ -72,13 +77,15 @@ func GetProfitBreakdown(c *gin.Context) {
 		"config": gin.H{
 			"platform_fee_rate":        platformRate,
 			"designer_commission_rate": designerRate,
-			"operator_commission_rate": operatorRate,
+			"sales_commission_rate":    salesRate,
+			"follow_commission_rate":   followRate,
 		},
 		"summary": gin.H{
 			"total_revenue":      totalRevenue,
 			"total_platform_fee": totalPlatformFee,
 			"total_designer_pay": totalDesigner,
-			"total_operator_pay": totalOperator,
+			"total_sales_pay":    totalSales,
+			"total_follow_pay":   totalFollow,
 			"total_net_profit":   totalNet,
 		},
 		"items": items,

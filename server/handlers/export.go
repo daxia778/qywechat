@@ -121,7 +121,8 @@ func ExportProfitCSV(c *gin.Context) {
 
 	platformRate := config.C.PlatformFeeRate
 	designerRate := config.C.DesignerCommissionRate
-	operatorRate := config.C.OperatorCommissionRate
+	salesRate := config.C.SalesCommissionRate
+	followRate := config.C.FollowCommissionRate
 
 	filename := fmt.Sprintf("profit_%s.csv", monthStr)
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
@@ -131,20 +132,22 @@ func ExportProfitCSV(c *gin.Context) {
 	w := csv.NewWriter(c.Writer)
 	defer w.Flush()
 
-	w.Write([]string{"订单号", "总金额(元)", "平台扣点(元)", "设计师分成(元)", "客服分成(元)", "净利润(元)", "设计师ID", "客服ID"})
+	w.Write([]string{"订单号", "总金额(元)", "平台扣点(元)", "设计师分成(元)", "谈单客服分成(元)", "跟单客服分成(元)", "净利润(元)", "设计师ID", "客服ID"})
 
 	for _, o := range orders {
 		pf := o.Price * platformRate / 100
 		dc := o.Price * designerRate / 100
-		oc := o.Price * operatorRate / 100
-		np := o.Price - pf - dc - oc
+		sc := o.Price * salesRate / 100
+		fc := o.Price * followRate / 100
+		np := o.Price - pf - dc - sc - fc
 
 		w.Write([]string{
 			sanitizeCSVCell(o.OrderSN),
 			fmt.Sprintf("%.2f", float64(o.Price)/100),
 			fmt.Sprintf("%.2f", float64(pf)/100),
 			fmt.Sprintf("%.2f", float64(dc)/100),
-			fmt.Sprintf("%.2f", float64(oc)/100),
+			fmt.Sprintf("%.2f", float64(sc)/100),
+			fmt.Sprintf("%.2f", float64(fc)/100),
 			fmt.Sprintf("%.2f", float64(np)/100),
 			sanitizeCSVCell(o.DesignerID),
 			sanitizeCSVCell(o.OperatorID),

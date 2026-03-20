@@ -132,8 +132,9 @@ func main() {
 	{
 		// 认证 (公开, 但有更严格的频率限制防爆破 + 暴力破解IP封锁)
 		// 登录限速: 5 请求/分钟/IP (叠加在 API 通用限速之上)
-		v1.POST("/auth/device_login", middleware.BruteForceGuard(), middleware.LoginRateLimit(), handlers.DeviceLogin)
-		v1.POST("/auth/admin_login", middleware.BruteForceGuard(), middleware.LoginRateLimit(), handlers.AdminLogin)
+		v1.POST("/auth/login", middleware.BruteForceGuard(), middleware.LoginRateLimit(), handlers.Login)
+		v1.POST("/auth/device_login", middleware.BruteForceGuard(), middleware.LoginRateLimit(), handlers.DeviceLogin)   // 兼容桌面端过渡
+		v1.POST("/auth/admin_login", middleware.BruteForceGuard(), middleware.LoginRateLimit(), handlers.AdminLogin)     // 兼容旧前端过渡
 
 		// 企微回调 (公开, 企微服务器验证必须公开)
 		v1.Any("/wecom/callback", handlers.WecomCallback)
@@ -174,6 +175,7 @@ func main() {
 			admin.GET("/employees", handlers.ListEmployees)
 			admin.POST("/employees", handlers.CreateEmployee)
 			admin.PUT("/employees/:id/toggle", handlers.ToggleEmployee)
+			admin.PUT("/employees/:id/reset_password", handlers.ResetPassword)
 			admin.PUT("/employees/:id/unbind", handlers.UnbindDevice)
 			admin.GET("/team_workload", handlers.GetTeamWorkload)
 			admin.GET("/profit_breakdown", handlers.GetProfitBreakdown)

@@ -186,22 +186,26 @@ func GetOrderDetail(c *gin.Context) {
 	if roleStr == "admin" {
 		platformRate := config.C.PlatformFeeRate
 		designerRate := config.C.DesignerCommissionRate
-		operatorRate := config.C.OperatorCommissionRate
+		salesRate := config.C.SalesCommissionRate
+		followRate := config.C.FollowCommissionRate
 
 		pf := order.Price * platformRate / 100
 		dc := order.Price * designerRate / 100
-		oc := order.Price * operatorRate / 100
-		np := order.Price - pf - dc - oc
+		sc := order.Price * salesRate / 100
+		fc := order.Price * followRate / 100
+		np := order.Price - pf - dc - sc - fc
 
 		result["profit"] = gin.H{
 			"total_price":         order.Price,
 			"platform_fee":        pf,
 			"designer_commission": dc,
-			"operator_commission": oc,
+			"sales_commission":    sc,
+			"follow_commission":   fc,
 			"net_profit":          np,
 			"platform_fee_rate":   platformRate,
 			"designer_rate":       designerRate,
-			"operator_rate":       operatorRate,
+			"sales_rate":          salesRate,
+			"follow_rate":         followRate,
 		}
 	}
 
