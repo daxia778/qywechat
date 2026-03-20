@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"crypto/rand"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"strconv"
 	"time"
@@ -364,6 +366,68 @@ func ListActivationCodes(c *gin.Context) {
 // PauseActivationCode 远程暂停或恢复激活码 (复用 toggleEmployeeActive)
 func PauseActivationCode(c *gin.Context) {
 	toggleEmployeeActive(c, true)
+}
+
+// RegenerateActivationCode 重新生成激活码（管理员操作，会同时解绑旧设备）
+func RegenerateActivationCode(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的员工ID"})
+		return
+	}
+
+	var emp models.Employee
+	if err := models.DB.First(&emp, uint(id)).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "员工不存在"})
+		return
+	}
+
+	if emp.Role == "admin" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "管理员角色不使用激活码"})
+		return
+	}
+
+	// 生成新激活码（8位大写字母+数字）
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	codeBytes := make([]byte, 8)
+	for i := range codeBytes {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "生成激活码失败"})
+			return
+		}
+		codeBytes[i] = chars[n.Int64()]
+	}
+	plainCode := string(codeBytes)
+
+	hashedCode, err := bcrypt.GenerateFromPassword([]byte(plainCode), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "加密激活码失败"})
+		return
+	}
+
+	prefix := plainCode[:4]
+
+	// 更新激活码 + 同时清空设备绑定（旧设备失效）
+	updates := map[string]interface{}{
+		"activation_code":        string(hashedCode),
+		"activation_code_prefix": prefix,
+		"machine_id":             "",
+		"mac_address":            "",
+	}
+	models.DB.Model(&emp).Updates(updates)
+
+	userID, _ := c.Get("wecom_userid")
+	userName, _ := c.Get("name")
+	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "重新生成激活码并解绑旧设备: "+emp.Name, c.ClientIP())
+
+	log.Printf("🔑 激活码已重新生成 | 员工=%s | 旧设备已解绑", emp.Name)
+
+	c.JSON(http.StatusOK, gin.H{
+		"activation_code_plain": plainCode,
+		"notice":                "⚠️ 新激活码仅显示一次，旧设备绑定已同时解除！",
+	})
 }
 
 // ─── 企微数据查看 ──────────────────────────────────────────

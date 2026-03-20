@@ -64,6 +64,7 @@ type CreateOrderReq struct {
 	Pages           int    `json:"pages"`
 	Deadline        string `json:"deadline"`
 	Remark          string `json:"remark"`
+	ScreenshotURL   string `json:"screenshot_url"`
 }
 
 // CreateOrder 创建订单
@@ -106,7 +107,7 @@ func CreateOrder(c *gin.Context) {
 
 	order, err := services.CreateOrder(
 		operatorID, req.OrderSN, req.CustomerContact,
-		req.Topic, req.Remark, "", req.Price, req.Pages, deadline,
+		req.Topic, req.Remark, req.ScreenshotURL, req.Price, req.Pages, deadline,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

@@ -18,3 +18,5 @@ export const exportOrdersCSV = (params) => {
   const qs = new URLSearchParams(params).toString();
   window.open(`/api/v1/admin/orders/export?${qs}&token=${getToken()}`, '_blank');
 };
+
+export const regenerateActivationCode = (id) => client.put(`/admin/activation_codes/${id}/regenerate`);

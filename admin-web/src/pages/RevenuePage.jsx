@@ -75,7 +75,7 @@ export default function RevenuePage() {
       const key = item.designer_id || '未分配';
       if (!agg[key]) agg[key] = { name: key, order_count: 0, total_revenue: 0 };
       agg[key].order_count += 1;
-      agg[key].total_revenue += item.total_price;
+      agg[key].total_revenue += (item.total_price || 0) / 100;
     });
     return Object.values(agg)
       .sort((a, b) => b.total_revenue - a.total_revenue)
@@ -102,7 +102,7 @@ export default function RevenuePage() {
     (data) => {
       if (!chartInstanceRef.current) return;
       const dates = data.map((d) => shortDate(d.date));
-      const revenueData = data.map((d) => d.revenue);
+      const revenueData = data.map((d) => +(d.revenue / 100).toFixed(2));
       const orderData = data.map((d) => d.order_count);
 
       chartInstanceRef.current.setOption({
@@ -189,10 +189,10 @@ export default function RevenuePage() {
       const dcRate = config.designer_commission_rate || 0;
       const ocRate = config.operator_commission_rate || 0;
 
-      const pfData = data.map((d) => +((d.revenue * pfRate) / 100).toFixed(2));
-      const dcData = data.map((d) => +((d.revenue * dcRate) / 100).toFixed(2));
-      const ocData = data.map((d) => +((d.revenue * ocRate) / 100).toFixed(2));
-      const npData = data.map((d, i) => +(d.revenue - pfData[i] - dcData[i] - ocData[i]).toFixed(2));
+      const pfData = data.map((d) => +((d.revenue / 100 * pfRate) / 100).toFixed(2));
+      const dcData = data.map((d) => +((d.revenue / 100 * dcRate) / 100).toFixed(2));
+      const ocData = data.map((d) => +((d.revenue / 100 * ocRate) / 100).toFixed(2));
+      const npData = data.map((d, i) => +(d.revenue / 100 - pfData[i] - dcData[i] - ocData[i]).toFixed(2));
 
       profitChartInstanceRef.current.setOption({
         grid: { top: 40, right: 10, bottom: 20, left: 20, containLabel: true },
@@ -295,11 +295,11 @@ export default function RevenuePage() {
       const prev = allData.slice(0, mid);
       const curr = allData.slice(mid);
 
-      const curRev = curr.reduce((s, d) => s + d.revenue, 0);
+      const curRev = curr.reduce((s, d) => s + d.revenue, 0) / 100;
       const curOrd = curr.reduce((s, d) => s + d.order_count, 0);
       setSummary({ total_revenue: curRev, total_orders: curOrd });
 
-      const prevRev = prev.reduce((s, d) => s + d.revenue, 0);
+      const prevRev = prev.reduce((s, d) => s + d.revenue, 0) / 100;
       const prevOrd = prev.reduce((s, d) => s + d.order_count, 0);
       setPrevSummary({ total_revenue: prevRev, total_orders: prevOrd });
 
@@ -371,11 +371,12 @@ export default function RevenuePage() {
 
     const rows = [['日期', '营收', '订单量', '平台手续费', '设计师佣金', '运营商佣金', '净利润']];
     currentData.forEach((d) => {
-      const pf = (d.revenue * pfRate) / 100;
-      const dc = (d.revenue * dcRate) / 100;
-      const oc = (d.revenue * ocRate) / 100;
-      const np = d.revenue - pf - dc - oc;
-      rows.push([d.date, d.revenue.toFixed(2), d.order_count, pf.toFixed(2), dc.toFixed(2), oc.toFixed(2), np.toFixed(2)]);
+      const rev = d.revenue / 100;
+      const pf = (rev * pfRate) / 100;
+      const dc = (rev * dcRate) / 100;
+      const oc = (rev * ocRate) / 100;
+      const np = rev - pf - dc - oc;
+      rows.push([d.date, rev.toFixed(2), d.order_count, pf.toFixed(2), dc.toFixed(2), oc.toFixed(2), np.toFixed(2)]);
     });
 
     rows.push([]);

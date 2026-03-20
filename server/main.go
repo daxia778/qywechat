@@ -103,6 +103,7 @@ func main() {
 	r.Static("/assets", "../admin-web/dist/assets")
 	r.StaticFile("/favicon.svg", "../admin-web/dist/favicon.svg")
 	r.StaticFile("/icons.svg", "../admin-web/dist/icons.svg")
+	r.Static("/uploads", "uploads") // OCR 截图等上传文件的静态访问
 
 	// Vue SPA: 所有非 API/静态的请求由 NoRoute 兜底 (见下方)
 
@@ -180,6 +181,7 @@ func main() {
 			admin.POST("/versions", handlers.CreateAppVersion)
 			admin.GET("/activation_codes", handlers.ListActivationCodes)
 			admin.PUT("/activation_codes/:id/pause", handlers.PauseActivationCode)
+			admin.PUT("/activation_codes/:id/regenerate", handlers.RegenerateActivationCode)
 
 			// 抢单监控
 			admin.GET("/grab_alerts", handlers.GetGrabAlerts)

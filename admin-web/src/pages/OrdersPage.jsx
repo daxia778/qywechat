@@ -34,6 +34,7 @@ export default function OrdersPage() {
     showInput: false, inputPlaceholder: '', confirmText: '确认',
   });
   const actionRef = useRef(null);
+  const [previewImage, setPreviewImage] = useState(null);
 
   const showModal = (opts, action) => {
     actionRef.current = action;
@@ -151,6 +152,16 @@ export default function OrdersPage() {
         onCancel={() => setModal((m) => ({ ...m, show: false }))}
       />
 
+      {/* Image Lightbox */}
+      {previewImage && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setPreviewImage(null)}>
+          <div className="relative max-w-[90vw] max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setPreviewImage(null)} className="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full shadow-lg text-slate-500 hover:text-slate-800 flex items-center justify-center z-10 text-lg leading-none cursor-pointer">&times;</button>
+            <img src={previewImage} alt="订单截图" className="max-w-full max-h-[85vh] rounded-xl shadow-2xl object-contain" />
+          </div>
+        </div>
+      )}
+
       {/* Title */}
       <div className="flex justify-between items-center">
         <div>
@@ -249,6 +260,7 @@ export default function OrdersPage() {
                   onHandleRefund={handleRefund}
                   onConfirmClose={confirmClose}
                   hasMoreActions={hasMoreActions(order)}
+                  onPreviewImage={setPreviewImage}
                 />
               ))}
             </tbody>
@@ -274,12 +286,29 @@ export default function OrdersPage() {
 }
 
 // ── Memoized Order Row ──
-const OrderRow = memo(function OrderRow({ order, role, userId, openMoreMenu, onSetMoreMenu, onUpdateStatus, onConfirmComplete, onHandleRefund, onConfirmClose, hasMoreActions }) {
+const OrderRow = memo(function OrderRow({ order, role, userId, openMoreMenu, onSetMoreMenu, onUpdateStatus, onConfirmComplete, onHandleRefund, onConfirmClose, hasMoreActions, onPreviewImage }) {
   return (
     <tr className="group transition-colors hover:bg-[#FAFBFC]">
       <td className="pl-6">
-        <Link to={`/orders/${order.id}`} className="font-semibold text-brand-500 hover:underline text-[13px] cursor-pointer">{order.order_sn}</Link>
-        {order.topic && <div className="text-[12px] text-slate-500 mt-1 max-w-[180px] truncate" title={order.topic}>{order.topic}</div>}
+        <div className="flex items-center gap-2.5">
+          {order.screenshot_path ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onPreviewImage(order.screenshot_path); }}
+              className="w-9 h-9 rounded-lg border border-slate-200 overflow-hidden shrink-0 hover:border-brand-300 hover:shadow-md transition-all cursor-pointer bg-slate-50"
+              title="查看订单截图"
+            >
+              <img src={order.screenshot_path} alt="" className="w-full h-full object-cover" loading="lazy" />
+            </button>
+          ) : (
+            <div className="w-9 h-9 rounded-lg border border-dashed border-slate-200 shrink-0 flex items-center justify-center text-slate-300">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            </div>
+          )}
+          <div>
+            <Link to={`/orders/${order.id}`} className="font-semibold text-brand-500 hover:underline text-[13px] cursor-pointer">{order.order_sn}</Link>
+            {order.topic && <div className="text-[12px] text-slate-500 mt-1 max-w-[160px] truncate" title={order.topic}>{order.topic}</div>}
+          </div>
+        </div>
       </td>
       <td className="text-[13px] text-slate-700 font-medium">
         {order.customer_contact ? (

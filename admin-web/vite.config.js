@@ -10,14 +10,14 @@ export default defineConfig({
     proxy: {
       // ⚠️ WS 规则必须在 /api 前面，否则 /api/v1/ws 会被当作普通 HTTP 代理
       '/api/v1/ws': {
-        target: 'ws://localhost:8200',
+        target: 'ws://localhost:8201',
         ws: true,
       },
       '/api': {
-        target: 'http://localhost:8200',
+        target: 'http://localhost:8201',
       },
       '/uploads': {
-        target: 'http://localhost:8200',
+        target: 'http://localhost:8201',
       },
     },
   },

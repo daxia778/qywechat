@@ -1,143 +1,171 @@
-# 代码审查报告 (第二版)
+# 代码审查报告 (第三版)
 - 项目：PDD 派单管理系统
-- 日期：2026-03-19
+- 日期：2026-03-20
 - 模式：dry-run（只报告不修复）
-- 审查范围：全项目增量审查（基于第一轮修复后的代码）
-- 审查轮次：第 2 轮
+- 审查范围：新增模块增量审查（Customer、GrabMonitor、Contact、前后端数据连接）
+- 审查轮次：第 3 轮（基于 5 任务并行开发后的代码）
 
-## 第一轮修复回顾
+## 审查范围
 
-第一轮发现 33 个问题，已修复 18 个：
+### 后端（10 文件）
+- server/models/customer.go, server/services/customer.go, server/services/grab_monitor.go
+- server/handlers/customer_handler.go, server/handlers/contact_handler.go
+- server/handlers/wecom_handler.go, server/handlers/admin_handler.go
+- server/services/wecom.go, server/services/order.go, server/main.go
 
-| 修复项 | 状态 |
-|---|---|
-| Dockerfile Go 1.25→1.24 | ✅ 已修复 |
-| docker-compose JWT/密码弱 fallback | ✅ 已修复 |
-| ListOrders/GetOrderDetail/GetOrderTimeline 权限校验 | ✅ 已修复 |
-| 密码输入框 type=password | ✅ 已修复 |
-| NAV_ROUTES icon HTML→React 组件 | ✅ 已修复 |
-| WebSocket token URL→首帧认证 | ✅ 已修复 |
-| AuthContext localStorage→storage.js | ✅ 已修复 |
-| GetRevenueChart N+1→聚合查询 | ✅ 已修复 |
-| GetTeamWorkload N+1 优化 | ✅ 已修复 |
-| CSRF token store 数量上限 | ✅ 已修复 |
-| Vue 遗留文件清理 (6个) | ✅ 已修复 |
-| 旧 Badge.jsx 删除 | ✅ 已修复 |
-| build.sh npm install→npm ci | ✅ 已修复 |
-| .env.example JWT 示例值 | ✅ 已修复 |
-| WebSocket 后端首帧认证同步 | ✅ 已修复 |
-| order_handler.go slices.Contains | ✅ 已修复 |
-| ws.go slices.Contains + any | ✅ 已修复 |
-| admin_handler.go 聚合查询重构 | ✅ 已修复 |
+### 前端（10 文件）
+- CustomersPage.jsx, customers.js, DashboardPage.jsx, TeamPage.jsx
+- OrderDetailPage.jsx, OrdersPage.jsx, AppShell.jsx
+- WebSocketContext.jsx, constants.js, router/index.jsx
 
-## 第二轮增量审查 — 新发现的问题
+---
 
-### 🔴 严重（共 1 项）❌ 未修复
+## 发现的问题（按严重程度）
 
-1. **[server/services/ocr_test.go:83] 编译错误 — parseDashscopeContent 未定义**
-   - `go test ./services/...` 编译失败
-   - 函数可能被重命名或未导出
-   - 影响：CI 测试 pipeline 无法通过
-   - 建议：检查 ocr.go 中对应函数，修正测试引用
+### 🔴 严重（共 6 项）❌ 未修复
 
-### 🟡 警告（共 11 项）❌ 未修复
+**后端：**
+1. **[services/grab_monitor.go:75-76,89] AssignedAt 空指针 panic**
+   - `order.AssignedAt.Format(...)` 和 `time.Since(*order.AssignedAt)` 未做 nil 检查
+   - SQL 虽有 IS NOT NULL，但 GORM 某些驱动可能返回零值
+   - goroutine 无 recover，panic 会导致监控永久停止
+   - 建议：循环开头添加 `if order.AssignedAt == nil { continue }`
 
-**后端（修复引入的新问题）:**
-1. **[handlers/ws.go] 空 Origin 被放行**
-   - WebSocket 握手未拒绝空 Origin 请求
-   - 建议：拒绝空 Origin 或限制为已知域名
+2. **[services/grab_monitor.go:128] GetGrabAlerts 同样存在 nil 解引用**
+   - `int(time.Since(*o.AssignedAt).Minutes())` — API handler 中 panic 会导致 500
+   - 建议：同 #1 添加 nil 检查
 
-2. **[handlers/ws.go] JWT claims sub 为空时仍注册匿名 WS 连接**
-   - 认证通过但 sub 为空的 token 可建立无身份连接
-   - 建议：sub 为空时拒绝连接
+3. **[handlers/wecom_handler.go:224-228,281-286] 诊断接口暴露 corp_id/agent_id**
+   - WecomDiagnostic 响应直接返回企微企业标识
+   - admin 账号被盗可获取企微身份
+   - 建议：脱敏（前4后4）或仅返回 "已配置" 布尔值
 
-3. **[middleware/csrf.go] 触发上限时全量清空，所有在线用户 CSRF 失效**
-   - 清空策略过于粗暴，应改为 LRU 淘汰最旧 token
-   - 建议：使用带过期时间的 map 或 LRU cache
+4. **[services/wecom.go:116,140,191...] access_token 在 URL 中，日志泄露风险**
+   - 企微 API 设计限制，但服务端错误日志可能记录完整 URL
+   - 建议：error log 中对 token 做脱敏处理
 
-4. **[handlers/order_handler.go] GetOrder 先查库再鉴权，订单存在性信息泄露**
-   - 攻击者可通过 403 vs 404 判断订单是否存在
-   - 建议：统一返回 404 或先鉴权再查库
+**前端：**
+5. **[router/index.jsx:125] /customers 路由缺少角色守卫**
+   - 位于 RequireRole 包裹之外，designer 角色可访问全部顾客 PII（手机号、微信号）
+   - 建议：移入 `RequireRole roles={['admin', 'operator']}` 包裹
 
-5. **[WebSocketContext.jsx:110-114] 认证竞态 — 状态先于认证完成设为 CONNECTED**
-   - onopen 时立即 CONNECTED + 刷新消息队列，但后端还没验证 token
-   - 建议：后端回复 `{type:"auth_ok"}` 后才设 CONNECTED
+6. **[CustomersPage.jsx:32-44] 首次加载无 loading 状态**
+   - `loading` 初始值为 `false`，首次 fetch 未设置 loading
+   - 导致 "暂无顾客" 空状态短暂闪现
+   - 建议：`useState(true)` 或首次加载也设 loading
 
-6. **[storage.js:22] setAuth 中 token 无条件写入**
-   - 若 token 为 undefined，localStorage 存入字符串 "undefined"
-   - 导致 isAuthenticated 为 true 但请求全部 401
-   - 建议：`if (token) localStorage.setItem(...)`
+### 🟡 警告（共 14 项）❌ 未修复
 
-7. **[docker-compose.yml:11,34] PG_PASSWORD 仍有弱默认值 changeme**
-   - 建议：改为 `${PG_PASSWORD:?PG_PASSWORD must be set}`
+**后端：**
+7. **[services/wecom.go:481] TestSendMessage 发送给 @all 全员**
+   - 诊断功能每次调用给全企业发消息，造成骚扰
+   - 建议：改为只发送给当前管理员自身
 
-**仍存在的第一轮未修复问题:**
-8. [server/.env] 真实密钥存在于本地文件（.gitignore 已排除，低风险）
-9. [OrderDetailPage.jsx:121] order.price 无 null 保护，渲染 ¥NaN
-10. [ToastContext.jsx:12] setTimeout 无清理引用，潜在内存泄漏
-11. [deploy/nginx.conf:26-27] TLS 证书路径为占位符
+8. **[handlers/wecom_handler.go:159] handleAddExternalContact 未区分 DB 错误类型**
+   - 所有 Error != nil 都当作"不存在"处理，DB 异常会掩盖真实故障
+   - 建议：检查 `gorm.ErrRecordNotFound`
 
-**配置/测试:**
-- [Dockerfile:12] CGO_ENABLED=1 但运行镜像缺 sqlite-libs，可能运行时崩溃
-- [ci.yml:21] CI go build 未设 CGO_ENABLED=1，与 Dockerfile 不一致
-- [.env.example:28] DEPLOY_MODE 默认 debug，直接 cp 使用会绕过 JWT 强度检查
+9. **[services/customer.go:22-58] FindOrCreateCustomer 竞态条件（TOCTOU）**
+   - 先查后建不在事务中，mobile/wechat_id 无唯一索引
+   - 并发请求相同 contact 可创建重复记录
+   - 建议：改用 `FirstOrCreate` 或添加唯一索引
 
-### 🔵 建议（共 8 项）❌ 未修复
+10. **[services/customer.go:84,87-90] UpdateCustomerStats 两次 DB 写入无事务**
+    - 两次写操作错误返回值被丢弃，存在不一致风险
+    - 建议：合并为一次 SQL 或使用事务
 
-1. [admin_handler.go] startDate 时区截断依赖服务器本地时区，可能差 8 小时
-2. [order_handler.go] 非 admin 可传 operator_id/designer_id 参数（无绕过风险，建议静默忽略）
-3. [constants.js:44] NavIcon 在模块级调用非组件形式，cloneElement 时有隐患
-4. [AuthContext.jsx:36] checkToken 直接读 localStorage 而非使用 state token
-5. [order_handler_test.go] 多处 time.Sleep(100ms) 等待 async，CI 慢机器脆弱
-6. [profit_test.go] 测试自定义函数而非生产代码
-7. [handlers/employee_handler.go] ListEmployees 暴露敏感字段
-8. [多处] /100 分→元换算未统一封装
+11. **[services/order.go:591-595] GrabAlertCount vs GetGrabAlerts 语义不一致**
+    - Dashboard 查 `grab_alert_sent = false`（未告警），API 查所有超时
+    - 建议：统一语义或明确命名
 
-### 🟢 正面亮点（第二轮确认）
+12. **[services/order.go:607] 昨日异常抢单时间窗口计算错误**
+    - `yesterdayStart - 30min` 作为下界，与"昨日异常抢单数"业务含义不符
+    - 建议：改为 assigned_at 在昨日范围内且超时的订单
 
-- ✅ N+1 查询已彻底消除（GetRevenueChart + GetTeamWorkload）
-- ✅ 角色权限过滤完整（ListOrders/GetOrderDetail/GetOrderTimeline）
-- ✅ 分润数据仅 admin 可见
-- ✅ XSS 修复完整（dangerouslySetInnerHTML 全部替换）
-- ✅ WebSocket 首帧认证架构正确
-- ✅ Vue 遗留文件 100% 清理
-- ✅ storage.js 封装覆盖完整
-- ✅ SQL 注入防护完备
-- ✅ 抢单并发安全（原子 UPDATE + 写锁）
+13. **[services/grab_monitor.go:116-131,144-168] N+1 查询**
+    - GetGrabAlerts 每个订单查一次 employee
+    - GetDesignerGrabStats 每个设计师 2 次 COUNT
+    - 建议：批量查询 + GROUP BY 聚合
+
+14. **[services/order.go:442-473] Dashboard 加载全量订单对象仅为计数求和**
+    - 多处 Find(&orders) 后 Go 遍历求和，应改为 SQL 聚合
+    - 建议：SELECT COUNT(*), SUM(price) 替代
+
+15. **[services/grab_monitor.go:26-32, order.go:276,343] 后台 goroutine 无 panic recovery**
+    - GrabMonitor、TimeoutWatcher、DeadlineReminder 均无 defer recover
+    - 任何 panic 导致定时任务永久停止，主程序无感知
+    - 建议：添加 defer recover + 自动重启
+
+16. **[services/wecom.go:168,422,496] json.Unmarshal 错误被忽略**
+    - 企微返回非 JSON（502 页面）时误判为成功
+    - 建议：检查 Unmarshal 错误返回值
+
+**前端：**
+17. **[OrdersPage.jsx:217] CSS 类冲突**
+    - `py-2.5` 和 `py-1.5` 冲突，`rounded-xl` 和 `rounded-lg` 冲突
+    - 建议：移除多余的冲突类
+
+18. **[CustomersPage.jsx:108] handleSave 中 fetchCustomers 未 await**
+    - 详情面板刷新可能与列表不一致
+    - 建议：添加 await
+
+19. **[OrderDetailPage.jsx:61] 响应取值链模糊**
+    - `res.data.data || res.data` 不确定后端格式
+    - 建议：与后端对齐统一响应结构
+
+20. **[OrdersPage.jsx:289] memo 失效 — openMoreMenu 导致全行重渲染**
+    - 菜单 toggle 时所有 OrderRow 重新渲染
+    - 建议：改为 `isMenuOpen` 布尔值 prop
+
+### 🔵 建议（共 10 项）❌ 未修复
+
+21. **[customer_handler.go:76-81] UpdateCustomer 无法清空 nickname/remark**
+22. **[services/wecom.go:355,388] URL 参数未做 QueryEscape**
+23. **[services/customer.go:103] LIKE 前缀通配符无法利用索引**
+24. **[services/customer.go:126] GetCustomerWithOrders 未分页**
+25. **[OrderDetailPage.jsx:263] wecom_chat_id 暴露给设计师角色**
+26. **[CustomersPage.jsx:382-390] 内联 style@keyframes 重复注入**
+27. **[AppShell.jsx:30-33] filteredNavRoutes 缺少 useMemo**
+28. **[CustomersPage.jsx:52-66] 手动防抖 vs 已有 useDebounce hook 不统一**
+29. **[DashboardPage.jsx:42-45] profitMargin useMemo 计算但从未使用（死代码）**
+30. **[TeamPage.jsx:82,86] 魔法数字 10 硬编码（设计师容量上限）**
+
+---
 
 ## 修复统计
 
-### 累计
-- 总发现：33 + 12 = 45 个问题（去重后）
-- 已修复：18 个（第一轮修复）
-- 待处理：20 个
-  - 🔴 严重：1 个（ocr_test 编译错误）
-  - 🟡 警告：11 个（安全 + 竞态 + 配置）
-  - 🔵 建议：8 个（代码质量 + 测试质量）
-- 已关闭（不再适用）：7 个（第一轮问题已被修复覆盖）
+### 本轮
+- 总发现：30 个问题
+- 已修复：0 个（dry-run 模式）
+- 待处理：30 个
 
-### 修复率
-- 第一轮问题修复率：**55%** (18/33)
-- 整体问题关闭率：**56%** (25/45)
+### 累计（含前两轮）
+- 总发现：45 + 30 = 75 个问题（去重后）
+- 已修复：41 个（前 5 轮审查修复）
+- 待处理：30 个（本轮新发现）
+- 整体关闭率：**55%** (41/75)
 
-## 建议下一步修复优先级
+## 修复优先级建议
 
-### P0 — 立即修复（影响 CI/构建）
-1. ocr_test.go 编译错误 — 修正函数引用
-2. Dockerfile CGO sqlite-libs — 运行时崩溃风险
+### P0 — 立即修复（安全+崩溃）
+1. grab_monitor.go AssignedAt nil panic（#1, #2）— 会导致监控 goroutine 永久停止
+2. router/index.jsx /customers 角色守卫缺失（#5）— 顾客 PII 数据泄露
+3. 后台 goroutine 添加 panic recovery（#15）— #1/#2 的安全网
 
-### P1 — 本周修复（安全加固）
-3. WebSocket 认证竞态 — 前后端协商 auth_ok 协议
-4. CSRF store 改 LRU 淘汰策略
-5. setAuth token 防御性检查
-6. GetOrder 先鉴权再查库
-7. PG_PASSWORD 弱默认值
+### P1 — 本周修复（逻辑+性能）
+4. FindOrCreateCustomer 竞态条件（#9）
+5. DB 错误类型未区分（#8）
+6. Dashboard 全量加载改 SQL 聚合（#14）
+7. N+1 查询优化（#13）
+8. 敏感信息脱敏（#3, #4）
+9. CustomersPage loading 状态（#6）
 
 ### P2 — 排期优化
-8. 时区处理、测试质量、代码规范
+10. 前端性能（memo 失效、useMemo、防抖统一）
+11. 代码质量（死代码、魔法数字、CSS 冲突）
+12. 企微 API 错误处理（json.Unmarshal、URL 编码）
 
 ---
 *报告由 auto-review (dry-run) 自动生成*
-*第 2 轮 / 共 3 轮（max-rounds 3）*
-*数据来源：review-backend-r2, review-frontend-r2, review-config-r2 三个审查代理*
-*上一轮报告已合并，修复状态已更新*
+*第 3 轮 / dry-run 模式 / max-rounds 2*
+*数据来源：review-backend-r3, review-frontend-r3 两个审查代理*

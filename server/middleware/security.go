@@ -138,9 +138,8 @@ func SuspiciousRequestFilter() gin.HandlerFunc {
 		"gobuster", "wfuzz", "hydra", "metasploit",
 		"burp", "zap", "acunetix", "nessus", "openvas",
 		"shodan", "censys", "zgrab",
-		"python-requests/", "go-http-client/", // 通用客户端（可选，根据需要启用）
-		"curl/",  // 裸 curl 探测
-		"wget/",  // 裸 wget 探测
+		// 注意: go-http-client 是桌面客户端的默认 UA，不能拦截
+		// curl/wget 用于合法调试，也不拦截
 	}
 
 	return func(c *gin.Context) {
