@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
-import { listEmployees, createEmployee, toggleEmployee, unbindDevice as apiUnbind, pauseActivationCode as apiPause, batchToggleEmployees, batchDeleteEmployees } from '../api/admin';
+import { listEmployees, createEmployee, toggleEmployee, unbindDevice as apiUnbind, pauseActivationCode as apiPause, batchToggleEmployees, batchDeleteEmployees, resetPassword as apiResetPassword } from '../api/admin';
 import { ROLE_MAP, ROLE_CLASS_MAP, ROLE_AVATAR_CLASS_MAP, BADGE_VARIANT_CLASSES } from '../utils/constants';
 import { formatDate } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
@@ -16,8 +16,8 @@ export default function EmployeesPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [adding, setAdding] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
-  const [form, setForm] = useState({ wecom_userid: '', name: '', role: 'operator', username: '', password: '' });
-  const [codeModal, setCodeModal] = useState({ show: false, code: '' });
+  const [form, setForm] = useState({ name: '', role: 'sales' });
+  const [credentialModal, setCredentialModal] = useState({ show: false, username: '', password: '', notice: '' });
   const [confirmModal, setConfirmModal] = useState({ show: false, title: '', message: '', type: 'info', confirmText: '确认' });
 
   // Feature B: Expanded row
@@ -143,25 +143,31 @@ export default function EmployeesPage() {
     catch (err) { toast('复制失败: ' + err.message, 'error'); }
   };
 
+  const handleResetPassword = (emp) => {
+    showConfirm({
+      title: '重置密码',
+      message: `确定要重置 ${emp.name} 的登录密码吗？重置后将生成新的随机密码。`,
+      type: 'warning', confirmText: '重置密码',
+    }, async () => {
+      try {
+        const res = await apiResetPassword(emp.id);
+        const { password, notice } = res.data;
+        setCredentialModal({ show: true, username: emp.username || emp.wecom_userid, password, notice: notice || '' });
+      } catch (err) { toast('重置密码失败: ' + (err.response?.data?.error || err.message), 'error'); }
+    });
+  };
+
   const submitAdd = async (e) => {
     e.preventDefault();
-    if (!form.wecom_userid || !form.name) return;
-    if (form.role === 'admin' && (!form.username || !form.password)) {
-      toast('管理员需要填写用户名和密码。', 'error');
-      return;
-    }
+    if (!form.name) return;
     setAdding(true);
     try {
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-      const activationCode = form.role !== 'admin' ? Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('') : undefined;
-      const res = await createEmployee({ ...form, activation_code: activationCode });
+      const res = await createEmployee({ name: form.name, role: form.role });
       setShowAddModal(false);
-      if (form.role !== 'admin') {
-        setCodeModal({ show: true, code: res.data.activation_code_plain });
-      } else {
-        toast(`管理员 ${form.name} 已添加`, 'success');
-      }
-      setForm({ wecom_userid: '', name: '', role: 'operator', username: '', password: '' });
+      // V2: 后端返回 { employee, username, password, notice }
+      const { username, password, notice } = res.data;
+      setCredentialModal({ show: true, username: username || '', password: password || '', notice: notice || '' });
+      setForm({ name: '', role: 'sales' });
       fetchEmployees();
     } catch (err) { toast('添加失败: ' + (err.response?.data?.error || err.message), 'error'); }
     finally { setAdding(false); }
@@ -252,9 +258,9 @@ export default function EmployeesPage() {
         onCancel={() => setConfirmModal((m) => ({ ...m, show: false }))}
       />
 
-      {/* Activation Code Modal */}
-      {codeModal.show && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={() => setCodeModal({ show: false, code: '' })}>
+      {/* Credential Modal (V2: shows username + password) */}
+      {credentialModal.show && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={() => setCredentialModal({ show: false, username: '', password: '', notice: '' })}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 pt-6 pb-2">
@@ -262,18 +268,33 @@ export default function EmployeesPage() {
                 <div className="w-10 h-10 rounded-full flex items-center justify-center bg-success-bg shrink-0">
                   <svg className="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
-                <h3 className="text-lg font-bold text-slate-800">员工添加成功</h3>
+                <h3 className="text-lg font-bold text-slate-800">操作成功</h3>
               </div>
             </div>
             <div className="px-6 py-3">
-              <p className="text-sm text-slate-600 mb-3">请保存以下激活码，此码仅显示一次：</p>
-              <div className="bg-slate-50 rounded-xl p-4 flex items-center justify-between border border-slate-100">
-                <code className="text-2xl font-bold font-mono text-slate-800 tracking-[0.3em] tabular-nums">{codeModal.code}</code>
-                <button onClick={() => copyCode(codeModal.code)} className="inline-flex items-center justify-center gap-2 py-1.5 px-3 text-[12px] font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm">复制</button>
+              {credentialModal.notice && (
+                <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">{credentialModal.notice}</p>
+              )}
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-500">用户名</span>
+                  <div className="flex items-center gap-2">
+                    <code className="text-sm font-bold font-mono text-slate-800">{credentialModal.username}</code>
+                    <button onClick={() => copyCode(credentialModal.username)} className="text-[11px] text-brand-500 hover:text-brand-600 font-semibold">复制</button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-500">密码</span>
+                  <div className="flex items-center gap-2">
+                    <code className="text-lg font-bold font-mono text-slate-800 tracking-wider">{credentialModal.password}</code>
+                    <button onClick={() => copyCode(credentialModal.password)} className="text-[11px] text-brand-500 hover:text-brand-600 font-semibold">复制</button>
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="px-6 pb-6 pt-2 flex justify-end">
-              <button onClick={() => setCodeModal({ show: false, code: '' })} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm">关闭</button>
+            <div className="px-6 pb-6 pt-2 flex justify-between">
+              <button onClick={() => copyCode(`用户名: ${credentialModal.username}\n密码: ${credentialModal.password}`)} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm">一键复制全部</button>
+              <button onClick={() => setCredentialModal({ show: false, username: '', password: '', notice: '' })} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm">关闭</button>
             </div>
           </div>
         </div>
@@ -285,7 +306,7 @@ export default function EmployeesPage() {
           <h1 className="text-[26px] font-extrabold text-slate-800 font-[Outfit] tracking-tight">员工管理</h1>
           <p className="text-sm text-slate-500 mt-1">团队成员与权限管理</p>
         </div>
-        <button onClick={() => { setForm({ wecom_userid: '', name: '', role: 'operator', username: '', password: '' }); setShowAddModal(true); }} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm">
+        <button onClick={() => { setForm({ name: '', role: 'sales' }); setShowAddModal(true); }} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm">
           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
           <span>添加员工</span>
         </button>
@@ -371,7 +392,7 @@ export default function EmployeesPage() {
                     <SortIcon field="role" sortField={sortField} sortDir={sortDir} />
                   </button>
                 </th>
-                <th>激活码</th>
+                <th>账号</th>
                 <th>设备指纹</th>
                 <th>最后活跃</th>
                 <th>
@@ -406,6 +427,7 @@ export default function EmployeesPage() {
                   onToggleSelect={() => toggleSelectOne(emp.id)}
                   onToggleStatus={() => handleToggle(emp)}
                   onUnbind={() => handleUnbind(emp)}
+                  onResetPassword={() => handleResetPassword(emp)}
                 />
               ))}
             </tbody>
@@ -425,10 +447,6 @@ export default function EmployeesPage() {
             </div>
             <form onSubmit={submitAdd} className="p-6">
               <div className="mb-5">
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">企微 UserID</label>
-                <input value={form.wecom_userid} onChange={(e) => setForm({ ...form, wecom_userid: e.target.value })} type="text" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10" placeholder="企微中的唯一标识" required />
-              </div>
-              <div className="mb-5">
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">姓名</label>
                 <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} type="text" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10" placeholder="员工真实姓名" required />
               </div>
@@ -436,7 +454,8 @@ export default function EmployeesPage() {
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">系统角色</label>
                 <div className="relative">
                   <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 appearance-none bg-white font-medium" required>
-                    <option value="operator">客服管家</option>
+                    <option value="sales">谈单客服</option>
+                    <option value="follow">跟单客服</option>
                     <option value="designer">设计师</option>
                     <option value="admin">管理员</option>
                   </select>
@@ -444,23 +463,12 @@ export default function EmployeesPage() {
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
                   </div>
                 </div>
+                <p className="text-xs text-slate-400 mt-1.5">系统将自动生成登录账号和随机密码</p>
               </div>
-              {form.role === 'admin' && (
-                <>
-                  <div className="mb-5">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">用户名</label>
-                    <input value={form.username || ''} onChange={(e) => setForm({ ...form, username: e.target.value })} type="text" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10" placeholder="登录用户名" required />
-                  </div>
-                  <div className="mb-5">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">初始密码</label>
-                    <input value={form.password || ''} onChange={(e) => setForm({ ...form, password: e.target.value })} type="password" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10" placeholder="初始登录密码" required autoComplete="new-password" />
-                  </div>
-                </>
-              )}
               <div className="mt-8 flex justify-end gap-3">
                 <button type="button" onClick={() => setShowAddModal(false)} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm">取消</button>
                 <button type="submit" className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm" disabled={adding}>
-                  {adding ? '保存中...' : (form.role === 'admin' ? '创建管理员' : '生成激活码并保存')}
+                  {adding ? '保存中...' : '创建员工'}
                 </button>
               </div>
             </form>
@@ -486,7 +494,7 @@ const SortIcon = memo(function SortIcon({ field, sortField, sortDir }) {
 });
 
 // Extracted row component for clarity
-const EmployeeRow = memo(function EmployeeRow({ emp, isAdmin, isExpanded, isSelected, onToggleExpand, onToggleSelect, onToggleStatus, onUnbind }) {
+const EmployeeRow = memo(function EmployeeRow({ emp, isAdmin, isExpanded, isSelected, onToggleExpand, onToggleSelect, onToggleStatus, onUnbind, onResetPassword }) {
   const totalCols = isAdmin ? 9 : 8;
   const BADGE_VARIANT_CLASSES = {
     success: 'bg-success-bg text-green-900',
@@ -532,8 +540,8 @@ const EmployeeRow = memo(function EmployeeRow({ emp, isAdmin, isExpanded, isSele
         </td>
         <td><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide ${BADGE_VARIANT_CLASSES[ROLE_CLASS_MAP[emp.role]] || BADGE_VARIANT_CLASSES.secondary}`}>{ROLE_MAP[emp.role] || emp.role}</span></td>
         <td>
-          {emp.role !== 'admin' ? (
-            <code className="text-[13px] bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-mono">******</code>
+          {emp.username ? (
+            <code className="text-[13px] bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-mono">{emp.username}</code>
           ) : (
             <span className="text-slate-400">-</span>
           )}
@@ -571,6 +579,9 @@ const EmployeeRow = memo(function EmployeeRow({ emp, isAdmin, isExpanded, isSele
         </td>
         <td className="text-right pr-6">
           <div className="flex items-center justify-end gap-2 text-slate-400" onClick={(e) => e.stopPropagation()}>
+            <button onClick={onResetPassword} className="p-1.5 rounded transition-colors text-brand-500 hover:text-brand-600 hover:bg-brand-50 cursor-pointer" title="重置密码">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+            </button>
             <button onClick={onUnbind} disabled={!emp.machine_id} className={`p-1.5 rounded transition-colors ${emp.machine_id ? 'text-amber-500 hover:text-amber-600 hover:bg-amber-50 cursor-pointer' : 'text-slate-300'}`} title="解绑设备">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" /></svg>
             </button>

@@ -253,7 +253,7 @@ export default function LoginPage() {
               欢迎回来
             </h2>
             <p className="text-slate-400 text-[13px] mb-8">
-              使用管理员账号登录系统
+              使用账号密码登录系统
             </p>
 
             {/* 错误 */}
@@ -276,7 +276,7 @@ export default function LoginPage() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="管理员账号"
+                  placeholder="请输入账号"
                   autoComplete="username"
                   className="login-input"
                 />

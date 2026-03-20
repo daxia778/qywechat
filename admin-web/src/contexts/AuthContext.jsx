@@ -1,5 +1,5 @@
 import { createContext, useState, useCallback, useEffect } from 'react';
-import { validateToken, adminLogin } from '../api/auth';
+import { validateToken, login as apiLogin } from '../api/auth';
 import { getToken, getUserName, getUserId, getRole, setAuth, clearAuth, setRole as setStoredRole, setStoredUserId } from '../utils/storage';
 
 export const AuthContext = createContext(null);
@@ -14,14 +14,21 @@ export function AuthProvider({ children }) {
   const isAuthenticated = !!token;
 
   const login = useCallback(async (username, password) => {
-    const res = await adminLogin(username, password);
-    const { token: t, employee_name, wecom_userid, role: r } = res.data;
-    setAuth({ token: t, employee_name, wecom_userid, role: r || 'admin' });
+    const res = await apiLogin(username, password);
+    const data = res.data;
+    // V2 统一登录返回 { token, user: { id, name, role, username } }
+    // V1 旧格式返回 { token, employee_name, wecom_userid, role }
+    const t = data.token;
+    const user = data.user || {};
+    const empName = user.name || data.employee_name || username;
+    const empId = user.username || data.wecom_userid || '';
+    const r = user.role || data.role || 'admin';
+    setAuth({ token: t, employee_name: empName, wecom_userid: empId, role: r });
     setToken(t);
-    setUserName(employee_name || username);
-    setUserId(wecom_userid || '');
-    setRole(r || 'admin');
-    return res.data;
+    setUserName(empName);
+    setUserId(empId);
+    setRole(r);
+    return data;
   }, []);
 
   const logout = useCallback(() => {

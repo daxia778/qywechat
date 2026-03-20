@@ -5,6 +5,7 @@ export const getDashboard = () => client.get('/admin/dashboard');
 export const listEmployees = () => client.get('/admin/employees');
 export const createEmployee = (data) => client.post('/admin/employees', data);
 export const toggleEmployee = (id) => client.put(`/admin/employees/${id}/toggle`);
+export const resetPassword = (id) => client.put(`/admin/employees/${id}/reset_password`);
 export const unbindDevice = (id) => client.put(`/admin/employees/${id}/unbind`);
 export const getTeamWorkload = () => client.get('/admin/team_workload');
 export const getProfitSummary = (month) => client.get('/admin/profit_breakdown', { params: { month } });
