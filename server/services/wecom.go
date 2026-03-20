@@ -311,7 +311,7 @@ func (w *WeComClient) CreateContactWay(state string, userIDs []string) (configID
 		return "", "", err
 	}
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"type":  2, // 企业自定义渠道
 		"scene": 2, // 小程序/二维码
 		"style": 1,
@@ -375,7 +375,7 @@ func (w *WeComClient) GetExternalContactList(userID string) ([]string, error) {
 }
 
 // GetExternalContactDetail 获取外部联系人详情
-func (w *WeComClient) GetExternalContactDetail(externalUserID string) (map[string]interface{}, error) {
+func (w *WeComClient) GetExternalContactDetail(externalUserID string) (map[string]any, error) {
 	if !w.IsContactConfigured() {
 		return nil, fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
 	}
@@ -397,7 +397,7 @@ func (w *WeComClient) GetExternalContactDetail(externalUserID string) (map[strin
 		return nil, err
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		return nil, err
 	}
@@ -410,7 +410,7 @@ func (w *WeComClient) GetExternalContactDetail(externalUserID string) (map[strin
 	return result, nil
 }
 
-func (w *WeComClient) postJSON(url string, payload interface{}) error {
+func (w *WeComClient) postJSON(url string, payload any) error {
 	body, err := w.postJSONRaw(url, payload)
 	if err != nil {
 		return err
@@ -426,7 +426,7 @@ func (w *WeComClient) postJSON(url string, payload interface{}) error {
 	return nil
 }
 
-func (w *WeComClient) postJSONRaw(url string, payload interface{}) ([]byte, error) {
+func (w *WeComClient) postJSONRaw(url string, payload any) ([]byte, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("JSON序列化失败: %w", err)

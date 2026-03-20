@@ -7,7 +7,10 @@ export const WS_STATE = {
   AUTHENTICATING: 'authenticating',
   RECONNECTING: 'reconnecting',
   DISCONNECTED: 'disconnected',
+  OFFLINE: 'offline',          // 后端不可达，停止重试
 };
+
+const MAX_RETRIES = 5;         // 最多重试 5 次后进入离线模式
 
 export const WebSocketContext = createContext(null);
 
@@ -24,19 +27,17 @@ export function WebSocketProvider({ children }) {
   const messageQueueRef = useRef([]);
 
   // ---------------------------------------------------------------------------
-  // Exponential backoff with jitter: base starts at 1s, doubles each retry,
-  // capped at 30s, plus 0-30% random jitter to avoid thundering herd.
+  // Exponential backoff with jitter: base starts at 2s, doubles each retry,
+  // capped at 30s, plus 0-30% random jitter.
   // ---------------------------------------------------------------------------
   const getReconnectDelay = useCallback(() => {
-    const base = Math.min(1000 * Math.pow(2, retryCountRef.current), 30000);
+    const base = Math.min(2000 * Math.pow(2, retryCountRef.current), 30000);
     const jitter = base * 0.3 * Math.random();
     return base + jitter;
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Heartbeat: send application-level { type: "ping" } every 30s.
-  // The server responds with { type: "pong" }. If no pong arrives, the browser
-  // will eventually fire onerror/onclose when the TCP stack detects the break.
+  // Heartbeat: send { type: "ping" } every 30s.
   // ---------------------------------------------------------------------------
   const stopHeartbeat = useCallback(() => {
     if (heartbeatTimerRef.current) {
@@ -60,8 +61,7 @@ export function WebSocketProvider({ children }) {
   }, [stopHeartbeat]);
 
   // ---------------------------------------------------------------------------
-  // Message queue: messages sent while disconnected/reconnecting are buffered
-  // and flushed as soon as the connection is re-established.
+  // Message queue
   // ---------------------------------------------------------------------------
   const flushMessageQueue = useCallback(() => {
     const ws = wsRef.current;
@@ -111,31 +111,24 @@ export function WebSocketProvider({ children }) {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      // Authenticate via first message instead of query string to avoid token leaking in logs
       ws.send(JSON.stringify({ type: 'auth', token }));
       setConnectionState(WS_STATE.AUTHENTICATING);
-      console.log('[WS] Socket opened, authenticating...');
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        // Silently consume pong responses from the server
         if (data.type === 'pong') return;
 
-        // Handle auth_ok: transition to CONNECTED only after server confirms auth
         if (data.type === 'auth_ok') {
           retryCountRef.current = 0;
           setConnectionState(WS_STATE.CONNECTED);
           startHeartbeat();
           flushMessageQueue();
-          console.log('[WS] Authenticated and connected');
           return;
         }
 
-        // Handle auth error from server
         if (data.type === 'error' && connectionStateRef.current !== WS_STATE.CONNECTED) {
-          console.error('[WS] Auth failed:', data.message);
           ws.close();
           return;
         }
@@ -155,12 +148,16 @@ export function WebSocketProvider({ children }) {
       wsRef.current = null;
 
       if (!manualDisconnectRef.current) {
-        setConnectionState(WS_STATE.RECONNECTING);
         retryCountRef.current += 1;
+
+        // 超过最大重试次数 → 切到离线模式，停止重连
+        if (retryCountRef.current > MAX_RETRIES) {
+          setConnectionState(WS_STATE.OFFLINE);
+          return;
+        }
+
+        setConnectionState(WS_STATE.RECONNECTING);
         const delay = getReconnectDelay();
-        console.log(
-          `[WS] Reconnecting in ${Math.round(delay)}ms (attempt ${retryCountRef.current})`
-        );
         reconnectTimerRef.current = setTimeout(connect, delay);
       } else {
         setConnectionState(WS_STATE.DISCONNECTED);
@@ -168,7 +165,6 @@ export function WebSocketProvider({ children }) {
     };
 
     ws.onerror = () => {
-      // onerror is always followed by onclose in browsers, so just close here
       ws.close();
     };
   }, [startHeartbeat, stopHeartbeat, getReconnectDelay, flushMessageQueue]);
@@ -178,7 +174,7 @@ export function WebSocketProvider({ children }) {
     clearTimeout(reconnectTimerRef.current);
     stopHeartbeat();
     if (wsRef.current) {
-      wsRef.current.onclose = null; // prevent auto-reconnect
+      wsRef.current.onclose = null;
       wsRef.current.close();
       wsRef.current = null;
     }
@@ -188,7 +184,15 @@ export function WebSocketProvider({ children }) {
   }, [stopHeartbeat]);
 
   // ---------------------------------------------------------------------------
-  // send() -- queue-aware: buffers messages while disconnected
+  // Manual retry from OFFLINE state
+  // ---------------------------------------------------------------------------
+  const retry = useCallback(() => {
+    retryCountRef.current = 0;
+    connect();
+  }, [connect]);
+
+  // ---------------------------------------------------------------------------
+  // send() -- queue-aware
   // ---------------------------------------------------------------------------
   const send = useCallback((message) => {
     const ws = wsRef.current;
@@ -201,7 +205,7 @@ export function WebSocketProvider({ children }) {
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Event listener helpers  (unchanged API surface)
+  // Event listener helpers
   // ---------------------------------------------------------------------------
   const on = useCallback((eventType, callback) => {
     if (!listenersRef.current.has(eventType)) {
@@ -224,7 +228,7 @@ export function WebSocketProvider({ children }) {
 
   return (
     <WebSocketContext.Provider
-      value={{ connected, connectionState, connect, disconnect, send, on, off }}
+      value={{ connected, connectionState, connect, disconnect, retry, send, on, off }}
     >
       {children}
     </WebSocketContext.Provider>

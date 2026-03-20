@@ -11,7 +11,7 @@ import NotificationPanel from '../NotificationPanel';
 
 export default function AppShell() {
   const { userName, role, logout } = useAuth();
-  const { on, off, connect, connected, connectionState } = useWebSocket();
+  const { on, off, connect, connected, connectionState, retry } = useWebSocket();
   const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
@@ -255,14 +255,19 @@ export default function AppShell() {
           <div className="flex items-center gap-2 sm:gap-4">
             {/* WebSocket Connection Indicator */}
             <div
-              className="flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1.5 rounded-lg cursor-default select-none"
+              className={`flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1.5 rounded-lg select-none ${
+                connectionState === WS_STATE.OFFLINE ? 'cursor-pointer hover:bg-slate-100 transition-colors' : 'cursor-default'
+              }`}
               title={
                 connectionState === WS_STATE.CONNECTED
                   ? '实时连接正常'
                   : connectionState === WS_STATE.RECONNECTING
                   ? '正在重新连接...'
+                  : connectionState === WS_STATE.OFFLINE
+                  ? '后端不可达，点击重试'
                   : '连接已断开'
               }
+              onClick={connectionState === WS_STATE.OFFLINE ? retry : undefined}
             >
               <span
                 className={`inline-block w-2 h-2 rounded-full shrink-0 ${
@@ -270,6 +275,8 @@ export default function AppShell() {
                     ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]'
                     : connectionState === WS_STATE.RECONNECTING
                     ? 'bg-amber-400 animate-pulse shadow-[0_0_6px_rgba(251,191,36,0.5)]'
+                    : connectionState === WS_STATE.OFFLINE
+                    ? 'bg-slate-400'
                     : 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
                 }`}
               />
@@ -279,6 +286,8 @@ export default function AppShell() {
                     ? 'text-emerald-600'
                     : connectionState === WS_STATE.RECONNECTING
                     ? 'text-amber-500'
+                    : connectionState === WS_STATE.OFFLINE
+                    ? 'text-slate-400'
                     : 'text-red-500'
                 }`}
               >
@@ -286,6 +295,8 @@ export default function AppShell() {
                   ? '已连接'
                   : connectionState === WS_STATE.RECONNECTING
                   ? '重连中'
+                  : connectionState === WS_STATE.OFFLINE
+                  ? '离线'
                   : '已断开'}
               </span>
             </div>
@@ -346,7 +357,7 @@ export default function AppShell() {
               <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </div>
           }>
-            <div className="page-enter">
+            <div className="page-enter" key={location.pathname}>
               <Outlet />
             </div>
           </Suspense>

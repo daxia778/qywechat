@@ -12,7 +12,7 @@ echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
 export default function DashboardPage() {
   const { toast } = useToast();
-  const { on, off } = useWebSocket();
+  const { on, off, connected } = useWebSocket();
   const [loading, setLoading] = useState(false);
   const [rankingExpanded, setRankingExpanded] = useState(false);
   const [profitData, setProfitData] = useState({ net_profit: 0, total_revenue: 0, order_count: 0 });
@@ -127,7 +127,7 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
-  usePolling(fetchDashboardData, 30000);
+  usePolling(fetchDashboardData, connected ? 60000 : 30000);
 
   useEffect(() => {
     const handler = () => fetchDashboardData();

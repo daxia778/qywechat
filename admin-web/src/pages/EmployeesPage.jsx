@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { listEmployees, createEmployee, toggleEmployee, unbindDevice as apiUnbind, pauseActivationCode as apiPause, batchToggleEmployees, batchDeleteEmployees } from '../api/admin';
@@ -471,7 +471,7 @@ export default function EmployeesPage() {
   );
 }
 
-function SortIcon({ field, sortField, sortDir }) {
+const SortIcon = memo(function SortIcon({ field, sortField, sortDir }) {
   const isActive = sortField === field;
   return (
     <span className={`inline-flex flex-col ml-1.5 -mb-0.5 ${isActive ? 'text-brand-500' : 'text-slate-300'}`}>
@@ -483,10 +483,10 @@ function SortIcon({ field, sortField, sortDir }) {
       </svg>
     </span>
   );
-}
+});
 
 // Extracted row component for clarity
-function EmployeeRow({ emp, isAdmin, isExpanded, isSelected, onToggleExpand, onToggleSelect, onToggleStatus, onUnbind }) {
+const EmployeeRow = memo(function EmployeeRow({ emp, isAdmin, isExpanded, isSelected, onToggleExpand, onToggleSelect, onToggleStatus, onUnbind }) {
   const totalCols = isAdmin ? 9 : 8;
   const BADGE_VARIANT_CLASSES = {
     success: 'bg-success-bg text-green-900',
@@ -620,9 +620,9 @@ function EmployeeRow({ emp, isAdmin, isExpanded, isSelected, onToggleExpand, onT
       )}
     </>
   );
-}
+});
 
-function DetailItem({ label, value, mono, icon }) {
+const DetailItem = memo(function DetailItem({ label, value, mono, icon }) {
   return (
     <div className="flex items-start gap-2.5">
       <div className="mt-0.5 text-slate-400 shrink-0">{icon}</div>
@@ -632,4 +632,4 @@ function DetailItem({ label, value, mono, icon }) {
       </div>
     </div>
   );
-}
+});

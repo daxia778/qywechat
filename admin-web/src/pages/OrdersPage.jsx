@@ -1,9 +1,10 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { usePolling } from '../hooks/usePolling';
+import { useDebounce } from '../hooks/useDebounce';
 import { listOrders, updateOrderStatus } from '../api/orders';
 import { exportOrdersCSV } from '../api/admin';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ORDER_STATUSES } from '../utils/constants';
@@ -14,17 +15,17 @@ import LoadingSpinner from '../components/LoadingSpinner';
 export default function OrdersPage() {
   const { role, userId } = useAuth();
   const { toast } = useToast();
-  const { on, off } = useWebSocket();
+  const { on, off, connected } = useWebSocket();
 
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [currentStatus, setCurrentStatus] = useState('');
   const [searchKeyword, setSearchKeyword] = useState('');
+  const debouncedKeyword = useDebounce(searchKeyword, 400);
   const [totalOrders, setTotalOrders] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
   const [openMoreMenu, setOpenMoreMenu] = useState(null);
   const pageSize = 50;
-  const searchTimerRef = useRef(null);
 
   const totalPages = Math.max(1, Math.ceil(totalOrders / pageSize));
 
@@ -49,7 +50,7 @@ export default function OrdersPage() {
     try {
       const params = { limit: pageSize, offset: currentPage * pageSize };
       if (currentStatus) params.status = currentStatus;
-      if (searchKeyword.trim()) params.keyword = searchKeyword.trim();
+      if (debouncedKeyword.trim()) params.keyword = debouncedKeyword.trim();
       const res = await listOrders(params);
       setOrders(res.data.data || []);
       setTotalOrders(res.data.total || 0);
@@ -59,23 +60,18 @@ export default function OrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, currentStatus, searchKeyword, toast]);
+  }, [currentPage, currentStatus, debouncedKeyword, toast]);
 
   useEffect(() => {
     fetchOrders();
   }, [currentStatus, currentPage, fetchOrders]);
 
-  // Debounced search — only update searchTerm state; the useEffect on
-  // [currentStatus, currentPage, fetchOrders] will handle the actual fetch.
+  // Reset to page 0 when debounced keyword changes
   useEffect(() => {
-    clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(() => {
-      setCurrentPage(0);
-    }, 400);
-    return () => clearTimeout(searchTimerRef.current);
-  }, [searchKeyword]);
+    setCurrentPage(0);
+  }, [debouncedKeyword]);
 
-  usePolling(fetchOrders, 60000);
+  usePolling(fetchOrders, connected ? 120000 : 60000);
 
   useEffect(() => {
     const handler = () => fetchOrders();
@@ -241,73 +237,19 @@ export default function OrdersPage() {
                 </tr>
               )}
               {orders.map((order) => (
-                <tr key={order.id} className="group transition-colors hover:bg-[#FAFBFC]">
-                  <td className="pl-6">
-                    <Link to={`/orders/${order.id}`} className="font-semibold text-brand-500 hover:underline text-[13px] cursor-pointer">{order.order_sn}</Link>
-                    {order.topic && <div className="text-[12px] text-slate-500 mt-1 max-w-[180px] truncate" title={order.topic}>{order.topic}</div>}
-                  </td>
-                  <td className="text-[13px] text-slate-700 font-medium">
-                    {order.customer_contact ? (
-                      <Link to={`/customers?keyword=${encodeURIComponent(order.customer_contact)}`} className="text-brand-500 hover:underline cursor-pointer">{order.customer_contact}</Link>
-                    ) : '-'}
-                  </td>
-                  <td className="text-[14px] font-bold text-slate-800 tabular-nums">&yen;{order.price ? (order.price / 100).toFixed(2) : '0.00'}</td>
-                  <td className="text-[12px]">
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center gap-2 text-slate-500">
-                        <span className="w-12 text-slate-400">管家:</span>
-                        <span className="text-slate-700 font-medium bg-slate-50 px-1.5 py-0.5 rounded text-[11px]">{order.operator_id || '待分配'}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-slate-500">
-                        <span className="w-12 text-slate-400">设计:</span>
-                        <span className="text-slate-700 font-medium bg-slate-50 px-1.5 py-0.5 rounded text-[11px]">{order.designer_id || '待分配'}</span>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[order.status]] || BADGE_VARIANT_CLASSES.secondary}`}>{STATUS_MAP[order.status] || order.status}</span>
-                  </td>
-                  <td className="text-right pr-6">
-                    <div className="text-[12px] text-slate-500 mb-2.5 font-medium tabular-nums">{formatTime(order.created_at)}</div>
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
-                      {order.status === 'PENDING' && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
-                        <button onClick={() => doUpdateStatus(order, 'GROUP_CREATED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">确认建群</button>
-                      )}
-                      {order.status === 'GROUP_CREATED' && !order.designer_id && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
-                        <button onClick={() => doUpdateStatus(order, 'DESIGNING')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">分配设计</button>
-                      )}
-                      {order.status === 'DESIGNING' && (role === 'admin' || (role === 'designer' && order.designer_id === userId)) && (
-                        <button onClick={() => doUpdateStatus(order, 'DELIVERED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg text-[11px] bg-white active:scale-[0.98]">标记交付</button>
-                      )}
-                      {order.status === 'DELIVERED' && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
-                        <button onClick={() => confirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">标记完成</button>
-                      )}
-                      {hasMoreActions(order) && (
-                        <div className="relative">
-                          <button onClick={(e) => { e.stopPropagation(); setOpenMoreMenu(openMoreMenu === order.id ? null : order.id); }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors" title="更多操作">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
-                          </button>
-                          {openMoreMenu === order.id && (
-                            <div className="absolute right-0 top-8 w-40 bg-white rounded-xl shadow-xl border border-slate-200/80 z-50 overflow-hidden py-1" onClick={(e) => e.stopPropagation()}>
-                              {['PENDING','GROUP_CREATED','DESIGNING','DELIVERED'].includes(order.status) && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
-                                <button onClick={() => { handleRefund(order); setOpenMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors flex items-center gap-2">
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z" /></svg>
-                                  退款/售后
-                                </button>
-                              )}
-                              {['PENDING','GROUP_CREATED','DESIGNING'].includes(order.status) && role === 'admin' && (
-                                <button onClick={() => { confirmClose(order); setOpenMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors flex items-center gap-2">
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                  关闭订单
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                </tr>
+                <OrderRow
+                  key={order.id}
+                  order={order}
+                  role={role}
+                  userId={userId}
+                  openMoreMenu={openMoreMenu}
+                  onSetMoreMenu={setOpenMoreMenu}
+                  onUpdateStatus={doUpdateStatus}
+                  onConfirmComplete={confirmComplete}
+                  onHandleRefund={handleRefund}
+                  onConfirmClose={confirmClose}
+                  hasMoreActions={hasMoreActions(order)}
+                />
               ))}
             </tbody>
           </table>
@@ -330,3 +272,76 @@ export default function OrdersPage() {
     </div>
   );
 }
+
+// ── Memoized Order Row ──
+const OrderRow = memo(function OrderRow({ order, role, userId, openMoreMenu, onSetMoreMenu, onUpdateStatus, onConfirmComplete, onHandleRefund, onConfirmClose, hasMoreActions }) {
+  return (
+    <tr className="group transition-colors hover:bg-[#FAFBFC]">
+      <td className="pl-6">
+        <Link to={`/orders/${order.id}`} className="font-semibold text-brand-500 hover:underline text-[13px] cursor-pointer">{order.order_sn}</Link>
+        {order.topic && <div className="text-[12px] text-slate-500 mt-1 max-w-[180px] truncate" title={order.topic}>{order.topic}</div>}
+      </td>
+      <td className="text-[13px] text-slate-700 font-medium">
+        {order.customer_contact ? (
+          <Link to={`/customers?keyword=${encodeURIComponent(order.customer_contact)}`} className="text-brand-500 hover:underline cursor-pointer">{order.customer_contact}</Link>
+        ) : '-'}
+      </td>
+      <td className="text-[14px] font-bold text-slate-800 tabular-nums">&yen;{order.price ? (order.price / 100).toFixed(2) : '0.00'}</td>
+      <td className="text-[12px]">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2 text-slate-500">
+            <span className="w-12 text-slate-400">管家:</span>
+            <span className="text-slate-700 font-medium bg-slate-50 px-1.5 py-0.5 rounded text-[11px]">{order.operator_id || '待分配'}</span>
+          </div>
+          <div className="flex items-center gap-2 text-slate-500">
+            <span className="w-12 text-slate-400">设计:</span>
+            <span className="text-slate-700 font-medium bg-slate-50 px-1.5 py-0.5 rounded text-[11px]">{order.designer_id || '待分配'}</span>
+          </div>
+        </div>
+      </td>
+      <td>
+        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[order.status]] || BADGE_VARIANT_CLASSES.secondary}`}>{STATUS_MAP[order.status] || order.status}</span>
+      </td>
+      <td className="text-right pr-6">
+        <div className="text-[12px] text-slate-500 mb-2.5 font-medium tabular-nums">{formatTime(order.created_at)}</div>
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {order.status === 'PENDING' && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
+            <button onClick={() => onUpdateStatus(order, 'GROUP_CREATED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">确认建群</button>
+          )}
+          {order.status === 'GROUP_CREATED' && !order.designer_id && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
+            <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">分配设计</button>
+          )}
+          {order.status === 'DESIGNING' && (role === 'admin' || (role === 'designer' && order.designer_id === userId)) && (
+            <button onClick={() => onUpdateStatus(order, 'DELIVERED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg text-[11px] bg-white active:scale-[0.98]">标记交付</button>
+          )}
+          {order.status === 'DELIVERED' && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
+            <button onClick={() => onConfirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">标记完成</button>
+          )}
+          {hasMoreActions && (
+            <div className="relative">
+              <button onClick={(e) => { e.stopPropagation(); onSetMoreMenu(openMoreMenu === order.id ? null : order.id); }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors" title="更多操作">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
+              </button>
+              {openMoreMenu === order.id && (
+                <div className="absolute right-0 top-8 w-40 bg-white rounded-xl shadow-xl border border-slate-200/80 z-50 overflow-hidden py-1" onClick={(e) => e.stopPropagation()}>
+                  {['PENDING','GROUP_CREATED','DESIGNING','DELIVERED'].includes(order.status) && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
+                    <button onClick={() => { onHandleRefund(order); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z" /></svg>
+                      退款/售后
+                    </button>
+                  )}
+                  {['PENDING','GROUP_CREATED','DESIGNING'].includes(order.status) && role === 'admin' && (
+                    <button onClick={() => { onConfirmClose(order); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      关闭订单
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+});

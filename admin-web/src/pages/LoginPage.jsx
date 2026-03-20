@@ -240,16 +240,16 @@ export default function LoginPage() {
       <div className="w-full lg:w-[460px] xl:w-[480px] flex flex-col bg-white">
         {/* 移动端 Logo */}
         <div className="lg:hidden flex items-center gap-2.5 px-6 pt-6 pb-2">
-          <div className="w-8 h-8 rounded-md flex items-center justify-center" style={{ backgroundColor: '#4f46e5' }}>
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-gradient-to-br from-brand-500 to-brand-700">
             <span className="text-white font-semibold text-xs">PD</span>
           </div>
-          <span className="text-slate-900 text-sm font-semibold">PDD 企微中控</span>
+          <span className="text-slate-900 text-sm font-bold tracking-tight">PDD 企微中控</span>
         </div>
 
         {/* 表单居中 */}
         <div className="flex-1 flex items-center justify-center px-8 sm:px-10 lg:px-12">
           <div className="w-full max-w-[320px]">
-            <h2 className="text-slate-900 text-2xl font-semibold tracking-tight mb-1.5">
+            <h2 className="text-slate-900 text-[26px] font-bold tracking-tight mb-1.5 font-[Outfit]">
               欢迎回来
             </h2>
             <p className="text-slate-400 text-[13px] mb-8">
@@ -318,7 +318,7 @@ export default function LoginPage() {
                   className="sr-only"
                 />
                 <div
-                  className={`w-3.5 h-3.5 rounded-sm border transition-colors flex items-center justify-center ${rememberMe ? 'bg-slate-900 border-slate-900' : 'border-slate-300'
+                  className={`w-4 h-4 rounded border-2 transition-all flex items-center justify-center ${rememberMe ? 'bg-brand-500 border-brand-500' : 'border-slate-300 hover:border-brand-200'
                     }`}
                 >
                   {rememberMe && (
