@@ -115,26 +115,24 @@ export default function AppRouter() {
   return (
     <BrowserRouter>
       <ErrorBoundary>
-        <Suspense fallback={<LoadingFallback />}>
-          <Routes>
-            <Route path="/login" element={<LoginGuard />} />
-            <Route element={<RequireAuth />}>
-              <Route element={<AppShell />}>
-                <Route path="/" element={<DashboardPage />} />
-                <Route path="/orders" element={<OrdersPage />} />
-                <Route path="/orders/:id" element={<OrderDetailPage />} />
-                <Route path="/customers" element={<CustomersPage />} />
-                <Route path="/team" element={<TeamPage />} />
-                <Route element={<RequireRole roles={['admin']} />}>
-                  <Route path="/employees" element={<EmployeesPage />} />
-                  <Route path="/activation-codes" element={<ActivationCodesPage />} />
-                  <Route path="/revenue" element={<RevenuePage />} />
-                </Route>
+        <Routes>
+          <Route path="/login" element={<LoginGuard />} />
+          <Route element={<RequireAuth />}>
+            <Route element={<AppShell />}>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/orders" element={<OrdersPage />} />
+              <Route path="/orders/:id" element={<OrderDetailPage />} />
+              <Route path="/customers" element={<CustomersPage />} />
+              <Route path="/team" element={<TeamPage />} />
+              <Route element={<RequireRole roles={['admin']} />}>
+                <Route path="/employees" element={<EmployeesPage />} />
+                <Route path="/activation-codes" element={<ActivationCodesPage />} />
+                <Route path="/revenue" element={<RevenuePage />} />
               </Route>
             </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </ErrorBoundary>
     </BrowserRouter>
   );

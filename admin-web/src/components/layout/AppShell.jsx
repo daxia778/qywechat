@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useWebSocket, WS_STATE } from '../../hooks/useWebSocket';
@@ -335,9 +335,21 @@ export default function AppShell() {
 
         {/* Page */}
         <main className="flex-1 overflow-y-auto overflow-x-hidden p-6 lg:p-8 scroll-smooth bg-surface">
-          <div className="page-enter">
-            <Outlet />
-          </div>
+          <Suspense fallback={
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '60vh', gap: '12px' }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: '50%',
+                border: '3px solid #E5E7EB', borderTopColor: '#434FCF',
+                animation: 'spin 0.6s linear infinite',
+              }} />
+              <span style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500 }}>加载中...</span>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          }>
+            <div className="page-enter">
+              <Outlet />
+            </div>
+          </Suspense>
         </main>
       </div>
     </div>
