@@ -187,12 +187,14 @@ export default function RevenuePage() {
       const dates = data.map((d) => shortDate(d.date));
       const pfRate = config.platform_fee_rate || 0;
       const dcRate = config.designer_commission_rate || 0;
-      const ocRate = config.operator_commission_rate || 0;
+      const scRate = config.sales_commission_rate || 0;
+      const fcRate = config.follow_commission_rate || 0;
 
       const pfData = data.map((d) => +((d.revenue / 100 * pfRate) / 100).toFixed(2));
       const dcData = data.map((d) => +((d.revenue / 100 * dcRate) / 100).toFixed(2));
-      const ocData = data.map((d) => +((d.revenue / 100 * ocRate) / 100).toFixed(2));
-      const npData = data.map((d, i) => +(d.revenue / 100 - pfData[i] - dcData[i] - ocData[i]).toFixed(2));
+      const scData = data.map((d) => +((d.revenue / 100 * scRate) / 100).toFixed(2));
+      const fcData = data.map((d) => +((d.revenue / 100 * fcRate) / 100).toFixed(2));
+      const npData = data.map((d, i) => +(d.revenue / 100 - pfData[i] - dcData[i] - scData[i] - fcData[i]).toFixed(2));
 
       profitChartInstanceRef.current.setOption({
         grid: { top: 40, right: 10, bottom: 20, left: 20, containLabel: true },
@@ -215,10 +217,10 @@ export default function RevenuePage() {
           },
         },
         legend: {
-          data: ['平台手续费', '设计师佣金', '运营商佣金', '净利润'],
+          data: ['平台手续费', '设计师佣金', '谈单客服佣金', '跟单客服佣金', '净利润'],
           bottom: 0,
           icon: 'circle',
-          itemGap: 20,
+          itemGap: 16,
           textStyle: { color: '#64748B', fontFamily: 'Inter', fontSize: 12 },
         },
         xAxis: [
@@ -260,10 +262,18 @@ export default function RevenuePage() {
             emphasis: { focus: 'series' },
           },
           {
-            name: '运营商佣金',
+            name: '谈单客服佣金',
             type: 'bar',
             stack: 'profit',
-            data: ocData,
+            data: scData,
+            itemStyle: { color: '#F59E0B' },
+            emphasis: { focus: 'series' },
+          },
+          {
+            name: '跟单客服佣金',
+            type: 'bar',
+            stack: 'profit',
+            data: fcData,
             itemStyle: { color: '#8B5CF6' },
             emphasis: { focus: 'series' },
           },
@@ -367,16 +377,18 @@ export default function RevenuePage() {
   const handleExport = useCallback(() => {
     const pfRate = profitConfig?.platform_fee_rate || 0;
     const dcRate = profitConfig?.designer_commission_rate || 0;
-    const ocRate = profitConfig?.operator_commission_rate || 0;
+    const scRate = profitConfig?.sales_commission_rate || 0;
+    const fcRate = profitConfig?.follow_commission_rate || 0;
 
-    const rows = [['日期', '营收', '订单量', '平台手续费', '设计师佣金', '运营商佣金', '净利润']];
+    const rows = [['日期', '营收', '订单量', '平台手续费', '设计师佣金', '谈单客服佣金', '跟单客服佣金', '净利润']];
     currentData.forEach((d) => {
       const rev = d.revenue / 100;
       const pf = (rev * pfRate) / 100;
       const dc = (rev * dcRate) / 100;
-      const oc = (rev * ocRate) / 100;
-      const np = rev - pf - dc - oc;
-      rows.push([d.date, rev.toFixed(2), d.order_count, pf.toFixed(2), dc.toFixed(2), oc.toFixed(2), np.toFixed(2)]);
+      const sc = (rev * scRate) / 100;
+      const fc = (rev * fcRate) / 100;
+      const np = rev - pf - dc - sc - fc;
+      rows.push([d.date, rev.toFixed(2), d.order_count, pf.toFixed(2), dc.toFixed(2), sc.toFixed(2), fc.toFixed(2), np.toFixed(2)]);
     });
 
     rows.push([]);
@@ -409,7 +421,7 @@ export default function RevenuePage() {
   const avgDelta = prevAvg > 0 ? ((avgOrderValue - prevAvg) / prevAvg) * 100 : null;
 
   /* ── net profit rate (derived KPI) ── */
-  const totalDeductRate = (profitConfig?.platform_fee_rate || 0) + (profitConfig?.designer_commission_rate || 0) + (profitConfig?.operator_commission_rate || 0);
+  const totalDeductRate = (profitConfig?.platform_fee_rate || 0) + (profitConfig?.designer_commission_rate || 0) + (profitConfig?.sales_commission_rate || 0) + (profitConfig?.follow_commission_rate || 0);
   const netProfitRate = 100 - totalDeductRate;
 
   return (
@@ -528,7 +540,9 @@ export default function RevenuePage() {
               <span className="text-slate-200">|</span>
               <span>设计师 {profitConfig.designer_commission_rate}%</span>
               <span className="text-slate-200">|</span>
-              <span>运营商 {profitConfig.operator_commission_rate}%</span>
+              <span>谈单 {profitConfig.sales_commission_rate}%</span>
+              <span className="text-slate-200">|</span>
+              <span>跟单 {profitConfig.follow_commission_rate}%</span>
             </div>
           )}
         </div>
