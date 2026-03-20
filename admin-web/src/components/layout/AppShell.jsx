@@ -164,13 +164,32 @@ export default function AppShell() {
           collapsed ? 'w-[80px]' : 'w-[280px]'
         } ${mobileOpen ? 'fixed inset-y-0 left-0 w-[280px] shadow-2xl' : 'hidden lg:flex'}`}
       >
-        {/* Logo */}
-        <div className={`flex items-center shrink-0 h-[72px] transition-all duration-300 border-b border-white/10 ${collapsed && !mobileOpen ? 'px-4 justify-center' : 'px-6 gap-3'}`}>
+        {/* Logo + Collapse Toggle */}
+        <div className={`flex items-center shrink-0 h-[72px] transition-all duration-300 border-b border-white/10 ${collapsed && !mobileOpen ? 'px-4 justify-center' : 'px-6'}`}>
           <div className="w-10 h-10 shrink-0 bg-white/15 backdrop-blur rounded-xl flex items-center justify-center text-white font-bold text-lg tracking-wider border border-white/20">
             PD
           </div>
           {(!collapsed || mobileOpen) && (
-            <span className="font-[Outfit] font-semibold text-[20px] text-white whitespace-nowrap tracking-tight">派单中控</span>
+            <>
+              <span className="font-[Outfit] font-semibold text-[20px] text-white whitespace-nowrap tracking-tight ml-3 flex-1">派单中控</span>
+              <button
+                onClick={() => setCollapsed(true)}
+                className="p-1.5 rounded-lg hover:bg-white/15 text-white/50 hover:text-white transition-colors shrink-0"
+                aria-label="收起侧边栏"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                </svg>
+              </button>
+            </>
+          )}
+          {collapsed && !mobileOpen && (
+            <button
+              onClick={() => setCollapsed(false)}
+              className="absolute inset-0 w-full h-full flex items-center justify-center text-white/40 hover:text-white transition-colors z-10"
+              aria-label="展开侧边栏"
+              style={{ position: 'absolute' }}
+            />
           )}
         </div>
 
@@ -216,8 +235,8 @@ export default function AppShell() {
         </div>
 
         {/* Sidebar Footer */}
-        {(!collapsed || mobileOpen) && (
-          <div className="px-4 py-4 border-t border-white/10">
+        <div className="px-4 py-4 border-t border-white/10">
+          {(!collapsed || mobileOpen) ? (
             <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/10 border border-white/10">
               <div className="w-8 h-8 rounded-full bg-white/20 text-white font-semibold text-xs flex items-center justify-center shrink-0">
                 {userInitials}
@@ -227,8 +246,18 @@ export default function AppShell() {
                 <div className="text-[11px] text-white/50">{currentRoleName}</div>
               </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <button
+              onClick={() => setCollapsed(false)}
+              className="w-full flex items-center justify-center p-2 rounded-xl hover:bg-white/15 text-white/40 hover:text-white transition-colors"
+              aria-label="展开侧边栏"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+              </svg>
+            </button>
+          )}
+        </div>
       </aside>
 
       {/* Main Content */}
@@ -239,11 +268,7 @@ export default function AppShell() {
             <button onClick={() => setMobileOpen(!mobileOpen)} className="p-2 -ml-1 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors lg:hidden" aria-label="打开导航菜单">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
             </button>
-            <button onClick={() => setCollapsed(!collapsed)} className="hidden lg:flex p-2 -ml-1 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors" aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}>
-              <svg className={`w-5 h-5 transition-transform duration-300 ${collapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-              </svg>
-            </button>
+
             <nav className="hidden sm:flex items-center gap-1.5 text-sm" aria-label="面包屑导航">
               <Link to="/" className="text-slate-400 hover:text-slate-600 transition-colors" aria-label="首页">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
