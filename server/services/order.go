@@ -404,6 +404,7 @@ type DashboardStats struct {
 	LastWeekOrderCount  int              `json:"last_week_order_count"`
 	AvgCompletionHours  float64          `json:"avg_completion_hours"`
 	DesignerRankings    []DesignerRank   `json:"designer_rankings"`
+	MonthlyData         []int            `json:"monthly_data"` // 当年 1~12 月订单数
 
 	// Phase 3: 顾客与异常统计
 	TotalCustomers    int64   `json:"total_customers"`
@@ -411,6 +412,11 @@ type DashboardStats struct {
 	RepeatCustomers   int64   `json:"repeat_customers"`
 	RepeatRate        float64 `json:"repeat_rate"`
 	GrabAlertCount    int64   `json:"grab_alert_count"`
+
+	// Phase 4: 昨日对比 (日环比)
+	YesterdayOrderCount int   `json:"yesterday_order_count"`
+	YesterdayRevenue    int   `json:"yesterday_revenue"`
+	YesterdayGrabAlerts int64 `json:"yesterday_grab_alerts"`
 }
 
 // DesignerRank 设计师绩效排名
@@ -557,12 +563,52 @@ func GetDashboardStats() *DashboardStats {
 		stats.RepeatRate = float64(stats.RepeatCustomers) / float64(stats.TotalCustomers) * 100
 	}
 
+	// ── 月度订单数 (当年 1~12 月) ──
+	yearStart := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+	yearEnd := yearStart.AddDate(1, 0, 0)
+	type MonthRow struct {
+		Month string `gorm:"column:month"`
+		Cnt   int    `gorm:"column:cnt"`
+	}
+	var monthRows []MonthRow
+	models.DB.Model(&models.Order{}).
+		Select("strftime('%m', created_at) as month, COUNT(*) as cnt").
+		Where("created_at >= ? AND created_at < ?", yearStart, yearEnd).
+		Group("month").
+		Find(&monthRows)
+	monthMap := make(map[int]int, len(monthRows))
+	for _, r := range monthRows {
+		var m int
+		fmt.Sscanf(r.Month, "%d", &m)
+		monthMap[m] = r.Cnt
+	}
+	stats.MonthlyData = make([]int, 12)
+	for i := 0; i < 12; i++ {
+		stats.MonthlyData[i] = monthMap[i+1]
+	}
+
 	// ── 异常抢单数 ──
 	grabThreshold := time.Now().Add(-30 * time.Minute)
 	models.DB.Model(&models.Order{}).Where(
 		"status = ? AND assigned_at IS NOT NULL AND assigned_at < ? AND grab_alert_sent = ?",
 		models.StatusGroupCreated, grabThreshold, false,
 	).Count(&stats.GrabAlertCount)
+
+	// ── Phase 4: 昨日对比数据 (日环比) ──
+	yesterdayStart := todayStart.AddDate(0, 0, -1)
+	var yesterdayOrders []models.Order
+	models.DB.Where("created_at >= ? AND created_at < ?", yesterdayStart, todayStart).Find(&yesterdayOrders)
+	stats.YesterdayOrderCount = len(yesterdayOrders)
+	for _, o := range yesterdayOrders {
+		stats.YesterdayRevenue += o.Price
+	}
+
+	// 昨日异常抢单
+	yesterdayGrabThreshold := yesterdayStart.Add(-30 * time.Minute)
+	models.DB.Model(&models.Order{}).Where(
+		"assigned_at >= ? AND assigned_at < ? AND status = ? AND grab_alert_sent = ?",
+		yesterdayGrabThreshold, todayStart, models.StatusGroupCreated, false,
+	).Count(&stats.YesterdayGrabAlerts)
 
 	return stats
 }
