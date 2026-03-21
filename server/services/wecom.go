@@ -165,7 +165,10 @@ func (w *WeComClient) CreateGroupChat(name, ownerID string, memberIDs []string) 
 		ErrCode int    `json:"errcode"`
 		ChatID  string `json:"chatid"`
 	}
-	json.Unmarshal(body, &result)
+	if err := json.Unmarshal(body, &result); err != nil {
+		log.Printf("wecom API response unmarshal error (CreateGroupChat): %v", err)
+		return "", fmt.Errorf("解析创建群聊响应失败: %w", err)
+	}
 	if result.ErrCode != 0 {
 		return "", fmt.Errorf("创建群聊失败: errcode=%d", result.ErrCode)
 	}
@@ -419,7 +422,10 @@ func (w *WeComClient) postJSON(url string, payload any) error {
 		ErrCode int    `json:"errcode"`
 		ErrMsg  string `json:"errmsg"`
 	}
-	json.Unmarshal(body, &result)
+	if err := json.Unmarshal(body, &result); err != nil {
+		log.Printf("wecom API response unmarshal error (postJSON): %v", err)
+		return fmt.Errorf("解析企微API响应失败: %w", err)
+	}
 	if result.ErrCode != 0 {
 		return fmt.Errorf("企微API错误: %d %s", result.ErrCode, result.ErrMsg)
 	}

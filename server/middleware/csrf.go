@@ -53,9 +53,8 @@ func CSRFMiddleware() gin.HandlerFunc {
 		if path == "/api/v1/wecom/callback" ||
 			path == "/api/v1/auth/device_login" ||
 			path == "/api/v1/auth/admin_login" ||
+			path == "/api/v1/auth/login" ||
 			path == "/api/v1/app/version" ||
-			path == "/api/v1/orders/upload_ocr" ||
-			path == "/api/v1/orders/create" ||
 			path == "/health" {
 			c.Next()
 			return

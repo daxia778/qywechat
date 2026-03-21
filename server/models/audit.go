@@ -1,6 +1,7 @@
 package models
 
 import (
+	stdlog "log"
 	"time"
 
 	"gorm.io/gorm"
@@ -27,10 +28,12 @@ const (
 	AuditOrderCreate   = "ORDER_CREATE"
 	AuditOrderGrab     = "ORDER_GRAB"
 	AuditOrderStatus   = "ORDER_STATUS"
-	AuditEmployeeAdd    = "EMPLOYEE_ADD"
-	AuditEmployeeToggle = "EMPLOYEE_TOGGLE"
-	AuditDeviceUnbind   = "DEVICE_UNBIND"
-	AuditSecurityAlert  = "SECURITY_ALERT"
+	AuditEmployeeAdd          = "EMPLOYEE_ADD"
+	AuditEmployeeToggle       = "EMPLOYEE_TOGGLE"
+	AuditDeviceUnbind         = "DEVICE_UNBIND"
+	AuditSecurityAlert        = "SECURITY_ALERT"
+	AuditPasswordReset        = "PASSWORD_RESET"
+	AuditActivationCodeRegen  = "ACTIVATION_CODE_REGEN"
 )
 
 // WriteAuditLog 写入一条审计日志
@@ -43,6 +46,10 @@ func WriteAuditLog(userID, userName, action, targetID, detail, ip string) {
 		Detail:   detail,
 		IP:       ip,
 	}
-	// 审计日志写入失败不应影响主业务流程，静默忽略错误
-	DB.Create(log)
+	// 审计日志写入失败不阻塞主业务，但必须记录到标准日志
+	if err := WriteTx(func(tx *gorm.DB) error {
+		return tx.Create(log).Error
+	}); err != nil {
+		stdlog.Printf("CRITICAL: audit log write failed: action=%s user=%s err=%v", action, userID, err)
+	}
 }

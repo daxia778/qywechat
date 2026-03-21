@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,6 +9,8 @@ import (
 	"time"
 
 	"pdd-order-system/models"
+
+	"gorm.io/gorm"
 )
 
 const (
@@ -29,37 +32,50 @@ func SaveGroupChatSnapshot(chatID, name, ownerID string, memberIDs []string, ord
 
 	if result.Error != nil {
 		// 新建记录
-		models.DB.Create(&models.WecomGroupChat{
-			ChatID:    chatID,
-			Name:      name,
-			OwnerID:   ownerID,
-			MemberIDs: membersStr,
-			OrderSN:   orderSN,
-			Status:    "active",
-			SyncedAt:  now,
-		})
+		if err := models.WriteTx(func(tx *gorm.DB) error {
+			return tx.Create(&models.WecomGroupChat{
+				ChatID:    chatID,
+				Name:      name,
+				OwnerID:   ownerID,
+				MemberIDs: membersStr,
+				OrderSN:   orderSN,
+				Status:    "active",
+				SyncedAt:  now,
+			}).Error
+		}); err != nil {
+			log.Printf("❌ 保存群聊快照失败: chatid=%s err=%v", chatID, err)
+			return
+		}
 		log.Printf("📝 群聊快照已保存 | chatid=%s | name=%s", chatID, name)
 	} else {
 		// 更新已有记录
-		models.DB.Model(&existing).Updates(map[string]interface{}{
-			"name":       name,
-			"owner_id":   ownerID,
-			"member_ids": membersStr,
-			"synced_at":  now,
-		})
+		if err := models.WriteTx(func(tx *gorm.DB) error {
+			return tx.Model(&existing).Updates(map[string]interface{}{
+				"name":       name,
+				"owner_id":   ownerID,
+				"member_ids": membersStr,
+				"synced_at":  now,
+			}).Error
+		}); err != nil {
+			log.Printf("❌ 更新群聊快照失败: chatid=%s err=%v", chatID, err)
+		}
 	}
 }
 
 // SaveMessageLog 记录一条发出的企微消息
 func SaveMessageLog(chatID, senderID, msgType, content, orderSN, direction string) {
-	models.DB.Create(&models.WecomMessageLog{
-		ChatID:    chatID,
-		SenderID:  senderID,
-		MsgType:   msgType,
-		Content:   content,
-		OrderSN:   orderSN,
-		Direction: direction,
-	})
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Create(&models.WecomMessageLog{
+			ChatID:    chatID,
+			SenderID:  senderID,
+			MsgType:   msgType,
+			Content:   content,
+			OrderSN:   orderSN,
+			Direction: direction,
+		}).Error
+	}); err != nil {
+		log.Printf("❌ 记录企微消息失败: chatid=%s err=%v", chatID, err)
+	}
 }
 
 // SyncWecomMembers 从企微通讯录 API 拉取部门成员列表并存入数据库
@@ -122,32 +138,41 @@ func SyncWecomMembers() {
 		var existing models.WecomMember
 		if err := models.DB.Where("userid = ?", u.UserID).First(&existing).Error; err != nil {
 			// 新成员
-			models.DB.Create(&models.WecomMember{
-				UserID:     u.UserID,
-				Name:       u.Name,
-				Department: deptStr,
-				Position:   u.Position,
-				Mobile:     u.Mobile,
-				Email:      u.Email,
-				Avatar:     u.Avatar,
-				Status:     u.Status,
-				IsLeader:   u.IsLeader,
-				SyncedAt:   now,
-			})
+			if createErr := models.WriteTx(func(tx *gorm.DB) error {
+				return tx.Create(&models.WecomMember{
+					UserID:     u.UserID,
+					Name:       u.Name,
+					Department: deptStr,
+					Position:   u.Position,
+					Mobile:     u.Mobile,
+					Email:      u.Email,
+					Avatar:     u.Avatar,
+					Status:     u.Status,
+					IsLeader:   u.IsLeader,
+					SyncedAt:   now,
+				}).Error
+			}); createErr != nil {
+				log.Printf("❌ 创建企微成员失败: userid=%s err=%v", u.UserID, createErr)
+				continue
+			}
 			count++
 		} else {
 			// 更新已有成员
-			models.DB.Model(&existing).Updates(map[string]interface{}{
-				"name":       u.Name,
-				"department": deptStr,
-				"position":   u.Position,
-				"mobile":     u.Mobile,
-				"email":      u.Email,
-				"avatar":     u.Avatar,
-				"status":     u.Status,
-				"is_leader":  u.IsLeader,
-				"synced_at":  now,
-			})
+			if updateErr := models.WriteTx(func(tx *gorm.DB) error {
+				return tx.Model(&existing).Updates(map[string]interface{}{
+					"name":       u.Name,
+					"department": deptStr,
+					"position":   u.Position,
+					"mobile":     u.Mobile,
+					"email":      u.Email,
+					"avatar":     u.Avatar,
+					"status":     u.Status,
+					"is_leader":  u.IsLeader,
+					"synced_at":  now,
+				}).Error
+			}); updateErr != nil {
+				log.Printf("❌ 更新企微成员失败: userid=%s err=%v", u.UserID, updateErr)
+			}
 		}
 	}
 
@@ -157,19 +182,41 @@ func SyncWecomMembers() {
 // ─── 定时同步调度器 ──────────────────────────
 
 // StartWecomSyncScheduler 启动企微数据定时同步
-func StartWecomSyncScheduler() {
+func StartWecomSyncScheduler(ctx context.Context) {
 	log.Printf("✅ 企微通讯录同步调度器已启动 (间隔 %v)", wecomSyncInterval)
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[WecomSync] panic recovered: %v", r)
+			}
+		}()
 		// 启动 30 秒后首次同步 (等企微客户端初始化完成)
-		time.Sleep(30 * time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
 		SyncWecomMembers()
 
 		ticker := time.NewTicker(wecomSyncInterval)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			SyncWecomMembers()
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("企微通讯录同步调度器已停止")
+				return
+			case <-ticker.C:
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("[WecomSync] tick panic recovered: %v", r)
+						}
+					}()
+					SyncWecomMembers()
+				}()
+			}
 		}
 	}()
 }
@@ -177,15 +224,33 @@ func StartWecomSyncScheduler() {
 // ─── 90 天数据清理 ──────────────────────────
 
 // StartWecomDataCleanupScheduler 启动企微历史数据 90 天过期清理
-func StartWecomDataCleanupScheduler() {
+func StartWecomDataCleanupScheduler(ctx context.Context) {
 	log.Printf("✅ 企微数据清理调度器已启动 (保留 %v, 间隔 %v)", wecomDataRetention, wecomCleanInterval)
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[WecomDataCleanup] panic recovered: %v", r)
+			}
+		}()
 		ticker := time.NewTicker(wecomCleanInterval)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			cleanWecomData()
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("企微数据清理调度器已停止")
+				return
+			case <-ticker.C:
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("[WecomDataCleanup] tick panic recovered: %v", r)
+						}
+					}()
+					cleanWecomData()
+				}()
+			}
 		}
 	}()
 }
@@ -193,16 +258,38 @@ func StartWecomDataCleanupScheduler() {
 func cleanWecomData() {
 	threshold := time.Now().Add(-wecomDataRetention)
 
-	// 清理过期群聊快照
-	r1 := models.DB.Where("synced_at < ?", threshold).Delete(&models.WecomGroupChat{})
-	// 清理过期成员快照
-	r2 := models.DB.Where("synced_at < ?", threshold).Delete(&models.WecomMember{})
-	// 清理过期消息日志
-	r3 := models.DB.Where("created_at < ?", threshold).Delete(&models.WecomMessageLog{})
+	var r1Affected, r2Affected, r3Affected int64
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		// 清理过期群聊快照
+		r1 := tx.Where("synced_at < ?", threshold).Delete(&models.WecomGroupChat{})
+		if r1.Error != nil {
+			return r1.Error
+		}
+		r1Affected = r1.RowsAffected
 
-	total := r1.RowsAffected + r2.RowsAffected + r3.RowsAffected
+		// 清理过期成员快照
+		r2 := tx.Where("synced_at < ?", threshold).Delete(&models.WecomMember{})
+		if r2.Error != nil {
+			return r2.Error
+		}
+		r2Affected = r2.RowsAffected
+
+		// 清理过期消息日志
+		r3 := tx.Where("created_at < ?", threshold).Delete(&models.WecomMessageLog{})
+		if r3.Error != nil {
+			return r3.Error
+		}
+		r3Affected = r3.RowsAffected
+
+		return nil
+	}); err != nil {
+		log.Printf("❌ 企微数据清理失败: %v", err)
+		return
+	}
+
+	total := r1Affected + r2Affected + r3Affected
 	if total > 0 {
 		log.Printf("🗑️ 企微数据清理完成 | 群聊快照=%d, 成员快照=%d, 消息日志=%d",
-			r1.RowsAffected, r2.RowsAffected, r3.RowsAffected)
+			r1Affected, r2Affected, r3Affected)
 	}
 }

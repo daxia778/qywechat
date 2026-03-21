@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"slices"
 	"strconv"
@@ -32,30 +33,15 @@ func checkHandlerWSOrigin(r *http.Request) bool {
 }
 
 // WebSocketHandler 处理 WebSocket 连接升级
-// 支持两种认证方式: 1) URL query param ?token=xxx (兼容旧版) 2) 首帧消息 { type: "auth", token: "xxx" }
+// 认证方式: 首帧消息 { type: "auth", token: "xxx" }
 func WebSocketHandler(c *gin.Context) {
-	// 尝试从 query param 获取 token (兼容旧版客户端)
-	tokenStr := c.Query("token")
-
-	// 如果 query 中有 token，先验证
-	var userID string
-	if tokenStr != "" {
-		uid, err := validateJWT(tokenStr)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
-			return
-		}
-		userID = uid
+	// SEC-05: URL query token 已移除，仅支持首帧认证（避免 token 泄露到 access log / referer）
+	if c.Query("token") != "" {
+		log.Println("WARNING: WebSocket token via URL query is deprecated and ignored. Use first-frame auth instead.")
 	}
 
 	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		return
-	}
-
-	// 如果已通过 query param 认证，直接注册
-	if userID != "" {
-		services.Hub.Register(conn, userID)
 		return
 	}
 
@@ -136,9 +122,9 @@ func GetOrderDetail(c *gin.Context) {
 
 	query := models.DB.Where("id = ?", uint(id))
 	switch roleStr {
-	case "admin":
-		// admin 可查看所有订单
-	case "operator":
+	case "admin", "follow":
+		// admin/follow 可查看所有订单
+	case "sales":
 		query = query.Where("operator_id = ?", uidStr)
 	case "designer":
 		query = query.Where("designer_id = ?", uidStr)
@@ -157,19 +143,26 @@ func GetOrderDetail(c *gin.Context) {
 	var timeline []models.OrderTimeline
 	models.DB.Where("order_id = ?", order.ID).Order("created_at ASC").Find(&timeline)
 
-	// 获取操作人和设计师名称
+	// 批量查询操作人和设计师名称，避免多次查询
 	operatorName := ""
 	designerName := ""
+	empIDs := make([]string, 0, 2)
 	if order.OperatorID != "" {
-		var emp models.Employee
-		if models.DB.Where("wecom_userid = ?", order.OperatorID).First(&emp).Error == nil {
-			operatorName = emp.Name
-		}
+		empIDs = append(empIDs, order.OperatorID)
 	}
-	if order.DesignerID != "" {
-		var emp models.Employee
-		if models.DB.Where("wecom_userid = ?", order.DesignerID).First(&emp).Error == nil {
-			designerName = emp.Name
+	if order.DesignerID != "" && order.DesignerID != order.OperatorID {
+		empIDs = append(empIDs, order.DesignerID)
+	}
+	if len(empIDs) > 0 {
+		var emps []models.Employee
+		models.DB.Select("wecom_userid, name").Where("wecom_userid IN ?", empIDs).Find(&emps)
+		for _, e := range emps {
+			if e.WecomUserID == order.OperatorID {
+				operatorName = e.Name
+			}
+			if e.WecomUserID == order.DesignerID {
+				designerName = e.Name
+			}
 		}
 	}
 
@@ -227,15 +220,9 @@ func GetOrderTimeline(c *gin.Context) {
 	userID, _ := c.Get("wecom_userid")
 	uidStr, _ := userID.(string)
 
-	query := models.DB.Where("id = ?", uint(id))
-	switch roleStr {
-	case "admin":
-		// admin 可查看所有订单
-	case "operator":
-		query = query.Where("operator_id = ?", uidStr)
-	case "designer":
-		query = query.Where("designer_id = ?", uidStr)
-	default:
+	query := models.DB.Model(&models.Order{}).Where("id = ?", uint(id))
+	query, ok := filterByRole(query, roleStr, uidStr)
+	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
 		return
 	}

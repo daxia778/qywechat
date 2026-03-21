@@ -23,6 +23,9 @@ const (
 
 	// writeWait is the deadline for individual write operations.
 	writeWait = 5 * time.Second
+
+	// maxConnsPerUser 每个用户最大 WebSocket 连接数，防止单用户 DoS
+	maxConnsPerUser = 5
 )
 
 // WSEvent WebSocket 推送事件
@@ -93,6 +96,18 @@ var pongPayload = []byte(`{"type":"pong"}`)
 
 // Register 注册一个新的 WebSocket 连接
 func (h *WSHub) Register(conn *websocket.Conn, userID string) {
+	// 检查该用户当前连接数，超过上限则拒绝
+	if h.UserClientCount(userID) >= maxConnsPerUser {
+		log.Printf("⚠️ WebSocket 连接被拒绝 | user=%s | 已达上限 %d", userID, maxConnsPerUser)
+		conn.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "too many connections"),
+			time.Now().Add(writeWait),
+		)
+		conn.Close()
+		return
+	}
+
 	sc := &safeConn{conn: conn, userID: userID}
 
 	h.mu.Lock()

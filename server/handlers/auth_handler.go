@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 // ─── 统一登录 ──────────────────────────────────────────
@@ -48,7 +49,9 @@ func Login(c *gin.Context) {
 
 	// 桌面端设备绑定（可选）
 	if req.MachineID != "" && emp.MachineID == "" {
-		models.DB.Model(&emp).Update("machine_id", req.MachineID)
+		models.WriteTx(func(tx *gorm.DB) error {
+			return tx.Model(&emp).Update("machine_id", req.MachineID).Error
+		})
 		emp.MachineID = req.MachineID
 		log.Printf("✅ 桌面端设备绑定 | 员工=%s | MachineID=%s", emp.Name, req.MachineID)
 	}
@@ -62,9 +65,11 @@ func Login(c *gin.Context) {
 
 	// 更新最后登录时间和IP
 	now := time.Now()
-	models.DB.Model(&emp).Updates(map[string]any{
-		"last_login_at": &now,
-		"last_login_ip": c.ClientIP(),
+	models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Model(&emp).Updates(map[string]any{
+			"last_login_at": &now,
+			"last_login_ip": c.ClientIP(),
+		}).Error
 	})
 
 	c.JSON(http.StatusOK, gin.H{
@@ -91,7 +96,8 @@ type DeviceLoginReq struct {
 func DeviceLogin(c *gin.Context) {
 	var req DeviceLoginReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		log.Printf("DeviceLogin 参数绑定失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
 		return
 	}
 
@@ -151,7 +157,9 @@ func DeviceLogin(c *gin.Context) {
 				"activation_code":        "",
 				"activation_code_prefix": "",
 			}
-			models.DB.Model(&emp).Updates(updates)
+			models.WriteTx(func(tx *gorm.DB) error {
+			return tx.Model(&emp).Updates(updates).Error
+		})
 			emp.MachineID = req.MachineID
 			log.Printf("✅ 设备永久绑定 | 员工=%s | MachineID=%s | MAC=%s | 激活码已销毁", emp.Name, req.MachineID, req.MacAddress)
 			models.WriteAuditLog(emp.WecomUserID, emp.Name, models.AuditLogin, "", "首次设备激活绑定，激活码已销毁", c.ClientIP())
@@ -170,10 +178,14 @@ func DeviceLogin(c *gin.Context) {
 
 	// 更新最后登录时间和IP
 	now := time.Now()
-	models.DB.Model(&emp).Updates(map[string]any{
-		"last_login_at": &now,
-		"last_login_ip": c.ClientIP(),
-	})
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Model(&emp).Updates(map[string]any{
+			"last_login_at": &now,
+			"last_login_ip": c.ClientIP(),
+		}).Error
+	}); err != nil {
+		log.Printf("⚠️ 更新设备登录时间失败: %v", err)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"token":         token,
@@ -214,6 +226,13 @@ func AdminLogin(c *gin.Context) {
 		return
 	}
 
+	// 校验必须是 admin 角色
+	if emp.Role != "admin" {
+		models.WriteAuditLog(emp.WecomUserID, emp.Name, models.AuditLoginFail, "", "非管理员账号尝试登录管理端", c.ClientIP())
+		c.JSON(http.StatusForbidden, gin.H{"error": "非管理员账号，禁止登录管理端"})
+		return
+	}
+
 	token, err := middleware.CreateToken(emp.WecomUserID, emp.Name, emp.Role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成认证令牌失败"})
@@ -222,10 +241,14 @@ func AdminLogin(c *gin.Context) {
 	models.WriteAuditLog(emp.WecomUserID, emp.Name, models.AuditLogin, "", "管理员登录成功", c.ClientIP())
 
 	now := time.Now()
-	models.DB.Model(&emp).Updates(map[string]any{
-		"last_login_at": &now,
-		"last_login_ip": c.ClientIP(),
-	})
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Model(&emp).Updates(map[string]any{
+			"last_login_at": &now,
+			"last_login_ip": c.ClientIP(),
+		}).Error
+	}); err != nil {
+		log.Printf("⚠️ 更新管理员登录时间失败: %v", err)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"token":         token,

@@ -14,7 +14,7 @@ services:
       DB_PATH: /app/data/pdd_order.db
       SERVER_PORT: 8201
       DEPLOY_MODE: production
-      BASE_URL: ${BASE_URL:-http://120.26.139.90:8200}
+      BASE_URL: ${BASE_URL:-http://localhost:8200}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}
       JWT_EXPIRE_MINUTES: 1440
       GIN_MODE: release

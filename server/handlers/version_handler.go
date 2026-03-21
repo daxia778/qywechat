@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 
 	"pdd-order-system/models"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // CheckAppVersion 检查客户端版本 (OTA更新) — 从数据库查询最新版本
@@ -34,13 +36,19 @@ func CheckAppVersion(c *gin.Context) {
 func CreateAppVersion(c *gin.Context) {
 	var req models.AppVersion
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		log.Printf("CreateAppVersion 参数绑定失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
 		return
 	}
 	if req.VersionCode == "" || req.DownloadURL == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "版本号和下载链接不能为空"})
 		return
 	}
-	models.DB.Create(&req)
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Create(&req).Error
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "版本发布失败"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"data": req, "message": "版本发布成功"})
 }

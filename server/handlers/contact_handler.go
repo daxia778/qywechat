@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 
 	"pdd-order-system/services"
@@ -23,7 +24,8 @@ func CreateContactWay(c *gin.Context) {
 		UserIDs []string `json:"user_ids" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		log.Printf("CreateContactWay 参数绑定失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
 		return
 	}
 

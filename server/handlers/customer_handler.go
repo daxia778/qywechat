@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -8,6 +9,7 @@ import (
 	"pdd-order-system/services"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // ListCustomers GET /api/v1/admin/customers
@@ -62,7 +64,8 @@ func UpdateCustomer(c *gin.Context) {
 		Remark   string `json:"remark"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		log.Printf("UpdateCustomer 参数绑定失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
 		return
 	}
 
@@ -81,9 +84,44 @@ func UpdateCustomer(c *gin.Context) {
 	}
 
 	if len(updates) > 0 {
-		models.DB.Model(&customer).Updates(updates)
+		models.WriteTx(func(tx *gorm.DB) error {
+			return tx.Model(&customer).Updates(updates).Error
+		})
 	}
 
 	models.DB.First(&customer, uint(id))
 	c.JSON(http.StatusOK, gin.H{"message": "更新成功", "customer": customer})
+}
+
+// MergeCustomers POST /api/v1/admin/customers/merge
+// 手动合并两条顾客记录，将 duplicate 合并到 primary 并软删除 duplicate
+func MergeCustomers(c *gin.Context) {
+	var body struct {
+		PrimaryID   uint `json:"primary_id" binding:"required"`
+		DuplicateID uint `json:"duplicate_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		log.Printf("MergeCustomers 参数绑定失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误，需要 primary_id 和 duplicate_id"})
+		return
+	}
+
+	if body.PrimaryID == 0 || body.DuplicateID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "primary_id 和 duplicate_id 不能为 0"})
+		return
+	}
+
+	merged, err := services.MergeCustomerRecords(models.DB, body.PrimaryID, body.DuplicateID)
+	if err != nil {
+		log.Printf("MergeCustomers 合并失败: primary=%d duplicate=%d err=%v", body.PrimaryID, body.DuplicateID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 合并后重新计算统计数据，确保准确
+	_ = services.UpdateCustomerStats(merged.ID)
+
+	// 重新读取最新数据返回
+	models.DB.First(merged, merged.ID)
+	c.JSON(http.StatusOK, gin.H{"message": "顾客合并成功", "customer": merged})
 }

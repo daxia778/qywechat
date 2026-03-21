@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"context"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -24,7 +26,7 @@ type rateLimiterStore struct {
 	burst    int
 }
 
-func newRateLimiterStore(rps rate.Limit, burst int) *rateLimiterStore {
+func newRateLimiterStore(ctx context.Context, rps rate.Limit, burst int) *rateLimiterStore {
 	s := &rateLimiterStore{
 		visitors: make(map[string]*ipLimiter),
 		rps:      rps,
@@ -32,15 +34,22 @@ func newRateLimiterStore(rps rate.Limit, burst int) *rateLimiterStore {
 	}
 	// 后台每 3 分钟清理过期的 IP 限流器，防止内存泄漏
 	go func() {
+		ticker := time.NewTicker(3 * time.Minute)
+		defer ticker.Stop()
 		for {
-			time.Sleep(3 * time.Minute)
-			s.mu.Lock()
-			for ip, v := range s.visitors {
-				if time.Since(v.lastSeen) > 5*time.Minute {
-					delete(s.visitors, ip)
+			select {
+			case <-ctx.Done():
+				log.Println("限速器清理 goroutine 已停止")
+				return
+			case <-ticker.C:
+				s.mu.Lock()
+				for ip, v := range s.visitors {
+					if time.Since(v.lastSeen) > 5*time.Minute {
+						delete(s.visitors, ip)
+					}
 				}
+				s.mu.Unlock()
 			}
-			s.mu.Unlock()
 		}
 	}()
 	return s
@@ -60,12 +69,20 @@ func (s *rateLimiterStore) getLimiter(ip string) *rate.Limiter {
 	return v.limiter
 }
 
+// rateLimiterCtxKey 用于从 gin.Engine 级别传递 context 给限速器
+var rateLimiterCtx context.Context = context.Background()
+
+// SetRateLimiterContext 设置限速器使用的 context（在 main.go 中调用）
+func SetRateLimiterContext(ctx context.Context) {
+	rateLimiterCtx = ctx
+}
+
 // RateLimitByIP 基于客户端 IP 的速率限制中间件
 // rps: 每秒允许的请求数 (例如 0.083 ≈ 每分钟 5 次)
 // burst: 允许的突发请求上限
 // 每次调用都会创建独立的限流器存储，不同路由组的限速互不干扰
 func RateLimitByIP(rps float64, burst int) gin.HandlerFunc {
-	store := newRateLimiterStore(rate.Limit(rps), burst)
+	store := newRateLimiterStore(rateLimiterCtx, rate.Limit(rps), burst)
 
 	return func(c *gin.Context) {
 		ip := c.ClientIP()

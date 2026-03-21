@@ -1,4 +1,4 @@
-import { createContext, useState, useCallback, useRef, useEffect } from 'react';
+import { createContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { getToken } from '../utils/storage';
 
 /** Connection state constants */
@@ -104,8 +104,8 @@ export function WebSocketProvider({ children }) {
       setConnectionState(WS_STATE.RECONNECTING);
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${protocol}//${window.location.host}/api/v1/ws`;
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = import.meta.env.VITE_WS_URL || `${wsProtocol}//${window.location.host}/api/v1/ws`;
 
     const ws = new WebSocket(url);
     wsRef.current = ws;
@@ -129,6 +129,8 @@ export function WebSocketProvider({ children }) {
         }
 
         if (data.type === 'error' && connectionStateRef.current !== WS_STATE.CONNECTED) {
+          // FE-03: Auth error — stop reconnection attempts
+          manualDisconnectRef.current = true;
           ws.close();
           return;
         }
@@ -226,10 +228,12 @@ export function WebSocketProvider({ children }) {
   // Derived boolean for backward compatibility
   const connected = connectionState === WS_STATE.CONNECTED;
 
+  const value = useMemo(() => ({
+    connected, connectionState, connect, disconnect, retry, send, on, off
+  }), [connected, connectionState, connect, disconnect, retry, send, on, off]);
+
   return (
-    <WebSocketContext.Provider
-      value={{ connected, connectionState, connect, disconnect, retry, send, on, off }}
-    >
+    <WebSocketContext.Provider value={value}>
       {children}
     </WebSocketContext.Provider>
   );

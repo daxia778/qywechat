@@ -9,9 +9,9 @@ import AppShell from '../components/layout/AppShell';
 function lazyWithRetry(importFn) {
   return lazy(() =>
     importFn().catch((err) => {
-      const hasReloaded = sessionStorage.getItem('chunk_reload');
-      if (!hasReloaded) {
-        sessionStorage.setItem('chunk_reload', '1');
+      const reloadCount = parseInt(sessionStorage.getItem('chunk_reload') || '0', 10);
+      if (reloadCount < 3) {
+        sessionStorage.setItem('chunk_reload', String(reloadCount + 1));
         window.location.reload();
         return new Promise(() => {}); // never resolves — page reloads
       }
@@ -82,7 +82,6 @@ function LoadingFallback() {
         animation: 'spin 0.6s linear infinite',
       }} />
       <span style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500 }}>加载中...</span>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
@@ -122,9 +121,11 @@ export default function AppRouter() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/orders/:id" element={<OrderDetailPage />} />
-              <Route path="/customers" element={<CustomersPage />} />
-              <Route path="/team" element={<TeamPage />} />
+              <Route element={<RequireRole roles={['admin', 'sales', 'follow']} />}>
+                <Route path="/customers" element={<CustomersPage />} />
+              </Route>
               <Route element={<RequireRole roles={['admin']} />}>
+                <Route path="/team" element={<TeamPage />} />
                 <Route path="/employees" element={<EmployeesPage />} />
                 <Route path="/activation-codes" element={<ActivationCodesPage />} />
                 <Route path="/revenue" element={<RevenuePage />} />

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"slices"
 	"strconv"
@@ -71,7 +72,8 @@ type CreateOrderReq struct {
 func CreateOrder(c *gin.Context) {
 	var req CreateOrderReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		log.Printf("CreateOrder 参数绑定失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
 		return
 	}
 
@@ -105,6 +107,16 @@ func CreateOrder(c *gin.Context) {
 		}
 	}
 
+	// 检查订单号是否已存在，避免 UNIQUE constraint 错误返回 500
+	if req.OrderSN != "" {
+		var count int64
+		models.DB.Model(&models.Order{}).Where("order_sn = ?", req.OrderSN).Count(&count)
+		if count > 0 {
+			c.JSON(http.StatusConflict, gin.H{"error": "订单号已存在"})
+			return
+		}
+	}
+
 	order, err := services.CreateOrder(
 		operatorID, req.OrderSN, req.CustomerContact,
 		req.Topic, req.Remark, req.ScreenshotURL, req.Price, req.Pages, deadline,
@@ -126,7 +138,9 @@ func CreateOrder(c *gin.Context) {
 			deadlineStr = deadline.Format("2006-01-02 15:04")
 		}
 		if len(ids) > 0 {
-			_ = services.Wecom.NotifyNewOrder(order.OrderSN, operatorID, req.Topic, req.Pages, req.Price, deadlineStr, ids)
+			if err := services.Wecom.NotifyNewOrder(order.OrderSN, operatorID, req.Topic, req.Pages, req.Price, deadlineStr, ids); err != nil {
+				log.Printf("⚠️ 发送新订单企微通知失败: sn=%s err=%v", order.OrderSN, err)
+			}
 		}
 	}()
 
@@ -142,7 +156,8 @@ type GrabOrderReq struct {
 func GrabOrder(c *gin.Context) {
 	var req GrabOrderReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		log.Printf("GrabOrder 参数绑定失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
 		return
 	}
 
@@ -175,7 +190,9 @@ func GrabOrder(c *gin.Context) {
 			order.Topic, order.Pages, order.Price, deadlineStr, order.Remark,
 		)
 		if err == nil && chatID != "" {
-			models.DB.Model(order).Update("wecom_chat_id", chatID)
+			models.WriteTx(func(tx *gorm.DB) error {
+				return tx.Model(order).Update("wecom_chat_id", chatID).Error
+			})
 		}
 	}()
 
@@ -196,7 +213,8 @@ func UpdateOrderStatus(c *gin.Context) {
 		RefundReason string `json:"refund_reason"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Printf("UpdateOrderStatus 参数绑定失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
 		return
 	}
 
@@ -229,7 +247,7 @@ func UpdateOrderStatus(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "只能操作指派给自己的订单"})
 		return
 	}
-	if roleStr == "operator" && order.OperatorID != uidStr {
+	if roleStr == "sales" && order.OperatorID != uidStr {
 		c.JSON(http.StatusForbidden, gin.H{"error": "只能操作自己录入的订单"})
 		return
 	}
@@ -249,21 +267,24 @@ func UpdateOrderStatus(c *gin.Context) {
 		updatedOrder.RefundReason = body.RefundReason
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "状态更新成功", "order": updatedOrder})
-
-	// 6. 记录状态流转时间线
+	// 6. 记录状态流转时间线（响应前写入，确保数据一致性）
 	operatorName := ""
 	if name, exists := c.Get("name"); exists {
 		operatorName, _ = name.(string)
 	}
-	models.DB.Create(&models.OrderTimeline{
-		OrderID:      updatedOrder.ID,
-		FromStatus:   order.Status,
-		ToStatus:     body.Status,
-		OperatorID:   uidStr,
-		OperatorName: operatorName,
-		Remark:       body.RefundReason,
+	models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Create(&models.OrderTimeline{
+			OrderID:      updatedOrder.ID,
+			EventType:    "status_changed",
+			FromStatus:   order.Status,
+			ToStatus:     body.Status,
+			OperatorID:   uidStr,
+			OperatorName: operatorName,
+			Remark:       body.RefundReason,
+		}).Error
 	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "状态更新成功", "order": updatedOrder})
 
 	// 7. WebSocket 广播订单状态变更
 	services.Hub.Broadcast(services.WSEvent{
@@ -299,14 +320,8 @@ func ListOrders(c *gin.Context) {
 	userID, _ := c.Get("wecom_userid")
 	uidStr, _ := userID.(string)
 
-	switch roleStr {
-	case "admin":
-		// admin 可查看所有订单
-	case "operator":
-		query = query.Where("operator_id = ?", uidStr)
-	case "designer":
-		query = query.Where("designer_id = ?", uidStr)
-	default:
+	query, ok := filterByRole(query, roleStr, uidStr)
+	if !ok {
 		c.JSON(http.StatusForbidden, gin.H{"error": "未知角色，无权访问"})
 		return
 	}
@@ -315,8 +330,8 @@ func ListOrders(c *gin.Context) {
 		query = query.Where("status = ?", status)
 	}
 	if keyword != "" {
-		like := "%" + keyword + "%"
-		query = query.Where("order_sn LIKE ? OR customer_contact LIKE ? OR topic LIKE ?", like, like, like)
+		like := "%" + escapeLike(keyword) + "%"
+		query = query.Where("order_sn LIKE ? ESCAPE '\\' OR customer_contact LIKE ? ESCAPE '\\' OR topic LIKE ? ESCAPE '\\'", like, like, like)
 	}
 	if startDate != "" {
 		if t, err := time.Parse("2006-01-02", startDate); err == nil {
@@ -360,14 +375,8 @@ func GetOrder(c *gin.Context) {
 	uidStr, _ := userID.(string)
 
 	query := models.DB.Model(&models.Order{}).Where("id = ?", uint(id))
-	switch roleStr {
-	case "admin":
-		// admin 可查看所有订单
-	case "operator":
-		query = query.Where("operator_id = ?", uidStr)
-	case "designer":
-		query = query.Where("designer_id = ?", uidStr)
-	default:
+	query, ok := filterByRole(query, roleStr, uidStr)
+	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
 		return
 	}
@@ -379,4 +388,331 @@ func GetOrder(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, order)
+}
+
+// ─── 金额/页数修改 ──────────────────────────────────
+
+type UpdateOrderAmountReq struct {
+	Price  *int   `json:"price"`  // 新金额(分), 可选
+	Pages  *int   `json:"pages"`  // 新页数, 可选
+	Remark string `json:"remark"` // 修改原因
+}
+
+// UpdateOrderAmount 修改订单金额和/或页数（designer 只能改自己的订单，admin 可改任意）
+func UpdateOrderAmount(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的订单ID"})
+		return
+	}
+
+	var req UpdateOrderAmountReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("UpdateOrderAmount 参数绑定失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
+		return
+	}
+
+	// 至少修改一项
+	if req.Price == nil && req.Pages == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请至少提供新金额或新页数"})
+		return
+	}
+
+	// 校验金额范围
+	if req.Price != nil {
+		if *req.Price <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "价格必须大于0"})
+			return
+		}
+		if *req.Price > 999999 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "价格超出合理范围（最大999999分）"})
+			return
+		}
+	}
+
+	// 校验页数范围
+	if req.Pages != nil && *req.Pages < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "页数不能为负数"})
+		return
+	}
+
+	// 获取当前操作人信息
+	userID, _ := c.Get("wecom_userid")
+	role, _ := c.Get("role")
+	roleStr, _ := role.(string)
+	uidStr, _ := userID.(string)
+
+	// 权限校验: 仅 designer 和 admin 可修改
+	if roleStr != "admin" && roleStr != "designer" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "当前角色无权修改订单金额"})
+		return
+	}
+
+	// 查询订单
+	var order models.Order
+	if err := models.DB.First(&order, uint(id)).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
+		return
+	}
+
+	// designer 只能修改自己的订单
+	if roleStr == "designer" && order.DesignerID != uidStr {
+		c.JSON(http.StatusForbidden, gin.H{"error": "只能修改指派给自己的订单"})
+		return
+	}
+
+	// 终态订单不允许修改
+	if order.Status == models.StatusRefunded || order.Status == models.StatusClosed || order.Status == models.StatusCompleted {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "终态订单不允许修改金额/页数"})
+		return
+	}
+
+	// 记录修改前的值
+	oldPrice := order.Price
+	oldPages := order.Pages
+
+	// 获取操作人姓名
+	operatorName := ""
+	if name, exists := c.Get("name"); exists {
+		operatorName, _ = name.(string)
+	}
+
+	// 在事务中执行更新 + 写入审计日志
+	err = models.WriteTx(func(tx *gorm.DB) error {
+		updates := map[string]interface{}{}
+
+		if req.Price != nil && *req.Price != oldPrice {
+			updates["price"] = *req.Price
+		}
+		if req.Pages != nil && *req.Pages != oldPages {
+			updates["pages"] = *req.Pages
+		}
+
+		if len(updates) == 0 {
+			return nil // 值未变化，无需更新
+		}
+
+		// 更新订单字段
+		if err := tx.Model(&order).Updates(updates).Error; err != nil {
+			return err
+		}
+
+		// 写入金额变更审计日志
+		if req.Price != nil && *req.Price != oldPrice {
+			if err := tx.Create(&models.OrderTimeline{
+				OrderID:      order.ID,
+				EventType:    "amount_changed",
+				OldValue:     strconv.Itoa(oldPrice),
+				NewValue:     strconv.Itoa(*req.Price),
+				OperatorID:   uidStr,
+				OperatorName: operatorName,
+				Remark:       req.Remark,
+			}).Error; err != nil {
+				return err
+			}
+		}
+
+		// 写入页数变更审计日志
+		if req.Pages != nil && *req.Pages != oldPages {
+			if err := tx.Create(&models.OrderTimeline{
+				OrderID:      order.ID,
+				EventType:    "pages_changed",
+				OldValue:     strconv.Itoa(oldPages),
+				NewValue:     strconv.Itoa(*req.Pages),
+				OperatorID:   uidStr,
+				OperatorName: operatorName,
+				Remark:       req.Remark,
+			}).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.Printf("UpdateOrderAmount 事务失败: order_id=%d err=%v", id, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新失败: " + err.Error()})
+		return
+	}
+
+	// 重新查询最新订单数据
+	models.DB.First(&order, uint(id))
+
+	// 金额变更后触发分润重算（异步）
+	if req.Price != nil && *req.Price != oldPrice {
+		services.TriggerProfitRecalculation(order.ID)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "订单金额/页数已更新", "order": order})
+
+	// WebSocket 广播订单变更
+	services.Hub.Broadcast(services.WSEvent{
+		Type:    "order_updated",
+		Payload: order,
+	})
+}
+
+// ─── 匹配好友 ──────────────────────────────────
+
+// ListPendingMatchOrders 查询待匹配好友的 PENDING 订单（客户尚未关联 ExternalUserID）
+func ListPendingMatchOrders(c *gin.Context) {
+	role, _ := c.Get("role")
+	roleStr, _ := role.(string)
+	if roleStr != "admin" && roleStr != "follow" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权访问"})
+		return
+	}
+
+	operatorID := c.Query("operator_id")
+
+	subquery := models.DB.Model(&models.Customer{}).Select("id").
+		Where("external_user_id = '' OR external_user_id IS NULL")
+
+	query := models.DB.Where("status = ?", models.StatusPending).
+		Where("customer_id IS NULL OR customer_id = 0 OR customer_id IN (?)", subquery)
+
+	if operatorID != "" {
+		query = query.Where("operator_id = ?", operatorID)
+	}
+
+	var orders []models.Order
+	query.Order("created_at DESC").Limit(100).Find(&orders)
+
+	// 补充客户联系方式信息
+	type enrichedOrder struct {
+		models.Order
+		CustomerNickname string `json:"customer_nickname"`
+		CustomerMobile   string `json:"customer_mobile"`
+		CustomerWechatID string `json:"customer_wechat_id"`
+	}
+
+	result := make([]enrichedOrder, 0, len(orders))
+	for _, o := range orders {
+		item := enrichedOrder{Order: o}
+		if o.CustomerID > 0 {
+			var cust models.Customer
+			if models.DB.First(&cust, o.CustomerID).Error == nil {
+				item.CustomerNickname = cust.Nickname
+				item.CustomerMobile = cust.Mobile
+				item.CustomerWechatID = cust.WechatID
+			}
+		}
+		result = append(result, item)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": result, "total": len(result)})
+}
+
+// MatchOrderContact 将待匹配订单关联到外部联系人
+func MatchOrderContact(c *gin.Context) {
+	role, _ := c.Get("role")
+	roleStr, _ := role.(string)
+	if roleStr != "admin" && roleStr != "follow" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权操作"})
+		return
+	}
+
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的订单ID"})
+		return
+	}
+
+	var body struct {
+		ExternalUserID string `json:"external_user_id" binding:"required"`
+		Nickname       string `json:"nickname"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请提供 external_user_id"})
+		return
+	}
+
+	var order models.Order
+	if err := models.DB.First(&order, uint(id)).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
+		return
+	}
+	if order.Status != models.StatusPending {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "只能匹配 PENDING 状态的订单"})
+		return
+	}
+
+	operatorID, _ := c.Get("wecom_userid")
+	uidStr, _ := operatorID.(string)
+	operatorName := ""
+	if name, exists := c.Get("name"); exists {
+		operatorName, _ = name.(string)
+	}
+
+	var customerIDToKeep uint
+
+	err = models.WriteTx(func(tx *gorm.DB) error {
+		if order.CustomerID > 0 {
+			customerIDToKeep = order.CustomerID
+			// 更新已有客户的 ExternalUserID
+			if err := tx.Model(&models.Customer{}).Where("id = ?", order.CustomerID).
+				Update("external_user_id", body.ExternalUserID).Error; err != nil {
+				return err
+			}
+			// 补充昵称（如果原来为空）
+			if body.Nickname != "" {
+				tx.Model(&models.Customer{}).
+					Where("id = ? AND (nickname = '' OR nickname IS NULL)", order.CustomerID).
+					Update("nickname", body.Nickname)
+			}
+		} else {
+			// 订单没有关联客户，创建新客户记录
+			cust := models.Customer{
+				ExternalUserID: body.ExternalUserID,
+				Nickname:       body.Nickname,
+			}
+			if err := tx.Create(&cust).Error; err != nil {
+				return err
+			}
+			customerIDToKeep = cust.ID
+			if err := tx.Model(&order).Update("customer_id", cust.ID).Error; err != nil {
+				return err
+			}
+		}
+
+		// 合并回调创建的重复客户记录（仅有 external_user_id 无关联订单的幽灵记录）
+		var duplicates []models.Customer
+		tx.Where("external_user_id = ? AND id != ?", body.ExternalUserID, customerIDToKeep).Find(&duplicates)
+		for _, dup := range duplicates {
+			var orderCount int64
+			tx.Model(&models.Order{}).Where("customer_id = ?", dup.ID).Count(&orderCount)
+			if orderCount == 0 {
+				tx.Delete(&dup)
+				log.Printf("合并重复客户记录 | deleted_id=%d | kept_id=%d | external_user_id=%s", dup.ID, customerIDToKeep, body.ExternalUserID)
+			}
+		}
+
+		// 写入时间线事件
+		return tx.Create(&models.OrderTimeline{
+			OrderID:      order.ID,
+			EventType:    "customer_matched",
+			OperatorID:   uidStr,
+			OperatorName: operatorName,
+			Remark:       "关联外部联系人: " + body.ExternalUserID,
+		}).Error
+	})
+
+	if err != nil {
+		log.Printf("MatchOrderContact 事务失败: order_id=%d err=%v", id, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "匹配失败: " + err.Error()})
+		return
+	}
+
+	// 重新查询最新订单数据并广播
+	models.DB.First(&order, uint(id))
+	c.JSON(http.StatusOK, gin.H{"message": "订单已成功关联外部联系人", "order": order})
+
+	services.Hub.Broadcast(services.WSEvent{
+		Type:    "order_updated",
+		Payload: order,
+	})
 }

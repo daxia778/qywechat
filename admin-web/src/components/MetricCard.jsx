@@ -1,16 +1,20 @@
-import React from 'react';
-
-const MetricCard = ({ 
-  title, 
-  value, 
-  currentRateVal, 
-  prevValue, 
-  icon, 
-  progress = 0, 
-  colorHex = "#10B981", 
-  isCurrency = false, 
-  invertTrend = false 
+/**
+ * MetricCard — 参考营收分析页设计
+ * 布局：左上角大图标块 + 右侧趋势 → 下方大数字 + 标签
+ */
+const MetricCard = ({
+  title,
+  value,
+  currentRateVal,
+  prevValue,
+  icon,
+  colorHex = '#434FCF',
+  isCurrency = false,
+  invertTrend = false,
+  subtitle = null,
+  formattedValue = null,
 }) => {
+  // 环比计算
   let growth = null;
   if (currentRateVal !== undefined && prevValue !== undefined && prevValue !== null) {
     if (prevValue === 0) {
@@ -20,60 +24,141 @@ const MetricCard = ({
     }
   }
 
-  let trendIcon = null;
-  let trendColor = "";
-  let trendText = "";
-
+  let trendBg, trendColor, trendSymbol, trendText;
   if (growth !== null) {
     const isPositive = growth > 0;
     const isZero = growth === 0;
     const isGood = invertTrend ? !isPositive : isPositive;
-    
     if (isZero) {
-      trendColor = "text-gray-500";
-      trendText = "0%";
+      trendBg = '#f1f5f9'; trendColor = '#64748b'; trendSymbol = '—'; trendText = '0%';
     } else {
-      trendColor = isGood ? "text-[#02972f]" : "text-red-500";
-      trendText = Math.abs(growth).toFixed(1) + "%";
-      trendIcon = isPositive ? (
-        <svg width={14} height={14} fill="currentColor" viewBox="0 0 1792 1792" xmlns="http://www.w3.org/2000/svg">
-          <path d="M1408 1216q0 26-19 45t-45 19h-896q-26 0-45-19t-19-45 19-45l448-448q19-19 45-19t45 19l448 448q19 19 19 45z"></path>
-        </svg>
-      ) : (
-        <svg width={14} height={14} fill="currentColor" viewBox="0 0 1792 1792" xmlns="http://www.w3.org/2000/svg" style={{transform: "rotate(180deg)"}}>
-          <path d="M1408 1216q0 26-19 45t-45 19h-896q-26 0-45-19t-19-45 19-45l448-448q19-19 45-19t45 19l448 448q19 19 19 45z"></path>
-        </svg>
-      );
+      trendBg = isGood ? '#d1fae5' : '#fee2e2';
+      trendColor = isGood ? '#065f46' : '#991b1b';
+      trendSymbol = isPositive ? '↑' : '↓';
+      trendText = `${Math.abs(growth).toFixed(1)}% vs 上期`;
     }
   }
 
+  // 显示值
+  const displayVal = formattedValue
+    ? formattedValue
+    : isCurrency
+    ? `¥${Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : value;
+
+  // 图标背景色：colorHex + 18% 透明度
+  const iconBg = colorHex + '2E';
+
   return (
-    <div className="p-5 bg-white rounded-[20px] border-2 border-[#E5E7EB] hover:border-[#C4B5FD] hover:translate-y-[-2px] transition-all duration-200" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.03)' }}>
-      <div className="flex items-center">
-        <span 
-          className="relative w-10 h-10 rounded-full flex items-center justify-center text-white" 
-          style={{ backgroundColor: colorHex }}
+    <div
+      style={{
+        background: '#ffffff',
+        border: '1px solid rgba(0,0,0,0.06)',
+        borderRadius: '18px',
+        padding: '22px 22px 20px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '14px',
+        boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
+        transition: 'box-shadow 0.2s, transform 0.2s, border-color 0.2s',
+        cursor: 'default',
+        minHeight: '148px',
+      }}
+      onMouseEnter={e => {
+        e.currentTarget.style.boxShadow = '0 6px 24px rgba(0,0,0,0.09)';
+        e.currentTarget.style.transform = 'translateY(-2px)';
+        e.currentTarget.style.borderColor = colorHex + '33';
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.boxShadow = '0 1px 6px rgba(0,0,0,0.04)';
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)';
+      }}
+    >
+      {/* 第一行：图标（左）+ 趋势徽章（右） */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        {/* 图标方块 */}
+        <div
+          style={{
+            width: '48px',
+            height: '48px',
+            borderRadius: '14px',
+            backgroundColor: iconBg,
+            color: colorHex,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
         >
           {icon}
-        </span>
-        <p className="ml-3 text-gray-800 text-lg font-bold whitespace-nowrap">
-          {title}
-        </p>
+        </div>
+
+        {/* 趋势徽章 */}
         {growth !== null && (
-          <p className={`ml-auto font-semibold flex items-center gap-0.5 text-[13px] ${trendColor}`}>
-            {trendIcon} {trendText}
-          </p>
+          <span
+            style={{
+              backgroundColor: trendBg,
+              color: trendColor,
+              fontSize: '12px',
+              fontWeight: 600,
+              padding: '4px 10px',
+              borderRadius: '8px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '3px',
+              whiteSpace: 'nowrap',
+              fontFamily: 'Inter, sans-serif',
+            }}
+          >
+            <span style={{ fontSize: '11px', fontWeight: 700 }}>{trendSymbol}</span>
+            {trendText}
+          </span>
         )}
       </div>
-      <div className="flex flex-col justify-start mt-6">
-        <p className="mb-5 text-[#1F2937] text-[32px] leading-[36px] font-bold text-left font-[Outfit] tabular-nums tracking-tight">
-          {isCurrency ? `¥${Number(value).toFixed(2)}` : value}
-        </p>
-        <div className="relative bg-gray-200 w-full h-2 rounded-sm overflow-hidden">
-          <div 
-            className="absolute top-0 left-0 h-full rounded-sm transition-all duration-500" 
-            style={{ width: `${Math.min(Math.max(progress, 0), 100)}%`, backgroundColor: colorHex }}
-          ></div>
+
+      {/* 第二行：大数字 + 标签 */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div
+          style={{
+            fontFamily: "'Outfit', sans-serif",
+            fontSize: '28px',
+            fontWeight: 700,
+            color: '#1d1d1f',
+            lineHeight: 1.15,
+            letterSpacing: '-0.02em',
+          }}
+        >
+          {displayVal}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span
+            style={{
+              fontSize: '13px',
+              color: '#8e8e93',
+              fontWeight: 500,
+              fontFamily: 'Inter, sans-serif',
+            }}
+          >
+            {title}
+          </span>
+          {subtitle && (
+            <span
+              style={{
+                fontSize: '11px',
+                color: '#aeaeb2',
+                fontFamily: 'Inter, sans-serif',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                maxWidth: '160px',
+              }}
+              title={typeof subtitle === 'string' ? subtitle : ''}
+            >
+              · {subtitle}
+            </span>
+          )}
         </div>
       </div>
     </div>

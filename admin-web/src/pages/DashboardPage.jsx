@@ -277,8 +277,11 @@ export default function DashboardPage() {
           currentRateVal={stats.today_order_count || 0}
           prevValue={stats.yesterday_order_count || 0}
           icon={
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={22} height={22} strokeWidth="1.8">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+              <rect x="3" y="3" width="18" height="3.5" rx="1.75" strokeLinejoin="round"/>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 6.5l.9 11.1A2 2 0 007.4 19.5h9.2a2 2 0 001.99-1.9l.9-11.1"/>
+              <path strokeLinecap="round" d="M9.5 11h5"/>
+              <path strokeLinecap="round" d="M10.5 14.5h3"/>
             </svg>
           }
           colorHex="#434FCF"
@@ -287,8 +290,9 @@ export default function DashboardPage() {
           title="待处理"
           value={stats.pending_orders || 0}
           icon={
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={22} height={22} strokeWidth="1.8">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+              <circle cx="12" cy="12" r="9"/>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v5.25l3.5 2"/>
             </svg>
           }
           colorHex="#F59E0B"
@@ -300,8 +304,12 @@ export default function DashboardPage() {
           prevValue={stats.yesterday_revenue || 0}
           isCurrency={true}
           icon={
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={22} height={22} strokeWidth="1.8">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 17.5V15a1 1 0 011-1h2a1 1 0 011 1v2.5"/>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 17.5V11a1 1 0 011-1h2a1 1 0 011 1v6.5"/>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16 17.5V7a1 1 0 011-1h2a1 1 0 011 1v10.5"/>
+              <path strokeLinecap="round" d="M3 17.5h18"/>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 11.5l3-3 3 2.5 4-5"/>
             </svg>
           }
           colorHex="#10B981"
@@ -313,8 +321,10 @@ export default function DashboardPage() {
           prevValue={stats.yesterday_grab_alerts || 0}
           invertTrend={true}
           icon={
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={22} height={22} strokeWidth="1.8">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+              <path strokeLinecap="round" d="M12 9v4.5"/>
+              <circle cx="12" cy="16.5" r="0.5" fill="currentColor" stroke="none"/>
             </svg>
           }
           colorHex="#EF4444"
@@ -332,8 +342,11 @@ export default function DashboardPage() {
           isCurrency={true}
           subtitle={`拼多多 ¥${fmtYuan(stats.pdd_payment_amount)} · 企微 ¥${fmtYuan(stats.wecom_payment_amount)} · 手动 ¥${fmtYuan(stats.manual_payment_amount)}`}
           icon={
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={22} height={22} strokeWidth="1.8">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+              <rect x="2" y="6" width="20" height="13" rx="2" strokeLinejoin="round"/>
+              <path strokeLinecap="round" d="M2 10h20"/>
+              <circle cx="12" cy="15" r="2.5"/>
+              <path strokeLinecap="round" d="M6 10V7a6 6 0 0112 0v3"/>
             </svg>
           }
           colorHex="#059669"
@@ -343,8 +356,12 @@ export default function DashboardPage() {
           value={pendingTotal}
           subtitle={`确认 ${stats.confirmed_count || 0} · 售后 ${stats.after_sale_count || 0} · 修改 ${stats.revision_count || 0}`}
           icon={
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={22} height={22} strokeWidth="1.8">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+              <rect x="5" y="3" width="14" height="18" rx="2" strokeLinejoin="round"/>
+              <path strokeLinecap="round" d="M9 7h6"/>
+              <path strokeLinecap="round" d="M9 11h6"/>
+              <path strokeLinecap="round" d="M9 15h4"/>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.5 3.5v-1a.5.5 0 01.5-.5h4a.5.5 0 01.5.5v1"/>
             </svg>
           }
           colorHex="#EA580C"

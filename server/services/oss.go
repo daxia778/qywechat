@@ -40,12 +40,45 @@ var allowedImageExts = map[string]bool{
 	".bmp":  true,
 }
 
+// validateFileMagic 校验文件头 Magic Bytes 是否与扩展名一致，防止伪造扩展名绕过
+func validateFileMagic(data []byte, ext string) bool {
+	if len(data) < 4 {
+		return false
+	}
+	switch ext {
+	case ".jpg", ".jpeg":
+		return data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF
+	case ".png":
+		return data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47
+	case ".gif":
+		return string(data[:3]) == "GIF"
+	case ".bmp":
+		return data[0] == 0x42 && data[1] == 0x4D
+	case ".webp":
+		return len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP"
+	default:
+		return false
+	}
+}
+
 // UploadFile 上传文件到配置的存储后端
 func UploadFile(fileHeader *multipart.FileHeader, subDir string) (*UploadResult, error) {
 	// 校验文件扩展名，防止上传恶意文件类型 (.html/.exe/.php 等)
 	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
 	if !allowedImageExts[ext] {
 		return nil, fmt.Errorf("不支持的文件类型 %s，仅允许上传图片 (jpg/png/webp/gif/bmp)", ext)
+	}
+
+	// 校验文件头 Magic Bytes，防止伪造扩展名上传恶意文件
+	f, err := fileHeader.Open()
+	if err != nil {
+		return nil, fmt.Errorf("打开上传文件失败: %w", err)
+	}
+	header := make([]byte, 12) // 最多需要 12 字节 (webp 需要读到 offset 12)
+	n, _ := f.Read(header)
+	f.Close()
+	if !validateFileMagic(header[:n], ext) {
+		return nil, fmt.Errorf("文件内容与扩展名 %s 不匹配，疑似伪造文件类型", ext)
 	}
 
 	provider := strings.ToLower(config.C.OSSProvider)

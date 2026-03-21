@@ -1,8 +1,10 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -63,6 +65,33 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 	}
 	
 	log.Printf("✅ 订单创建 | sn=%s | operator=%s | price=%d", orderSN, operatorID, price)
+
+	// 创建首笔收款记录（拼多多）
+	if order.Price > 0 {
+		now := time.Now()
+		payment := models.PaymentRecord{
+			TransactionID: fmt.Sprintf("PDD-%s-%d", order.OrderSN, now.Unix()),
+			OrderID:       order.ID,
+			CustomerID:    order.CustomerID,
+			Amount:        order.Price,
+			Source:        "pdd",
+			PayeeUserID:   operatorID,
+			PaidAt:        now,
+			MatchedAt:     &now,
+			MatchMethod:   "auto",
+			TradeState:    "SUCCESS",
+		}
+		if pErr := models.WriteTx(func(tx *gorm.DB) error {
+			return tx.Create(&payment).Error
+		}); pErr != nil {
+			log.Printf("⚠️  创建首笔收款记录失败: sn=%s err=%v", orderSN, pErr)
+		} else {
+			log.Printf("✅ 首笔收款记录已创建 | txn=%s | amount=%d", payment.TransactionID, payment.Amount)
+		}
+	}
+
+	// 初始分润计算（异步，不阻塞订单创建响应）
+	TriggerProfitRecalculation(order.ID)
 
 	// 异步更新顾客统计
 	if customerID > 0 {
@@ -179,6 +208,23 @@ func UpdateOrderStatus(orderID uint, newStatus string) (*models.Order, error) {
 	}
 
 	log.Printf("✅ 订单状态更新 | sn=%s | %s", order.OrderSN, newStatus)
+
+	// 分润触发: 根据目标状态决定分润动作
+	switch newStatus {
+	case models.StatusCompleted:
+		// 订单完成 — 最终结算，重算并落库
+		TriggerProfitRecalculation(order.ID)
+	case models.StatusRefunded:
+		// 退款 — 分润字段全部清零
+		go func() {
+			if err := models.WriteTx(func(tx *gorm.DB) error {
+				return ClearProfitFields(tx, order.ID)
+			}); err != nil {
+				log.Printf("❌ 退款清零分润失败 | orderID=%d err=%v", order.ID, err)
+			}
+		}()
+	}
+
 	return &order, nil
 }
 
@@ -269,57 +315,80 @@ func ForceAssignOrder(orderID uint) (*models.Order, error) {
 const MaxAssignRetries = 5
 
 // StartOrderTimeoutWatcher 启动超时未接单自动派发机制
-func StartOrderTimeoutWatcher() {
+func StartOrderTimeoutWatcher(ctx context.Context) {
 	timeoutDuration := time.Duration(config.C.GrabOrderTimeoutSeconds) * time.Second
 	log.Printf("✅ 订单超时防漏兜底定时器已启动 (超时阈值: %v, 最大重试: %d)", timeoutDuration, MaxAssignRetries)
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[TimeoutWatcher] panic recovered: %v", r)
+			}
+		}()
 		ticker := time.NewTicker(30 * time.Second) // 每 30 秒轮询一次
 		defer ticker.Stop()
 
-		for range ticker.C {
-			thresholdTime := time.Now().Add(-timeoutDuration)
-			var timeoutOrders []models.Order
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("订单超时防漏定时器已停止")
+				return
+			case <-ticker.C:
+			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[TimeoutWatcher] tick panic recovered: %v", r)
+					}
+				}()
+				thresholdTime := time.Now().Add(-timeoutDuration)
+				var timeoutOrders []models.Order
 
-			// 查找状态为 PENDING 且创建时间早于阈值、重试次数未超限的订单
-			models.DB.Where("status = ? AND created_at < ? AND assign_retry_count < ?",
-				models.StatusPending, thresholdTime, MaxAssignRetries).Find(&timeoutOrders)
+				// 查找状态为 PENDING 且创建时间早于阈值、重试次数未超限的订单
+				models.DB.Where("status = ? AND created_at < ? AND assign_retry_count < ?",
+					models.StatusPending, thresholdTime, MaxAssignRetries).Find(&timeoutOrders)
 
-			for _, o := range timeoutOrders {
-				// 递增重试计数
-				models.DB.Model(&o).Update("assign_retry_count", o.AssignRetryCount+1)
+				for _, o := range timeoutOrders {
+					// 递增重试计数
+					if err := models.WriteTx(func(tx *gorm.DB) error {
+						return tx.Model(&o).Update("assign_retry_count", o.AssignRetryCount+1).Error
+					}); err != nil {
+						log.Printf("❌ 更新重试计数失败: sn=%s err=%v", o.OrderSN, err)
+					}
 
-				if o.AssignRetryCount+1 >= MaxAssignRetries {
-					log.Printf("🚨 订单超时派单已达上限，跳过后续重试 | sn=%s | retries=%d", o.OrderSN, o.AssignRetryCount+1)
-					continue
-				}
+					if o.AssignRetryCount+1 >= MaxAssignRetries {
+						log.Printf("🚨 订单超时派单已达上限，跳过后续重试 | sn=%s | retries=%d", o.OrderSN, o.AssignRetryCount+1)
+						continue
+					}
 
-				retryCount := o.AssignRetryCount + 1
-				log.Printf("⚠️  发现超时未接单: sn=%s (重试 %d/%d), 开始自动指派...", o.OrderSN, retryCount, MaxAssignRetries)
+					retryCount := o.AssignRetryCount + 1
+					log.Printf("⚠️  发现超时未接单: sn=%s (重试 %d/%d), 开始自动指派...", o.OrderSN, retryCount, MaxAssignRetries)
 
-				// 两阶段派单: 前2次优先分配给空闲设计师，之后强制分配给负载最低的任意设计师
-				var order *models.Order
-				var err error
-				if retryCount < 2 {
-					order, err = AssignToIdleDesigner(o.ID)
-				} else {
-					log.Printf("⚠️  订单超过10分钟未接，强制指派 | sn=%s", o.OrderSN)
-					order, err = ForceAssignOrder(o.ID)
-				}
-				if err != nil {
-					log.Printf("❌ 自动指派失败 sn=%s: %v", o.OrderSN, err)
-					continue
-				}
+					// 两阶段派单: 前2次优先分配给空闲设计师，之后强制分配给负载最低的任意设计师
+					var order *models.Order
+					var err error
+					if retryCount < 2 {
+						order, err = AssignToIdleDesigner(o.ID)
+					} else {
+						log.Printf("⚠️  订单超过10分钟未接，强制指派 | sn=%s", o.OrderSN)
+						order, err = ForceAssignOrder(o.ID)
+					}
+					if err != nil {
+						log.Printf("❌ 自动指派失败 sn=%s: %v", o.OrderSN, err)
+						continue
+					}
 
-				// 自动指派成功，异步建群和通知
-				go func(ord *models.Order) {
+					// 自动指派成功，异步建群和通知
+					go func(ord *models.Order) {
 					deadlineStr := "待定"
 					if ord.Deadline != nil {
 						deadlineStr = ord.Deadline.Format("2006-01-02 15:04")
 					}
 
 					// 1. 发送企微卡片通知给被强制指派的设计师
-					_ = Wecom.NotifyNewOrder(ord.OrderSN, ord.OperatorID, ord.Topic, ord.Pages, ord.Price, deadlineStr, []string{ord.DesignerID})
+					if err := Wecom.NotifyNewOrder(ord.OrderSN, ord.OperatorID, ord.Topic, ord.Pages, ord.Price, deadlineStr, []string{ord.DesignerID}); err != nil {
+						log.Printf("⚠️ 发送超时派单企微通知失败: sn=%s err=%v", ord.OrderSN, err)
+					}
 
 					// 2. 自动建群并播报需求
 					chatID, err := Wecom.SetupOrderGroup(
@@ -327,61 +396,92 @@ func StartOrderTimeoutWatcher() {
 						ord.Topic, ord.Pages, ord.Price, deadlineStr, ord.Remark,
 					)
 					if err == nil && chatID != "" {
-						models.DB.Model(ord).Update("wecom_chat_id", chatID)
+						if wxErr := models.WriteTx(func(tx *gorm.DB) error {
+							return tx.Model(ord).Update("wecom_chat_id", chatID).Error
+						}); wxErr != nil {
+							log.Printf("❌ 更新订单群聊ID失败: sn=%s err=%v", ord.OrderSN, wxErr)
+						}
 					}
 				}(order)
 			}
+		}()
 		}
 	}()
 }
 
 // StartDeadlineReminderWatcher 启动交付截止倒计时提醒
 // 距离约定交付时间 3 小时，企微机器人私信设计师进行告警催更
-func StartDeadlineReminderWatcher() {
+func StartDeadlineReminderWatcher(ctx context.Context) {
 	log.Println("✅ 交付截止倒计时提醒系统已启动 (距交付 3h 自动催更)")
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[DeadlineReminder] panic recovered: %v", r)
+			}
+		}()
 		ticker := time.NewTicker(5 * time.Minute) // 每 5 分钟检查一次
 		defer ticker.Stop()
 
-		for range ticker.C {
-			now := time.Now()
-			threshold := now.Add(3 * time.Hour)
-
-			// 查找: 状态为 DESIGNING、有 deadline、deadline 在 3h 以内、且尚未提醒过
-			var urgentOrders []models.Order
-			models.DB.Where(
-				"status IN ? AND deadline IS NOT NULL AND deadline <= ? AND deadline > ? AND deadline_reminded = ?",
-				[]string{models.StatusGroupCreated, models.StatusDesigning},
-				threshold, now, false,
-			).Find(&urgentOrders)
-
-			for _, o := range urgentOrders {
-				if o.DesignerID == "" {
-					continue
-				}
-
-				remaining := o.Deadline.Sub(now)
-				hours := int(remaining.Hours())
-				minutes := int(remaining.Minutes()) % 60
-
-				msg := fmt.Sprintf(
-					"⏰ 交付倒计时提醒\n━━━━━━━━━━━\n📦 订单: %s\n🎯 主题: %s\n⏳ 剩余: %d小时%d分钟\n━━━━━━━━━━━\n请尽快完成并在群内回复「已交付」！",
-					o.OrderSN, o.Topic, hours, minutes,
-				)
-
-				// 1. 私信设计师
-				_ = Wecom.SendTextMessage([]string{o.DesignerID}, msg)
-
-				// 2. 如果有群聊，也在群内提醒
-				if o.WecomChatID != "" {
-					_ = Wecom.SendGroupMessage(o.WecomChatID, msg)
-				}
-
-				// 标记已提醒，避免重复发送
-				models.DB.Model(&o).Update("deadline_reminded", true)
-				log.Printf("⏰ 已发送交付催更提醒 | sn=%s | designer=%s | 剩余 %dh%dm", o.OrderSN, o.DesignerID, hours, minutes)
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("交付截止倒计时提醒已停止")
+				return
+			case <-ticker.C:
 			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[DeadlineReminder] tick panic recovered: %v", r)
+					}
+				}()
+				now := time.Now()
+				threshold := now.Add(3 * time.Hour)
+
+				// 查找: 状态为 DESIGNING、有 deadline、deadline 在 3h 以内、且尚未提醒过
+				var urgentOrders []models.Order
+				models.DB.Where(
+					"status IN ? AND deadline IS NOT NULL AND deadline <= ? AND deadline > ? AND deadline_reminded = ?",
+					[]string{models.StatusGroupCreated, models.StatusDesigning},
+					threshold, now, false,
+				).Find(&urgentOrders)
+
+				for _, o := range urgentOrders {
+					if o.DesignerID == "" {
+						continue
+					}
+
+					remaining := o.Deadline.Sub(now)
+					hours := int(remaining.Hours())
+					minutes := int(remaining.Minutes()) % 60
+
+					msg := fmt.Sprintf(
+						"⏰ 交付倒计时提醒\n━━━━━━━━━━━\n📦 订单: %s\n🎯 主题: %s\n⏳ 剩余: %d小时%d分钟\n━━━━━━━━━━━\n请尽快完成并在群内回复「已交付」！",
+						o.OrderSN, o.Topic, hours, minutes,
+					)
+
+					// 1. 私信设计师
+					if err := Wecom.SendTextMessage([]string{o.DesignerID}, msg); err != nil {
+						log.Printf("⚠️ 发送交付倒计时企微通知失败: sn=%s designer=%s err=%v", o.OrderSN, o.DesignerID, err)
+					}
+
+					// 2. 如果有群聊，也在群内提醒
+					if o.WecomChatID != "" {
+						if err := Wecom.SendGroupMessage(o.WecomChatID, msg); err != nil {
+							log.Printf("⚠️ 发送交付倒计时群聊通知失败: sn=%s chat=%s err=%v", o.OrderSN, o.WecomChatID, err)
+						}
+					}
+
+					// 标记已提醒，避免重复发送
+					if err := models.WriteTx(func(tx *gorm.DB) error {
+						return tx.Model(&o).Update("deadline_reminded", true).Error
+					}); err != nil {
+						log.Printf("❌ 标记deadline_reminded失败: sn=%s err=%v", o.OrderSN, err)
+					}
+					log.Printf("⏰ 已发送交付催更提醒 | sn=%s | designer=%s | 剩余 %dh%dm", o.OrderSN, o.DesignerID, hours, minutes)
+				}
+			}()
 		}
 	}()
 }
@@ -417,6 +517,22 @@ type DashboardStats struct {
 	YesterdayOrderCount int   `json:"yesterday_order_count"`
 	YesterdayRevenue    int   `json:"yesterday_revenue"`
 	YesterdayGrabAlerts int64 `json:"yesterday_grab_alerts"`
+
+	// Phase 5: 收款流水统计
+	TotalPaymentAmount  int `json:"total_payment_amount"`
+	PddPaymentAmount    int `json:"pdd_payment_amount"`
+	WecomPaymentAmount  int `json:"wecom_payment_amount"`
+	ManualPaymentAmount int `json:"manual_payment_amount"`
+	TotalPaymentCount   int `json:"total_payment_count"`
+
+	// Phase 5: 售后统计
+	AfterSaleCount int64 `json:"after_sale_count"`
+	RevisionCount  int64 `json:"revision_count"`
+	ConfirmedCount int64 `json:"confirmed_count"`
+
+	// Phase 5: 今日/昨日收款
+	TodayPaymentAmount     int `json:"today_payment_amount"`
+	YesterdayPaymentAmount int `json:"yesterday_payment_amount"`
 }
 
 // DesignerRank 设计师绩效排名
@@ -546,13 +662,9 @@ func GetDashboardStats() *DashboardStats {
 	}
 
 	// 按已完成数排序 (降序)
-	for i := 0; i < len(rankings); i++ {
-		for j := i + 1; j < len(rankings); j++ {
-			if rankings[j].CompletedCount > rankings[i].CompletedCount {
-				rankings[i], rankings[j] = rankings[j], rankings[i]
-			}
-		}
-	}
+	sort.Slice(rankings, func(i, j int) bool {
+		return rankings[i].CompletedCount > rankings[j].CompletedCount
+	})
 	stats.DesignerRankings = rankings
 
 	// ── Phase 3: 顾客统计 ──
@@ -609,6 +721,54 @@ func GetDashboardStats() *DashboardStats {
 		"assigned_at >= ? AND assigned_at < ? AND status = ? AND grab_alert_sent = ?",
 		yesterdayGrabThreshold, todayStart, models.StatusGroupCreated, false,
 	).Count(&stats.YesterdayGrabAlerts)
+
+	// ── Phase 5: 收款流水统计 ──
+	type PaymentAgg struct {
+		Source string `gorm:"column:source"`
+		Total  int    `gorm:"column:total"`
+		Cnt    int    `gorm:"column:cnt"`
+	}
+	var paymentAggs []PaymentAgg
+	models.DB.Model(&models.PaymentRecord{}).
+		Select("source, COALESCE(SUM(amount), 0) as total, COUNT(*) as cnt").
+		Where("trade_state = 'SUCCESS'").
+		Group("source").
+		Find(&paymentAggs)
+	for _, pa := range paymentAggs {
+		stats.TotalPaymentAmount += pa.Total
+		stats.TotalPaymentCount += pa.Cnt
+		switch pa.Source {
+		case "pdd":
+			stats.PddPaymentAmount = pa.Total
+		case "wecom":
+			stats.WecomPaymentAmount = pa.Total
+		case "manual":
+			stats.ManualPaymentAmount = pa.Total
+		}
+	}
+
+	// ── Phase 5: 售后统计 ──
+	models.DB.Model(&models.Order{}).Where("status = ?", models.StatusAfterSale).Count(&stats.AfterSaleCount)
+	models.DB.Model(&models.Order{}).Where("status = ?", models.StatusRevision).Count(&stats.RevisionCount)
+	models.DB.Model(&models.Order{}).Where("status = ?", models.StatusConfirmed).Count(&stats.ConfirmedCount)
+
+	// ── Phase 5: 今日/昨日收款金额 ──
+	type AmountResult struct {
+		Total int `gorm:"column:total"`
+	}
+	var todayPayment AmountResult
+	models.DB.Model(&models.PaymentRecord{}).
+		Select("COALESCE(SUM(amount), 0) as total").
+		Where("trade_state = 'SUCCESS' AND paid_at >= ?", todayStart).
+		Scan(&todayPayment)
+	stats.TodayPaymentAmount = todayPayment.Total
+
+	var yesterdayPayment AmountResult
+	models.DB.Model(&models.PaymentRecord{}).
+		Select("COALESCE(SUM(amount), 0) as total").
+		Where("trade_state = 'SUCCESS' AND paid_at >= ? AND paid_at < ?", yesterdayStart, todayStart).
+		Scan(&yesterdayPayment)
+	stats.YesterdayPaymentAmount = yesterdayPayment.Total
 
 	return stats
 }

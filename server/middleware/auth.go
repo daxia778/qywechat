@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
@@ -51,13 +53,27 @@ func JWTAuth() gin.HandlerFunc {
 	}
 }
 
+// generateJTI 生成 JWT 唯一 ID (16 字节 hex)
+func generateJTI() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// fallback: 用时间戳作为 jti (极端情况)
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
+}
+
 // CreateToken 生成 JWT
 func CreateToken(wecomUserID, name, role string) (string, error) {
+	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub":  wecomUserID,
 		"name": name,
 		"role": role,
-		"exp":  time.Now().Add(time.Duration(config.C.JWTExpireMinutes) * time.Minute).Unix(),
+		"exp":  now.Add(time.Duration(config.C.JWTExpireMinutes) * time.Minute).Unix(),
+		"iat":  now.Unix(),
+		"nbf":  now.Unix(),
+		"jti":  generateJTI(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

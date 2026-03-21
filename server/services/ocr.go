@@ -129,7 +129,7 @@ func extractViaZhipuVL(b64Img string) (*OCRResult, error) {
 		return nil, fmt.Errorf("API 返回错误 (HTTP %d)", resp.StatusCode)
 	}
 
-	log.Printf("✅ 智谱 GLM-4V 原始响应: %s", string(respBody))
+	log.Printf("✅ 智谱 GLM-4V 响应: status=%d len=%d", resp.StatusCode, len(respBody))
 	return parseChatResponse(respBody)
 }
 
@@ -172,7 +172,7 @@ func extractViaDashscope(b64Img string) (*OCRResult, error) {
 		return nil, fmt.Errorf("API 返回错误 (HTTP %d)", resp.StatusCode)
 	}
 
-	log.Printf("✅ 通义千问 VL 原始响应: %s", string(respBody))
+	log.Printf("✅ 通义千问 VL 响应: status=%d len=%d", resp.StatusCode, len(respBody))
 	return parseChatResponse(respBody)
 }
 

@@ -15,6 +15,7 @@ import (
 	"pdd-order-system/services"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // WecomMessage XML 回调消息结构
@@ -58,8 +59,8 @@ func WecomCallback(c *gin.Context) {
 			return
 		}
 
-		// 降级：如果未配置完全，直接返回 (可能无法通过企微验证)
-		c.String(http.StatusOK, echostr)
+		// 未配置凭证，拒绝回调验证
+		c.String(http.StatusServiceUnavailable, "wecom callback not configured")
 		return
 	}
 
@@ -163,7 +164,9 @@ func handleAddExternalContact(msg WecomMessage) {
 			Nickname:       nickname,
 			Remark:         "企微自动添加 (员工: " + userID + ")",
 		}
-		if err := models.DB.Create(&customer).Error; err != nil {
+		if err := models.WriteTx(func(tx *gorm.DB) error {
+			return tx.Create(&customer).Error
+		}); err != nil {
 			log.Printf("❌ 创建客户记录失败: %v", err)
 			return
 		}
@@ -175,12 +178,45 @@ func handleAddExternalContact(msg WecomMessage) {
 			updates["nickname"] = nickname
 		}
 		if len(updates) > 0 {
-			models.DB.Model(&customer).Updates(updates)
+			if err := models.WriteTx(func(tx *gorm.DB) error {
+				return tx.Model(&customer).Updates(updates).Error
+			}); err != nil {
+				log.Printf("❌ 更新客户记录失败: %v", err)
+				return
+			}
 			log.Printf("✅ 客户记录已更新 | id=%d | external_user_id=%s", customer.ID, externalUserID)
 		} else {
 			log.Printf("ℹ️ 客户记录已存在，无需更新 | id=%d | external_user_id=%s", customer.ID, externalUserID)
 		}
 	}
+
+	// 通过 WebSocket 推送新好友通知给对应的客服，提示匹配订单
+	services.Hub.SendTo(userID, services.WSEvent{
+		Type: "new_external_contact",
+		Payload: map[string]string{
+			"external_user_id": externalUserID,
+			"nickname":         nickname,
+			"staff_userid":     userID,
+		},
+	})
+	log.Printf("📤 已推送新好友匹配通知 | staff=%s | external_user_id=%s | nickname=%s", userID, externalUserID, nickname)
+}
+
+// maskSensitive 对敏感字符串进行部分脱敏，保留前4位，其余用***替代
+func maskSensitive(s string) string {
+	if len(s) <= 4 {
+		return "***"
+	}
+	return s[:4] + "***"
+}
+
+// maskAgentID 对 AgentID (int) 进行脱敏，只取第一位数字
+func maskAgentID(id int) string {
+	s := fmt.Sprintf("%d", id)
+	if len(s) <= 1 {
+		return "***"
+	}
+	return s[:1] + "***"
 }
 
 // WecomDiagnostic 企微 API 连通性诊断
@@ -201,7 +237,7 @@ func WecomDiagnostic(c *gin.Context) {
 	callbackConfigured := config.C.WecomToken != "" && config.C.WecomEncodingAESKey != ""
 
 	if !configured {
-		c.JSON(200, gin.H{
+		c.JSON(http.StatusOK, gin.H{
 			"configured":          false,
 			"callback_configured": false,
 			"message":             "企微未配置 (WECOM_CORP_ID / WECOM_CORP_SECRET 为空)",
@@ -221,11 +257,11 @@ func WecomDiagnostic(c *gin.Context) {
 			ErrMsg:  err.Error(),
 			Latency: d0.Round(time.Millisecond).String(),
 		})
-		c.JSON(200, gin.H{
+		c.JSON(http.StatusOK, gin.H{
 			"configured":          true,
 			"callback_configured": callbackConfigured,
-			"corp_id":             config.C.WecomCorpID,
-			"agent_id":            config.C.WecomAgentID,
+			"corp_id":             maskSensitive(config.C.WecomCorpID),
+			"agent_id":            maskAgentID(config.C.WecomAgentID),
 			"results":             results,
 		})
 		return
@@ -278,11 +314,11 @@ func WecomDiagnostic(c *gin.Context) {
 		})
 	}
 
-	c.JSON(200, gin.H{
+	c.JSON(http.StatusOK, gin.H{
 		"configured":          true,
 		"callback_configured": callbackConfigured,
-		"corp_id":             config.C.WecomCorpID,
-		"agent_id":            config.C.WecomAgentID,
+		"corp_id":             maskSensitive(config.C.WecomCorpID),
+		"agent_id":            maskAgentID(config.C.WecomAgentID),
 		"callback_url":        fmt.Sprintf("%s/api/v1/wecom/callback", config.C.BaseURL),
 		"results":             results,
 	})

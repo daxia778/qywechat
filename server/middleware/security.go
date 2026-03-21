@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"strings"
@@ -26,18 +27,25 @@ var (
 	lockDur    = 30 * time.Minute        // 封锁时长
 )
 
-func init() {
-	// 后台定期清理过期的封锁记录
+// StartFailMapCleaner 启动后台定期清理过期的封锁记录（替代 init() goroutine）
+func StartFailMapCleaner(ctx context.Context) {
 	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
 		for {
-			time.Sleep(5 * time.Minute)
-			failMu.Lock()
-			for ip, r := range failMap {
-				if time.Since(r.FirstAt) > failWindow+lockDur {
-					delete(failMap, ip)
+			select {
+			case <-ctx.Done():
+				log.Println("暴力破解记录清理器已停止")
+				return
+			case <-ticker.C:
+				failMu.Lock()
+				for ip, r := range failMap {
+					if time.Since(r.FirstAt) > failWindow+lockDur {
+						delete(failMap, ip)
+					}
 				}
+				failMu.Unlock()
 			}
-			failMu.Unlock()
 		}
 	}()
 }

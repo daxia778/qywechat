@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useId } from 'react';
 
 export default function ConfirmModal({
   visible, title, message, type = 'info', detail, showInput, inputPlaceholder,
@@ -7,7 +7,8 @@ export default function ConfirmModal({
   const [inputValue, setInputValue] = useState('');
   const modalRef = useRef(null);
   const previousActiveElement = useRef(null);
-  const titleId = 'confirm-modal-title';
+  const generatedId = useId();
+  const titleId = `confirm-modal-title-${generatedId}`;
 
   const handleConfirm = () => {
     onConfirm?.(inputValue);

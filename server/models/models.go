@@ -63,6 +63,14 @@ type Order struct {
 	Status          string     `gorm:"column:status;size:32;default:PENDING;index:idx_status_created,priority:1" json:"status"`
 	WecomChatID     string     `gorm:"column:wecom_chat_id;size:64" json:"wecom_chat_id,omitempty"`
 	RefundReason    string     `gorm:"column:refund_reason;type:text" json:"refund_reason,omitempty"`
+
+	// 分润结果字段（由分润引擎自动计算，单位：分）
+	PlatformFee        int `gorm:"column:platform_fee;default:0" json:"platform_fee"`
+	DesignerCommission int `gorm:"column:designer_commission;default:0" json:"designer_commission"`
+	SalesCommission    int `gorm:"column:sales_commission;default:0" json:"sales_commission"`
+	FollowCommission   int `gorm:"column:follow_commission;default:0" json:"follow_commission"`
+	NetProfit          int `gorm:"column:net_profit;default:0" json:"net_profit"`
+
 	CreatedAt       time.Time  `gorm:"index:idx_status_created,priority:2" json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 	AssignedAt      *time.Time `json:"assigned_at,omitempty"`
@@ -78,35 +86,48 @@ type Order struct {
 const (
 	StatusPending      = "PENDING"
 	StatusGroupCreated = "GROUP_CREATED"
+	StatusConfirmed    = "CONFIRMED"
 	StatusDesigning    = "DESIGNING"
 	StatusDelivered    = "DELIVERED"
+	StatusRevision     = "REVISION"
+	StatusAfterSale    = "AFTER_SALE"
 	StatusCompleted    = "COMPLETED"
 	StatusRefunded     = "REFUNDED"
 	StatusClosed       = "CLOSED"
 )
 
 // ValidTransitions 合法状态转换
-// 正向: PENDING → GROUP_CREATED → DESIGNING → DELIVERED → COMPLETED
+// 正向: PENDING → GROUP_CREATED → CONFIRMED → DESIGNING → DELIVERED → COMPLETED
+// 分支: DELIVERED → REVISION → DESIGNING (修改循环)
+// 分支: DESIGNING/DELIVERED/REVISION/AFTER_SALE → AFTER_SALE (售后)
 // 逆向: 任意进行中状态 → REFUNDED / CLOSED
 var ValidTransitions = map[string][]string{
-	StatusPending:      {StatusGroupCreated, StatusRefunded, StatusClosed},
-	StatusGroupCreated: {StatusDesigning, StatusRefunded, StatusClosed},
-	StatusDesigning:    {StatusDelivered, StatusRefunded, StatusClosed},
-	StatusDelivered:    {StatusCompleted, StatusRefunded, StatusClosed},
+	StatusPending:      {StatusGroupCreated, StatusClosed, StatusRefunded},
+	StatusGroupCreated: {StatusConfirmed, StatusClosed, StatusRefunded},
+	StatusConfirmed:    {StatusDesigning, StatusClosed, StatusRefunded},
+	StatusDesigning:    {StatusDelivered, StatusAfterSale, StatusClosed, StatusRefunded},
+	StatusDelivered:    {StatusCompleted, StatusRevision, StatusAfterSale, StatusRefunded},
+	StatusRevision:     {StatusDesigning, StatusAfterSale, StatusClosed, StatusRefunded},
+	StatusAfterSale:    {StatusDesigning, StatusRevision, StatusCompleted, StatusRefunded, StatusClosed},
+	StatusCompleted:    {StatusAfterSale, StatusRefunded},
 }
 
 // StatusChangePermission 定义每个目标状态所需的操作权限
 // key = 目标状态, value = 允许执行此操作的角色列表
 var StatusChangePermission = map[string][]string{
 	StatusGroupCreated: {"admin", "sales"},
+	StatusConfirmed:    {"admin", "sales"},
 	StatusDesigning:    {"admin", "sales"},
 	StatusDelivered:    {"admin", "designer"},
+	StatusRevision:     {"admin", "follow"},
+	StatusAfterSale:    {"admin", "follow"},
 	StatusCompleted:    {"admin", "sales", "follow"},
 	StatusRefunded:     {"admin", "sales"},
 	StatusClosed:       {"admin"},
 }
 
 // IsTerminalStatus 判断是否为终态（不可再转换）
+// 注意: COMPLETED 不再是终态，可转换到 AFTER_SALE / REFUNDED
 func IsTerminalStatus(status string) bool {
-	return status == StatusCompleted || status == StatusRefunded || status == StatusClosed
+	return status == StatusRefunded || status == StatusClosed
 }

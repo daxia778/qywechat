@@ -45,8 +45,8 @@ func ExportOrdersCSV(c *gin.Context) {
 		query = query.Where("status = ?", status)
 	}
 	if keyword != "" {
-		like := "%" + keyword + "%"
-		query = query.Where("order_sn LIKE ? OR customer_contact LIKE ? OR topic LIKE ?", like, like, like)
+		like := "%" + escapeLike(keyword) + "%"
+		query = query.Where("order_sn LIKE ? ESCAPE '\\' OR customer_contact LIKE ? ESCAPE '\\' OR topic LIKE ? ESCAPE '\\'", like, like, like)
 	}
 	if startDate != "" {
 		if t, err := time.Parse("2006-01-02", startDate); err == nil {

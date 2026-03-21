@@ -2,15 +2,17 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"pdd-order-system/config"
 	"pdd-order-system/models"
+	"pdd-order-system/services"
 
 	"github.com/gin-gonic/gin"
 )
 
-// GetProfitBreakdown 获取分润明细报表
+// GetProfitBreakdown 获取分润明细报表（批量，使用落库数据）
 func GetProfitBreakdown(c *gin.Context) {
 	// 时间范围参数，默认当月
 	monthStr := c.DefaultQuery("month", time.Now().Format("2006-01"))
@@ -21,7 +23,7 @@ func GetProfitBreakdown(c *gin.Context) {
 	endTime := startTime.AddDate(0, 1, 0)
 
 	var orders []models.Order
-	// 仅计算已完成的订单，排除发生退款等终态
+	// 仅计算已完成的订单，排除退款等终态
 	models.DB.Where("created_at >= ? AND created_at < ? AND status = ?", startTime, endTime, models.StatusCompleted).Find(&orders)
 
 	type ProfitItem struct {
@@ -45,30 +47,27 @@ func GetProfitBreakdown(c *gin.Context) {
 	var totalRevenue, totalPlatformFee, totalDesigner, totalSales, totalFollow, totalNet int
 
 	for _, o := range orders {
-		pf := o.Price * platformRate / 100
-		dc := o.Price * designerRate / 100
-		sc := o.Price * salesRate / 100
-		fc := o.Price * followRate / 100
-		np := o.Price - pf - dc - sc - fc
+		// 使用落库的分润数据（已由分润引擎预计算）
+		totalPrice := o.Price + o.ExtraPrice
 
 		items = append(items, ProfitItem{
 			OrderSN:            o.OrderSN,
-			TotalPrice:         o.Price,
-			PlatformFee:        pf,
-			DesignerCommission: dc,
-			SalesCommission:    sc,
-			FollowCommission:   fc,
-			NetProfit:          np,
+			TotalPrice:         totalPrice,
+			PlatformFee:        o.PlatformFee,
+			DesignerCommission: o.DesignerCommission,
+			SalesCommission:    o.SalesCommission,
+			FollowCommission:   o.FollowCommission,
+			NetProfit:          o.NetProfit,
 			DesignerID:         o.DesignerID,
 			OperatorID:         o.OperatorID,
 		})
 
-		totalRevenue += o.Price
-		totalPlatformFee += pf
-		totalDesigner += dc
-		totalSales += sc
-		totalFollow += fc
-		totalNet += np
+		totalRevenue += totalPrice
+		totalPlatformFee += o.PlatformFee
+		totalDesigner += o.DesignerCommission
+		totalSales += o.SalesCommission
+		totalFollow += o.FollowCommission
+		totalNet += o.NetProfit
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -89,5 +88,31 @@ func GetProfitBreakdown(c *gin.Context) {
 			"total_net_profit":   totalNet,
 		},
 		"items": items,
+	})
+}
+
+// GetOrderProfit 获取单个订单的实时分润计算结果
+func GetOrderProfit(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的订单ID"})
+		return
+	}
+
+	result, err := services.CalculateProfit(models.DB, uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"profit": result,
+		"config": gin.H{
+			"platform_fee_rate":        config.C.PlatformFeeRate,
+			"designer_commission_rate": config.C.DesignerCommissionRate,
+			"sales_commission_rate":    config.C.SalesCommissionRate,
+			"follow_commission_rate":   config.C.FollowCommissionRate,
+		},
 	})
 }

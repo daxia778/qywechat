@@ -8,6 +8,7 @@ import { NAV_ROUTES, ROLE_MAP } from '../../utils/constants';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../../api/notifications';
 import { formatTime } from '../../utils/formatters';
 import NotificationPanel from '../NotificationPanel';
+import OrderMatchModal from '../OrderMatchModal';
 
 export default function AppShell() {
   const { userName, role, logout } = useAuth();
@@ -23,6 +24,8 @@ export default function AppShell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
+  const [matchModalVisible, setMatchModalVisible] = useState(false);
+  const [matchContactInfo, setMatchContactInfo] = useState(null);
 
   const userInitials = (userName || 'AD').substring(0, 2).toUpperCase();
   const currentRoleName = ROLE_MAP[role] || '用户';
@@ -100,6 +103,17 @@ export default function AppShell() {
     };
   }, [on, off, fetchNotifications]);
 
+  // WS: new_external_contact triggers match modal
+  useEffect(() => {
+    const handler = (payload) => {
+      setMatchContactInfo(payload);
+      setMatchModalVisible(true);
+      toast('有新好友添加，请匹配对应订单', 'info', '好友匹配');
+    };
+    on('new_external_contact', handler);
+    return () => off('new_external_contact', handler);
+  }, [on, off, toast]);
+
   // Close notif panel on outside click
   useEffect(() => {
     const close = () => setShowNotifPanel(false);
@@ -128,7 +142,15 @@ export default function AppShell() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-surface font-sans text-[#1C1C28]">
+    <div className="flex h-screen overflow-hidden bg-[#f8f9fa] font-sans text-[#1C1C28]">
+      {/* Order Match Modal */}
+      <OrderMatchModal
+        visible={matchModalVisible}
+        contactInfo={matchContactInfo}
+        onClose={() => setMatchModalVisible(false)}
+        onMatched={() => fetchNotifications()}
+      />
+
       {/* Logout Confirm */}
       {showLogoutConfirm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="logout-dialog-title" onKeyDown={(e) => { if (e.key === 'Escape') setShowLogoutConfirm(false); }}>
@@ -160,25 +182,29 @@ export default function AppShell() {
 
       {/* Sidebar */}
       <aside
-        className={`flex flex-col shrink-0 bg-gradient-to-b from-[#3D28B2] to-[#2D1D8A] text-white/80 z-50 transition-all duration-300 ease-in-out border-r-2 border-[#4A32C8]/30 ${
-          collapsed ? 'w-[80px]' : 'w-[280px]'
-        } ${mobileOpen ? 'fixed inset-y-0 left-0 w-[280px] shadow-2xl' : 'hidden lg:flex'}`}
+        className={`flex flex-col shrink-0 text-white z-50 transition-all duration-300 ease-in-out ${
+          collapsed ? 'w-[72px]' : 'w-[260px]'
+        } ${mobileOpen ? 'fixed inset-y-0 left-0 w-[260px] shadow-2xl' : 'hidden lg:flex'}`}
+        style={{ background: 'linear-gradient(160deg, #2834b7 0%, #434fcf 100%)' }}
       >
         {/* Logo */}
-        <div className={`flex items-center shrink-0 h-[72px] transition-all duration-300 border-b border-white/10 ${collapsed && !mobileOpen ? 'px-4 justify-center' : 'px-6 gap-3'}`}>
-          <div className="w-10 h-10 shrink-0 bg-white/15 backdrop-blur rounded-xl flex items-center justify-center text-white font-bold text-lg tracking-wider border border-white/20">
-            PD
+        <div className={`flex items-center shrink-0 h-[64px] border-b border-white/[0.12] ${collapsed && !mobileOpen ? 'px-3 justify-center' : 'px-5 gap-2.5'}`}>
+          <div className="w-9 h-9 shrink-0 rounded-xl bg-white/15 flex items-center justify-center text-white backdrop-blur-sm">
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>analytics</span>
           </div>
           {(!collapsed || mobileOpen) && (
-            <span className="font-[Outfit] font-semibold text-[20px] text-white whitespace-nowrap tracking-tight">派单中控</span>
+            <div className="flex flex-col justify-center">
+              <h1 className="text-[18px] font-bold text-white tracking-tight leading-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>智序系统</h1>
+              <p className="text-[10px] text-white/60 font-normal tracking-[0.04em]">Order Management</p>
+            </div>
           )}
         </div>
 
         {/* Nav */}
-        <div className="flex-1 overflow-y-auto py-5 scrollbar-hide">
+        <div className="flex-1 overflow-y-auto py-3 scrollbar-hide">
           <nav className="px-3 space-y-0.5" aria-label="主导航菜单">
             {(!collapsed || mobileOpen) && (
-              <p className="px-4 mb-3 mt-1 text-[11px] font-semibold text-white/40 uppercase tracking-[0.15em]">菜单</p>
+              <p className="px-3 mb-2 mt-2 text-[10px] font-semibold text-white/40 uppercase tracking-[0.12em]">菜单</p>
             )}
             {filteredNavRoutes.map((route) => {
               const isActive = location.pathname === route.path || (route.path !== '/' && location.pathname.startsWith(route.path));
@@ -189,19 +215,16 @@ export default function AppShell() {
                   onClick={() => setMobileOpen(false)}
                   title={collapsed && !mobileOpen ? route.title : ''}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`flex items-center gap-3 no-underline transition-all duration-200 ease-in-out group rounded-xl relative ${
-                    collapsed && !mobileOpen ? 'justify-center p-3' : 'px-4 py-2.5'
+                  className={`flex items-center gap-3 no-underline transition-all duration-200 ease-in-out group rounded-lg relative ${
+                    collapsed && !mobileOpen ? 'justify-center p-3 mx-0' : 'px-3 py-2.5 mx-0'
                   } ${
                     isActive
-                      ? 'bg-white/15 text-white shadow-[0_0_12px_rgba(255,255,255,0.08)]'
-                      : 'text-white/60 hover:bg-white/10 hover:text-white'
+                      ? 'bg-white/[0.18] text-white font-semibold'
+                      : 'text-white/70 hover:bg-white/10 hover:text-white'
                   }`}
                 >
-                  {isActive && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[60%] bg-white rounded-r shadow-[0_0_8px_rgba(255,255,255,0.6)]" />
-                  )}
                   <div
-                    className={`shrink-0 flex items-center w-5 h-5 transition-colors duration-200 ${isActive ? 'text-white' : 'text-white/50 group-hover:text-white'}`}
+                    className={`shrink-0 flex items-center w-5 h-5 transition-colors duration-200 ${isActive ? 'text-white' : 'text-white/60 group-hover:text-white'}`}
                     aria-hidden="true"
                   >
                     {route.icon}
@@ -216,11 +239,11 @@ export default function AppShell() {
         </div>
 
         {/* Sidebar Footer — Collapse/Expand Toggle */}
-        <div className="px-3 py-3 border-t border-white/10">
+        <div className="px-3 py-3 border-t border-white/[0.12]">
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className={`w-full flex items-center gap-3 rounded-xl transition-all duration-200 hover:bg-white/15 text-white/60 hover:text-white ${
-              collapsed && !mobileOpen ? 'justify-center p-2.5' : 'px-4 py-2.5'
+            className={`w-full flex items-center gap-3 rounded-lg transition-all duration-200 hover:bg-white/10 text-white/50 hover:text-white ${
+              collapsed && !mobileOpen ? 'justify-center p-2.5' : 'px-3 py-2.5'
             }`}
             aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
           >
@@ -237,26 +260,42 @@ export default function AppShell() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {/* Header */}
-        <header className="h-[72px] flex items-center justify-between px-5 lg:px-8 bg-white border-b-2 border-slate-200 shrink-0 sticky top-0 z-40">
+        <header className="h-[64px] flex items-center justify-between px-6 lg:px-8 bg-white border-b border-[#e1e3e4] border-l-2 border-l-[#434fcf]/20 shrink-0 sticky top-0 z-40">
           <div className="flex items-center gap-3">
-            <button onClick={() => setMobileOpen(!mobileOpen)} className="p-2 -ml-1 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors lg:hidden" aria-label="打开导航菜单">
+            <button onClick={() => setMobileOpen(!mobileOpen)} className="p-2 -ml-1 rounded-lg hover:bg-[#f3f4f5] text-[#454654] transition-colors lg:hidden" aria-label="打开导航菜单">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
             </button>
 
-            <nav className="hidden sm:flex items-center gap-1.5 text-sm" aria-label="面包屑导航">
-              <Link to="/" className="text-slate-400 hover:text-slate-600 transition-colors" aria-label="首页">
+            <div className="hidden lg:flex items-center relative ml-4">
+              <svg className="absolute left-[14px] top-1/2 -translate-y-1/2 w-4 h-4 text-[#9a9bab] pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" /></svg>
+              <input
+                className="pl-10 pr-4 py-2 bg-[#f5f5f7] border border-black/[0.08] rounded-[0.5rem] text-[13px] text-[#191c1d] placeholder-[#9a9bab] w-72 focus:ring-2 focus:ring-[#2834b7]/15 focus:border-[#2834b7]/40 outline-none transition-all"
+                placeholder="搜索订单、客户..."
+                type="text"
+              />
+            </div>
+
+            <nav className="hidden sm:flex items-center gap-1.5 text-sm ml-2" aria-label="面包屑导航">
+              <Link to="/" className="text-[#9a9bab] hover:text-[#454654] transition-colors" aria-label="首页">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
               </Link>
-              <svg className="w-3.5 h-3.5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
-              <span className="font-semibold text-slate-700">{currentRouteName}</span>
+              <svg className="w-3 h-3 text-[#c8cad0]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+              <span className="font-semibold text-[#191c1d] text-[13px]">{currentRouteName}</span>
             </nav>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              className="hidden sm:block text-white text-[14px] font-semibold rounded-[0.5rem] px-[18px] py-[9px] transition-opacity hover:opacity-90 active:opacity-80"
+              style={{ background: 'linear-gradient(135deg, #2834b7 0%, #434fcf 100%)' }}
+            >
+              导出报表
+            </button>
+
             {/* WebSocket Connection Indicator */}
             <div
-              className={`flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1.5 rounded-lg select-none ${
-                connectionState === WS_STATE.OFFLINE ? 'cursor-pointer hover:bg-slate-100 transition-colors' : 'cursor-default'
+              className={`flex items-center gap-1.5 text-[12px] font-medium select-none ${
+                connectionState === WS_STATE.OFFLINE ? 'cursor-pointer' : 'cursor-default'
               }`}
               title={
                 connectionState === WS_STATE.CONNECTED
@@ -276,7 +315,7 @@ export default function AppShell() {
                     : connectionState === WS_STATE.RECONNECTING
                     ? 'bg-amber-400 animate-pulse shadow-[0_0_6px_rgba(251,191,36,0.5)]'
                     : connectionState === WS_STATE.OFFLINE
-                    ? 'bg-slate-400'
+                    ? 'bg-[#c8cad0]'
                     : 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
                 }`}
               />
@@ -287,7 +326,7 @@ export default function AppShell() {
                     : connectionState === WS_STATE.RECONNECTING
                     ? 'text-amber-500'
                     : connectionState === WS_STATE.OFFLINE
-                    ? 'text-slate-400'
+                    ? 'text-[#9a9bab]'
                     : 'text-red-500'
                 }`}
               >
@@ -301,15 +340,19 @@ export default function AppShell() {
               </span>
             </div>
 
-            <div className="hidden md:flex items-center gap-1.5 text-[13px] text-slate-400 font-medium bg-slate-50 px-3 py-1.5 rounded-lg">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <div className="hidden md:flex items-center gap-1.5 text-[13px] text-[#454654] font-medium bg-[#f3f4f5] px-3 py-1.5 rounded-[0.5rem]">
+              <svg className="w-3.5 h-3.5 text-[#9a9bab]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               {currentTime}
             </div>
 
             {/* Notification Bell */}
             <div className="relative">
-              <button onClick={(e) => { e.stopPropagation(); setShowNotifPanel(!showNotifPanel); }} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors relative" aria-label={`通知${unreadCount > 0 ? `，${unreadCount}条未读` : ''}`}>
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowNotifPanel(!showNotifPanel); }}
+                className="w-[38px] h-[38px] flex items-center justify-center rounded-[0.5rem] bg-[#f3f4f5] hover:bg-[#e7e8e9] text-[#454654] transition-colors relative"
+                aria-label={`通知${unreadCount > 0 ? `，${unreadCount}条未读` : ''}`}
+              >
+                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
                 {unreadCount > 0 && (
                   <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1 animate-pulse">
                     {unreadCount > 99 ? '99+' : unreadCount}
@@ -326,18 +369,21 @@ export default function AppShell() {
               )}
             </div>
 
-            <div className="hidden sm:block w-px h-6 bg-slate-200" />
+            <div className="hidden sm:block w-px h-6 bg-[#e1e3e4]" />
 
             {/* User */}
-            <div className="flex items-center gap-2.5 hover:bg-slate-50 p-1.5 pr-3 rounded-xl cursor-pointer transition-colors border border-transparent hover:border-slate-200/80">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500/20 to-brand-500/10 text-brand-500 font-bold text-sm flex items-center justify-center overflow-hidden shrink-0 ring-2 ring-white">
+            <div className="flex items-center gap-2 hover:bg-[#f3f4f5] p-1.5 pr-2.5 rounded-[0.75rem] cursor-pointer transition-colors">
+              <div
+                className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[13px] font-bold shrink-0"
+                style={{ background: 'linear-gradient(135deg, #2834b7, #434fcf)' }}
+              >
                 {userInitials}
               </div>
-              <div className="hidden md:block text-right">
-                <div className="text-[13px] font-semibold text-slate-700 leading-tight">{userName}</div>
-                <div className="text-[11px] text-slate-400">{currentRoleName}</div>
+              <div className="hidden md:block">
+                <div className="text-[14px] font-semibold text-[#191c1d] leading-tight">{userName}</div>
+                <div className="text-[11px] text-[#767685]">{currentRoleName}</div>
               </div>
-              <button onClick={(e) => { e.stopPropagation(); setShowLogoutConfirm(true); }} className="ml-1 text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="退出登录" aria-label="退出登录">
+              <button onClick={(e) => { e.stopPropagation(); setShowLogoutConfirm(true); }} className="ml-0.5 text-[#9a9bab] hover:text-red-500 p-1.5 rounded-[0.5rem] hover:bg-red-50 transition-colors" title="退出登录" aria-label="退出登录">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H8a3 3 0 01-3-3V7a3 3 0 013-3h2a3 3 0 013 3v1" /></svg>
               </button>
             </div>
@@ -345,7 +391,7 @@ export default function AppShell() {
         </header>
 
         {/* Page */}
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-6 lg:p-8 scroll-smooth bg-surface">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-8 lg:p-10 scroll-smooth bg-surface">
           <Suspense fallback={
             <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '60vh', gap: '12px' }}>
               <div style={{
@@ -354,7 +400,6 @@ export default function AppShell() {
                 animation: 'spin 0.6s linear infinite',
               }} />
               <span style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500 }}>加载中...</span>
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </div>
           }>
             <div className="page-enter" key={location.pathname}>

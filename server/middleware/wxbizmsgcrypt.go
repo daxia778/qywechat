@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/xml"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"sort"
 	"strings"
 )
@@ -116,7 +117,8 @@ func NewWXBizMsgCrypt(token, encoding_aeskey, receiver_id string, protocol_type 
 func (self *WXBizMsgCrypt) randString(n int) string {
 	b := make([]byte, n)
 	for i := range b {
-		b[i] = letterBytes[rand.Int63()%int64(len(letterBytes))]
+		idx, _ := rand.Int(rand.Reader, big.NewInt(int64(len(letterBytes))))
+		b[i] = letterBytes[idx.Int64()]
 	}
 	return string(b)
 }
@@ -139,6 +141,15 @@ func (self *WXBizMsgCrypt) pKCS7Unpadding(plaintext []byte, block_size int) ([]b
 		return nil, NewCryptError(DecryptAESError, "pKCS7Unpadding text not a multiple of the block size")
 	}
 	padding_len := int(plaintext[plaintext_len-1])
+	if padding_len <= 0 || padding_len > block_size || padding_len > plaintext_len {
+		return nil, NewCryptError(DecryptAESError, "invalid PKCS7 padding")
+	}
+	// 验证所有 padding 字节都相同，防止 padding oracle 攻击
+	for i := plaintext_len - padding_len; i < plaintext_len; i++ {
+		if plaintext[i] != byte(padding_len) {
+			return nil, NewCryptError(DecryptAESError, "invalid PKCS7 padding byte")
+		}
+	}
 	return plaintext[:plaintext_len-padding_len], nil
 }
 

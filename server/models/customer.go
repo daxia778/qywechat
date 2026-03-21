@@ -15,6 +15,10 @@ type Customer struct {
 	ExternalUserID string         `gorm:"size:64;index" json:"external_user_id"`
 	TotalOrders    int            `gorm:"default:0" json:"total_orders"`
 	TotalAmount    int            `gorm:"default:0" json:"total_amount"`
+	TotalPayments  int            `gorm:"default:0" json:"total_payments"`
+	IsRepurchase   bool           `gorm:"default:false" json:"is_repurchase"`
+	Tags           string         `gorm:"size:500" json:"tags"`
+	Source         string         `gorm:"size:20" json:"source"` // pdd / referral / other
 	FirstOrderAt   *time.Time     `json:"first_order_at"`
 	LastOrderAt    *time.Time     `json:"last_order_at"`
 	Remark         string         `gorm:"size:500" json:"remark"`

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"os"
 	"strconv"
@@ -17,6 +19,7 @@ type Config struct {
 	PGUser     string
 	PGPassword string
 	PGDBName   string
+	PGSSLMode  string
 
 	// 企业微信
 	WecomCorpID            string
@@ -79,8 +82,9 @@ func Init() {
 		PGHost:                  getEnv("PG_HOST", "localhost"),
 		PGPort:                  getEnv("PG_PORT", "5432"),
 		PGUser:                  getEnv("PG_USER", "pdd_user"),
-		PGPassword:              getEnv("PG_PASSWORD", "pdd_password"),
+		PGPassword:              getEnv("PG_PASSWORD", ""),
 		PGDBName:                getEnv("PG_DBNAME", "pdd_order"),
+		PGSSLMode:               getEnv("PG_SSLMODE", "require"),
 		WecomCorpID:             getEnv("WECOM_CORP_ID", ""),
 		WecomCorpSecret:         getEnv("WECOM_CORP_SECRET", ""),
 		WecomAgentID:            getEnvInt("WECOM_AGENT_ID", 0),
@@ -91,7 +95,7 @@ func Init() {
 		OCRProvider:             getEnv("OCR_PROVIDER", "zhipu"),
 		ZhipuAPIKey:             getEnv("ZHIPU_API_KEY", ""),
 		DashscopeAPIKey:         getEnv("DASHSCOPE_API_KEY", ""),
-		JWTSecretKey:            getEnv("JWT_SECRET_KEY", "dev-secret-change-in-prod"),
+		JWTSecretKey:            getEnv("JWT_SECRET_KEY", ""),
 		JWTExpireMinutes:        getEnvInt("JWT_EXPIRE_MINUTES", 1440),
 		AdminDefaultUsername:    getEnv("ADMIN_DEFAULT_USERNAME", "admin"),
 		AdminDefaultPassword:    getEnv("ADMIN_DEFAULT_PASSWORD", ""),
@@ -114,22 +118,55 @@ func Init() {
 		AdminAllowedIPs:         splitCSV(getEnv("ADMIN_ALLOWED_IPS", "")),
 	}
 
-	// 🔒 安全校验: 非 debug 模式下禁止使用默认 JWT 密钥
-	if C.DeployMode != "debug" && C.JWTSecretKey == "dev-secret-change-in-prod" {
-		log.Fatal("❌ 安全错误: 生产环境禁止使用默认 JWT_SECRET_KEY！请在 .env 中设置高强度的随机字符串。")
-	} else if C.JWTSecretKey == "dev-secret-change-in-prod" {
-		log.Println("⚠️  警告: JWT_SECRET_KEY 使用默认值 (仅允许 debug 模式)")
+	// 🔒 安全校验: JWT 密钥
+	if C.JWTSecretKey == "" {
+		if C.DeployMode != "debug" {
+			log.Fatal("FATAL: JWT_SECRET_KEY is not set. In production you MUST provide a strong secret via environment variable.")
+		}
+		// debug 模式: 动态生成随机密钥，每次启动不同
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			log.Fatalf("FATAL: failed to generate random JWT secret: %v", err)
+		}
+		C.JWTSecretKey = hex.EncodeToString(b)
+		log.Println("WARNING: JWT_SECRET_KEY not set, using auto-generated random secret (debug mode only, will change on restart)")
+	}
+
+	// 🔒 安全校验: PG 密码
+	if C.DBType == "postgres" && C.PGPassword == "" {
+		log.Fatal("FATAL: PG_PASSWORD is not set. PostgreSQL requires a password.")
 	}
 
 	// 🔒 安全校验: 管理员默认密码不能为空或弱密码
 	if C.AdminDefaultPassword == "" && C.DeployMode != "debug" {
 		log.Fatal("❌ 安全错误: 生产环境必须设置 ADMIN_DEFAULT_PASSWORD！")
 	} else if C.AdminDefaultPassword == "" {
-		C.AdminDefaultPassword = "Admin123!"
-		log.Println("⚠️  警告: ADMIN_DEFAULT_PASSWORD 未设置，使用临时默认值 (仅允许 debug 模式)")
+		// debug 模式也生成随机密码，防止硬编码弱密码被利用
+		pwdBytes := make([]byte, 12)
+		if _, err := rand.Read(pwdBytes); err != nil {
+			log.Fatalf("FATAL: failed to generate random admin password: %v", err)
+		}
+		C.AdminDefaultPassword = hex.EncodeToString(pwdBytes)[:16]
+		log.Printf("⚠️  警告: ADMIN_DEFAULT_PASSWORD 未设置，已生成随机密码: %s (仅本次启动有效，请立即记录！)", C.AdminDefaultPassword)
 	}
 
 	log.Printf("✅ 配置加载完成 | DBType=%s | 企微=%v | OCR=%s | MODE=%s", C.DBType, C.WecomCorpID != "", C.OCRProvider, C.DeployMode)
+
+	// 分润费率范围校验 (0-100)
+	validateRate := func(name string, val int) {
+		if val < 0 || val > 100 {
+			log.Fatalf("❌ 配置错误: %s 必须在 0-100 之间，当前值: %d", name, val)
+		}
+	}
+	validateRate("PLATFORM_FEE_RATE", C.PlatformFeeRate)
+	validateRate("DESIGNER_COMMISSION_RATE", C.DesignerCommissionRate)
+	validateRate("SALES_COMMISSION_RATE", C.SalesCommissionRate)
+	validateRate("FOLLOW_COMMISSION_RATE", C.FollowCommissionRate)
+
+	totalRate := C.PlatformFeeRate + C.DesignerCommissionRate + C.SalesCommissionRate + C.FollowCommissionRate
+	if totalRate > 100 {
+		log.Printf("⚠️ 警告: 分润费率总和 (%d%%) 超过 100%%，净利润将为负", totalRate)
+	}
 }
 
 func getEnv(key, fallback string) string {

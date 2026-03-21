@@ -39,8 +39,8 @@ func InitDB() {
 
 	if config.C.DBType == "postgres" {
 		// PostgreSQL 初始化
-		dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=Asia/Shanghai",
-			config.C.PGHost, config.C.PGUser, config.C.PGPassword, config.C.PGDBName, config.C.PGPort)
+		dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s TimeZone=Asia/Shanghai",
+			config.C.PGHost, config.C.PGUser, config.C.PGPassword, config.C.PGDBName, config.C.PGPort, config.C.PGSSLMode)
 		dialector = postgres.Open(dsn)
 	} else {
 		// SQLite 初始化
@@ -49,7 +49,7 @@ func InitDB() {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			log.Fatalf("❌ 创建数据库目录失败: %v", err)
 		}
-		dsn := fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL&_cache_size=-64000&_foreign_keys=ON", dbPath)
+		dsn := fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=30000&_synchronous=FULL&_cache_size=-64000&_foreign_keys=ON", dbPath)
 		dialector = sqlite.Open(dsn)
 	}
 
@@ -65,13 +65,20 @@ func InitDB() {
 		log.Fatalf("❌ 获取 sql.DB 失败: %v", err)
 	}
 
-	// SQLite 最佳实践: 单写连接 + 多读连接
-	sqlDB.SetMaxIdleConns(4)
-	sqlDB.SetMaxOpenConns(8)
-	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+	if config.C.DBType == "sqlite" {
+		// SQLite: 单连接防止 "database is locked"，配合 WriteTx 互斥锁
+		sqlDB.SetMaxIdleConns(1)
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetConnMaxLifetime(0) // 不回收连接
+	} else {
+		// PostgreSQL: 允许并发连接
+		sqlDB.SetMaxIdleConns(4)
+		sqlDB.SetMaxOpenConns(8)
+		sqlDB.SetConnMaxLifetime(30 * time.Minute)
+	}
 
 	// 自动建表与迁移
-	if err := DB.AutoMigrate(&Employee{}, &Order{}, &Customer{}, &AuditLog{}, &WecomGroupChat{}, &WecomMember{}, &WecomMessageLog{}, &AppVersion{}, &Notification{}, &OrderTimeline{}); err != nil {
+	if err := DB.AutoMigrate(&Employee{}, &Order{}, &Customer{}, &AuditLog{}, &WecomGroupChat{}, &WecomMember{}, &WecomMessageLog{}, &AppVersion{}, &Notification{}, &OrderTimeline{}, &PaymentRecord{}); err != nil {
 		log.Fatalf("❌ 数据库迁移失败: %v", err)
 	}
 

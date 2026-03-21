@@ -30,3 +30,13 @@ admin-web/.vite/
 
 # Backup
 admin-web-vue-backup/
+
+# Environment & runtime data
+.env
+data/
+uploads/
+backups/
+release/
+*.db
+*.db-wal
+*.db-shm
