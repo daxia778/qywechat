@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,16 +31,26 @@ func setupTestDB(t *testing.T) {
 	}
 
 	var err error
-	models.DB, err = gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	// 使用唯一 DB 名称，防止不同测试间状态泄漏
+	dbName := fmt.Sprintf("file:testdb_%s?mode=memory&cache=shared", t.Name())
+	models.DB, err = gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("Failed to open test DB: %v", err)
 	}
+
+	// SQLite in-memory: 单连接确保同一测试内所有操作共享同一个数据库
+	sqlDB, _ := models.DB.DB()
+	sqlDB.SetMaxIdleConns(1)
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { sqlDB.Close() })
 
 	if err := models.DB.AutoMigrate(
 		&models.Order{},
 		&models.Employee{},
 		&models.OrderTimeline{},
 		&models.Notification{},
+		&models.PaymentRecord{},
+		&models.Customer{},
 	); err != nil {
 		t.Fatalf("AutoMigrate failed: %v", err)
 	}
@@ -188,7 +199,7 @@ func TestUpdateOrderStatus_OperatorOwnOrder(t *testing.T) {
 	c.Request, _ = http.NewRequest(http.MethodPut, "/orders/1/status", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("wecom_userid", "op1") // matches OperatorID
-	c.Set("role", "operator")
+	c.Set("role", "sales")
 	c.Set("name", "Operator 1")
 
 	UpdateOrderStatus(c)
@@ -217,7 +228,7 @@ func TestUpdateOrderStatus_OperatorOtherOrder(t *testing.T) {
 	c.Request, _ = http.NewRequest(http.MethodPut, "/orders/1/status", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("wecom_userid", "op2") // does NOT match OperatorID "op1"
-	c.Set("role", "operator")
+	c.Set("role", "sales")
 	c.Set("name", "Operator 2")
 
 	UpdateOrderStatus(c)
