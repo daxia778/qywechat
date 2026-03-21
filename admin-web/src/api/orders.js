@@ -1,10 +1,13 @@
 import client from './client';
 
-export const listOrders = (params) => client.get('/orders/list', { params });
-export const getOrderDetail = (id) => client.get(`/orders/${id}/detail`);
-export const getOrderTimeline = (id) => client.get(`/orders/${id}/timeline`);
+export const listOrders = (params, config) => client.get('/orders/list', { params, ...config });
+export const getOrderDetail = (id, config) => client.get(`/orders/${id}/detail`, config);
+export const getOrderTimeline = (id, config) => client.get(`/orders/${id}/timeline`, config);
 export const updateOrderStatus = (id, data) => client.put(`/orders/${id}/status`, data);
+export const updateOrderAmount = (id, data) => client.put(`/orders/${id}/amount`, data);
 export const uploadOCR = (formData) =>
   client.post('/orders/upload_ocr', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
+export const listPendingMatchOrders = (params) => client.get('/orders/pending-match', { params });
+export const matchOrderContact = (id, data) => client.post(`/orders/${id}/match`, data);

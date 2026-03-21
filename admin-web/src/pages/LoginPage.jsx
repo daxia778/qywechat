@@ -49,14 +49,16 @@ function useCountUp(target, duration = 1200, delay = 0) {
 
   useEffect(() => {
     if (!started) return;
+    let rafId;
     const start = performance.now();
     const step = (now) => {
       const progress = Math.min((now - start) / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3); // easeOutCubic
       setValue(Math.round(eased * target));
-      if (progress < 1) requestAnimationFrame(step);
+      if (progress < 1) rafId = requestAnimationFrame(step);
     };
-    requestAnimationFrame(step);
+    rafId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafId);
   }, [started, target, duration]);
 
   return value;
@@ -318,7 +320,7 @@ export default function LoginPage() {
                   className="sr-only"
                 />
                 <div
-                  className={`w-4 h-4 rounded border-2 transition-all flex items-center justify-center ${rememberMe ? 'bg-brand-500 border-brand-500' : 'border-slate-300 hover:border-brand-200'
+                  className={`w-4 h-4 rounded border-2 transition-all flex items-center justify-center ${rememberMe ? 'bg-brand-500 border-brand-500' : 'border-slate-300 hover:border-[#434FCF]/20'
                     }`}
                 >
                   {rememberMe && (

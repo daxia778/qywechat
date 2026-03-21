@@ -143,7 +143,7 @@ export default function LoginPage() {
       })
 
       toast.success(`欢迎回来，${employee_name}`)
-      navigate('/')
+      navigate('/dashboard')
     } catch (err) {
       const msg = err.response?.data?.error || '激活码无效或设备不匹配'
       setErrorMsg(msg)

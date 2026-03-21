@@ -1,4 +1,4 @@
-import { createContext, useState, useCallback, useEffect } from 'react';
+import { createContext, useState, useCallback, useEffect, useMemo } from 'react';
 import { validateToken, login as apiLogin } from '../api/auth';
 import { getToken, getUserName, getUserId, getRole, setAuth, clearAuth, setRole as setStoredRole, setStoredUserId } from '../utils/storage';
 
@@ -21,8 +21,8 @@ export function AuthProvider({ children }) {
     const t = data.token;
     const user = data.user || {};
     const empName = user.name || data.employee_name || username;
-    const empId = user.username || data.wecom_userid || '';
-    const r = user.role || data.role || 'admin';
+    const empId = user.wecom_userid || data.wecom_userid || user.username || '';
+    const r = user.role || data.role || 'sales';
     setAuth({ token: t, employee_name: empName, wecom_userid: empId, role: r });
     setToken(t);
     setUserName(empName);
@@ -68,8 +68,19 @@ export function AuthProvider({ children }) {
     checkToken();
   }, [checkToken]);
 
+  const value = useMemo(() => ({
+    token, userName, userId, role, isAuthenticated, ready, login, logout, checkToken
+  }), [token, userName, userId, role, isAuthenticated, ready, login, logout, checkToken]);
+
+  // Listen for auth:logout events dispatched by the API client on 401
+  useEffect(() => {
+    const handleAuthLogout = () => logout();
+    window.addEventListener('auth:logout', handleAuthLogout);
+    return () => window.removeEventListener('auth:logout', handleAuthLogout);
+  }, [logout]);
+
   return (
-    <AuthContext.Provider value={{ token, userName, userId, role, isAuthenticated, ready, login, logout, checkToken }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

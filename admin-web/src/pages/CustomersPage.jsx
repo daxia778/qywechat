@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useToast } from '../hooks/useToast';
+import { useDebounce } from '../hooks/useDebounce';
 import { listCustomers, getCustomerDetail, updateCustomer } from '../api/customers';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
@@ -16,8 +17,7 @@ export default function CustomersPage() {
   const [totalCustomers, setTotalCustomers] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
   const pageSize = 50;
-  const searchTimerRef = useRef(null);
-  const [debouncedKeyword, setDebouncedKeyword] = useState(searchKeyword);
+  const debouncedKeyword = useDebounce(searchKeyword, 300);
 
   const totalPages = Math.max(1, Math.ceil(totalCustomers / pageSize));
 
@@ -49,21 +49,15 @@ export default function CustomersPage() {
     fetchCustomers();
   }, [currentPage, debouncedKeyword, fetchCustomers]);
 
-  // Debounce search input
+  // Reset page and sync URL when debounced keyword changes
   useEffect(() => {
-    clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(() => {
-      setDebouncedKeyword(searchKeyword);
-      setCurrentPage(0);
-      // Sync URL search params
-      if (searchKeyword.trim()) {
-        setSearchParams({ keyword: searchKeyword.trim() }, { replace: true });
-      } else {
-        setSearchParams({}, { replace: true });
-      }
-    }, 300);
-    return () => clearTimeout(searchTimerRef.current);
-  }, [searchKeyword, setSearchParams]);
+    setCurrentPage(0);
+    if (debouncedKeyword.trim()) {
+      setSearchParams({ keyword: debouncedKeyword.trim() }, { replace: true });
+    } else {
+      setSearchParams({}, { replace: true });
+    }
+  }, [debouncedKeyword, setSearchParams]);
 
   // Load detail when a customer is selected
   useEffect(() => {
@@ -137,7 +131,7 @@ export default function CustomersPage() {
       </div>
 
       {/* Main Card */}
-      <div className="bg-white border-2 border-slate-200 rounded-2xl flex flex-col overflow-hidden">
+      <div className="bg-surface-container-lowest ghost-border rounded-xl flex flex-col overflow-hidden">
         {/* Search Header */}
         <div className="px-6 py-4 border-b border-slate-200 bg-white flex justify-between items-center gap-4">
           <div className="flex items-center gap-2">
@@ -163,7 +157,7 @@ export default function CustomersPage() {
         <div className="w-full overflow-x-auto relative min-h-[450px]">
           {loading && customers.length === 0 && <LoadingSpinner />}
           <table>
-            <thead className="bg-[#F8FAFC]">
+            <thead>
               <tr>
                 <th className="pl-6">顾客</th>
                 <th>微信号</th>
@@ -210,7 +204,7 @@ export default function CustomersPage() {
                     </div>
                   </td>
                   <td className="text-[13px] text-slate-700 font-medium font-mono">{c.wechat_id || '-'}</td>
-                  <td className="text-[13px] text-slate-700 font-medium tabular-nums">{c.phone || '-'}</td>
+                  <td className="text-[13px] text-slate-700 font-medium tabular-nums">{c.mobile || '-'}</td>
                   <td>
                     <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-full text-[12px] font-bold bg-slate-100 text-slate-600 tabular-nums">{c.total_orders || 0}</span>
                   </td>
@@ -225,7 +219,7 @@ export default function CustomersPage() {
         </div>
 
         {/* Pagination */}
-        <div className="bg-[#F8FAFC] px-6 py-3.5 border-t border-slate-200 flex justify-between items-center">
+        <div className="bg-surface-container-low px-6 py-3.5 border-t border-slate-200 flex justify-between items-center">
           <span className="text-[13px] font-medium text-slate-500">共 <span className="font-bold text-slate-700">{totalCustomers}</span> 位顾客</span>
           <div className="flex items-center gap-1.5">
             <button onClick={() => { if (currentPage > 0) setCurrentPage(currentPage - 1); }} disabled={currentPage === 0} className={`inline-flex items-center justify-center gap-2 px-3 py-1 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm text-[12px] active:scale-[0.98] ${currentPage === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}>上一页</button>
@@ -294,7 +288,7 @@ export default function CustomersPage() {
                         </div>
                         <div>
                           <span className="block text-[12px] font-semibold text-slate-400 mb-1">手机号</span>
-                          <p className="text-sm font-medium text-slate-800 tabular-nums">{customer?.phone || '-'}</p>
+                          <p className="text-sm font-medium text-slate-800 tabular-nums">{customer?.mobile || '-'}</p>
                         </div>
                         <div>
                           <span className="block text-[12px] font-semibold text-slate-400 mb-1">复购状态</span>
@@ -329,7 +323,7 @@ export default function CustomersPage() {
 
                   {/* Consumption Stats */}
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-brand-50/50 rounded-xl p-4 text-center border border-brand-100 hover:border-brand-200 transition-colors">
+                    <div className="bg-brand-50/50 rounded-xl p-4 text-center border border-brand-100 hover:border-[#434FCF]/20 transition-colors">
                       <p className="text-[11px] text-slate-500 mb-1 font-medium">总消费金额</p>
                       <p className="text-xl font-bold text-slate-800 font-[Outfit] tabular-nums">&yen;{stats.total_spent ? (stats.total_spent / 100).toFixed(2) : '0.00'}</p>
                     </div>
@@ -378,16 +372,6 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {/* Slide-in animation style */}
-      <style>{`
-        @keyframes slideInRight {
-          from { transform: translateX(100%); }
-          to { transform: translateX(0); }
-        }
-        .animate-slide-in-right {
-          animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
-        }
-      `}</style>
     </div>
   );
 }

@@ -1,0 +1,17 @@
+.git
+node_modules
+desktop-client
+release
+backups
+data
+uploads
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+.env
+*.log
+DEEP_REVIEW*.md
+REVIEW*.md
+CLAUDE.md
+admin-web-vue-backup

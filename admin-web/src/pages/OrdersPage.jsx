@@ -6,7 +6,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { usePolling } from '../hooks/usePolling';
 import { useDebounce } from '../hooks/useDebounce';
 import { listOrders, updateOrderStatus } from '../api/orders';
-import { exportOrdersCSV } from '../api/admin';
+import { exportExcel } from '../api/admin';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ORDER_STATUSES } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
@@ -46,17 +46,18 @@ export default function OrdersPage() {
     actionRef.current?.(inputValue);
   };
 
-  const fetchOrders = useCallback(async (manual = false) => {
+  const fetchOrders = useCallback(async (manual = false, signal) => {
     if (manual) setLoading(true);
     try {
       const params = { limit: pageSize, offset: currentPage * pageSize };
       if (currentStatus) params.status = currentStatus;
       if (debouncedKeyword.trim()) params.keyword = debouncedKeyword.trim();
-      const res = await listOrders(params);
+      const res = await listOrders(params, { signal });
       setOrders(res.data.data || []);
       setTotalOrders(res.data.total || 0);
       if (manual) toast('订单数据已刷新', 'success');
     } catch (err) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
       if (manual) toast('获取订单失败: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -64,8 +65,10 @@ export default function OrdersPage() {
   }, [currentPage, currentStatus, debouncedKeyword, toast]);
 
   useEffect(() => {
-    fetchOrders();
-  }, [currentStatus, currentPage, fetchOrders]);
+    const controller = new AbortController();
+    fetchOrders(false, controller.signal);
+    return () => controller.abort();
+  }, [fetchOrders]);
 
   // Reset to page 0 when debounced keyword changes
   useEffect(() => {
@@ -125,16 +128,16 @@ export default function OrdersPage() {
   };
 
   const hasMoreActions = (order) => {
-    if (['PENDING','GROUP_CREATED','DESIGNING','DELIVERED'].includes(order.status) && (role === 'admin' || (role === 'operator' && order.operator_id === userId))) return true;
-    if (['PENDING','GROUP_CREATED','DESIGNING'].includes(order.status) && role === 'admin') return true;
+    if (['COMPLETED', 'REFUNDED', 'CLOSED'].includes(order.status)) return false;
+    if (role === 'admin') return true;
+    if (role === 'follow') return true;
     return false;
   };
 
-  const exportCSV = () => {
-    const params = {};
-    if (currentStatus) params.status = currentStatus;
-    if (searchKeyword.trim()) params.keyword = searchKeyword.trim();
-    exportOrdersCSV(params);
+  const handleExportExcel = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const params = { start_date: today.slice(0, 7) + '-01', end_date: today };
+    exportExcel(params);
   };
 
   return (
@@ -169,10 +172,12 @@ export default function OrdersPage() {
           <p className="text-sm text-slate-500 mt-1">管理和跟踪所有订单</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={exportCSV} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm" title="导出 CSV">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-            <span className="hidden sm:inline">导出</span>
-          </button>
+          {role === 'admin' && (
+            <button onClick={handleExportExcel} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm" title="导出 Excel 报表">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              <span className="hidden sm:inline">导出Excel</span>
+            </button>
+          )}
           <button onClick={() => fetchOrders(true)} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm" disabled={loading}>
             <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
             <span>{loading ? '同步中...' : '刷新'}</span>
@@ -181,7 +186,7 @@ export default function OrdersPage() {
       </div>
 
       {/* Main Card */}
-      <div className="bg-white border-2 border-slate-200 rounded-2xl flex flex-col overflow-hidden hover:border-brand-200 transition-colors">
+      <div className="bg-surface-container-lowest ghost-border rounded-xl flex flex-col overflow-hidden hover:border-[#434FCF]/20 transition-colors">
         {/* Tabs & Search */}
         <div className="px-6 border-b border-slate-200 bg-white flex justify-between items-end gap-4">
           <div className="flex gap-1 overflow-x-auto scrollbar-hide pt-3" role="tablist" aria-label="订单状态筛选">
@@ -225,7 +230,7 @@ export default function OrdersPage() {
         <div className="w-full overflow-x-auto relative min-h-[450px]">
           {loading && orders.length === 0 && <LoadingSpinner />}
           <table>
-            <thead className="bg-[#F8FAFC]">
+            <thead>
               <tr>
                 <th className="pl-6">订单信息</th>
                 <th>客户</th>
@@ -268,7 +273,7 @@ export default function OrdersPage() {
         </div>
 
         {/* Pagination */}
-        <div className="bg-[#F8FAFC] px-6 py-3.5 border-t border-slate-200 flex justify-between items-center">
+        <div className="bg-surface-container-low px-6 py-3.5 border-t border-outline-variant/20 flex justify-between items-center">
           <span className="text-[13px] font-medium text-slate-500">共 <span className="font-bold text-slate-700">{totalOrders}</span> 条</span>
           <div className="flex items-center gap-1.5">
             <button onClick={() => { if (currentPage > 0) setCurrentPage(currentPage - 1); }} disabled={currentPage === 0} className={`inline-flex items-center justify-center gap-2 px-3 py-1 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm text-[12px] ${currentPage === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}>上一页</button>
@@ -334,17 +339,25 @@ const OrderRow = memo(function OrderRow({ order, role, userId, openMoreMenu, onS
       <td className="text-right pr-6">
         <div className="text-[12px] text-slate-500 mb-2.5 font-medium tabular-nums">{formatTime(order.created_at)}</div>
         <div className="flex flex-wrap items-center justify-end gap-1.5">
-          {order.status === 'PENDING' && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
-            <button onClick={() => onUpdateStatus(order, 'GROUP_CREATED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">确认建群</button>
+          {/* sales: 确认需求 (GROUP_CREATED → CONFIRMED) */}
+          {order.status === 'GROUP_CREATED' && (role === 'admin' || role === 'sales') && (
+            <button onClick={() => onUpdateStatus(order, 'CONFIRMED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">确认需求</button>
           )}
-          {order.status === 'GROUP_CREATED' && !order.designer_id && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
-            <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">分配设计</button>
+          {/* designer: 接手设计 (CONFIRMED → DESIGNING) */}
+          {order.status === 'CONFIRMED' && (role === 'admin' || role === 'designer') && (
+            <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">接手设计</button>
           )}
+          {/* designer: 标记交付 (DESIGNING → DELIVERED) */}
           {order.status === 'DESIGNING' && (role === 'admin' || (role === 'designer' && order.designer_id === userId)) && (
             <button onClick={() => onUpdateStatus(order, 'DELIVERED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg text-[11px] bg-white active:scale-[0.98]">标记交付</button>
           )}
-          {order.status === 'DELIVERED' && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
+          {/* follow: 确认完成 (DELIVERED → COMPLETED) */}
+          {order.status === 'DELIVERED' && (role === 'admin' || role === 'follow') && (
             <button onClick={() => onConfirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">标记完成</button>
+          )}
+          {/* follow: 需要修改 (DELIVERED → REVISION) */}
+          {order.status === 'DELIVERED' && (role === 'admin' || role === 'follow') && (
+            <button onClick={() => onUpdateStatus(order, 'REVISION')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-400 text-amber-600 hover:bg-amber-50 text-[11px] bg-white active:scale-[0.98]">需要修改</button>
           )}
           {hasMoreActions && (
             <div className="relative">
@@ -353,13 +366,22 @@ const OrderRow = memo(function OrderRow({ order, role, userId, openMoreMenu, onS
               </button>
               {openMoreMenu === order.id && (
                 <div className="absolute right-0 top-8 w-40 bg-white rounded-xl shadow-xl border border-slate-200/80 z-50 overflow-hidden py-1" onClick={(e) => e.stopPropagation()}>
-                  {['PENDING','GROUP_CREATED','DESIGNING','DELIVERED'].includes(order.status) && (role === 'admin' || (role === 'operator' && order.operator_id === userId)) && (
-                    <button onClick={() => { onHandleRefund(order); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z" /></svg>
-                      退款/售后
+                  {/* follow: 标记售后 */}
+                  {['DESIGNING','DELIVERED','COMPLETED'].includes(order.status) && (role === 'admin' || role === 'follow') && (
+                    <button onClick={() => { onUpdateStatus(order, 'AFTER_SALE'); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-orange-600 hover:bg-orange-50 transition-colors flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+                      标记售后
                     </button>
                   )}
-                  {['PENDING','GROUP_CREATED','DESIGNING'].includes(order.status) && role === 'admin' && (
+                  {/* follow: 退款 */}
+                  {!['REFUNDED','CLOSED'].includes(order.status) && (role === 'admin' || role === 'follow') && (
+                    <button onClick={() => { onHandleRefund(order); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z" /></svg>
+                      退款
+                    </button>
+                  )}
+                  {/* admin: 关闭订单 */}
+                  {['PENDING','GROUP_CREATED','CONFIRMED','DESIGNING'].includes(order.status) && role === 'admin' && (
                     <button onClick={() => { onConfirmClose(order); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors flex items-center gap-2">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                       关闭订单

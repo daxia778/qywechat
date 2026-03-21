@@ -7,6 +7,18 @@ import { formatDate } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
 
+const AVATAR_COLORS = [
+  'linear-gradient(135deg,#434fcf,#7c3aed)',
+  'linear-gradient(135deg,#059669,#10b981)',
+  'linear-gradient(135deg,#d97706,#f59e0b)',
+  'linear-gradient(135deg,#dc2626,#f87171)',
+  'linear-gradient(135deg,#0891b2,#38bdf8)',
+];
+const getAvatarColor = (name = '') => {
+  const code = [...name].reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  return AVATAR_COLORS[code % AVATAR_COLORS.length];
+};
+
 export default function EmployeesPage() {
   const { toast } = useToast();
   const { role: currentUserRole } = useAuth();
@@ -75,12 +87,13 @@ export default function EmployeesPage() {
     return list;
   }, [employees, searchKeyword, sortField, sortDir]);
 
-  const fetchEmployees = useCallback(async () => {
+  const fetchEmployees = useCallback(async (signal) => {
     setLoading(true);
     try {
-      const res = await listEmployees();
+      const res = await listEmployees({ signal });
       setEmployees(res.data.data || []);
     } catch (err) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
       console.error('Failed to fetch employees:', err);
     } finally {
       setLoading(false);
@@ -88,7 +101,9 @@ export default function EmployeesPage() {
   }, []);
 
   useEffect(() => {
-    fetchEmployees();
+    const controller = new AbortController();
+    fetchEmployees(controller.signal);
+    return () => controller.abort();
   }, [fetchEmployees]);
 
   const confirmActionRef = useRef(null);
@@ -260,15 +275,22 @@ export default function EmployeesPage() {
 
       {/* Credential Modal (V2: shows username + password) */}
       {credentialModal.show && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={() => setCredentialModal({ show: false, username: '', password: '', notice: '' })}>
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          onClick={() => setCredentialModal({ show: false, username: '', password: '', notice: '' })}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="credential-modal-title"
+          onKeyDown={(e) => { if (e.key === 'Escape') setCredentialModal({ show: false, username: '', password: '', notice: '' }); }}
+        >
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" aria-hidden="true" />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 pt-6 pb-2">
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center bg-success-bg shrink-0">
                   <svg className="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
-                <h3 className="text-lg font-bold text-slate-800">操作成功</h3>
+                <h3 id="credential-modal-title" className="text-lg font-bold text-slate-800">操作成功</h3>
               </div>
             </div>
             <div className="px-6 py-3">
@@ -303,8 +325,8 @@ export default function EmployeesPage() {
       {/* Title */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-[26px] font-extrabold text-slate-800 font-[Outfit] tracking-tight">员工管理</h1>
-          <p className="text-sm text-slate-500 mt-1">团队成员与权限管理</p>
+          <h1 className="text-[28px] font-bold text-[#1d1d1f] font-[Outfit] tracking-tight">员工管理</h1>
+          <p className="text-[13px] text-[#6e6e73] mt-1">团队成员与权限管理</p>
         </div>
         <button onClick={() => { setForm({ name: '', role: 'sales' }); setShowAddModal(true); }} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm">
           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
@@ -313,13 +335,13 @@ export default function EmployeesPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white border-2 border-slate-200 rounded-2xl flex flex-col overflow-hidden">
+      <div className="bg-surface-container-lowest ghost-border rounded-xl flex flex-col overflow-hidden">
         <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-brand-50">
               <svg className="w-4 h-4 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
             </div>
-            <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">员工目录</h2>
+            <h2 className="text-[17px] font-semibold text-[#1d1d1f] font-[Outfit]">员工目录</h2>
           </div>
           <div className="flex items-center gap-3">
             {/* Feature D: Batch operations dropdown (admin only) */}
@@ -365,7 +387,7 @@ export default function EmployeesPage() {
         <div className="w-full overflow-x-auto min-h-[400px] relative">
           {loading && <LoadingSpinner />}
           <table>
-            <thead className="bg-slate-50">
+            <thead>
               <tr>
                 {/* Feature D: Checkbox column (admin only) */}
                 {isAdmin && (
@@ -375,7 +397,7 @@ export default function EmployeesPage() {
                       checked={allSelected}
                       ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
                       onChange={toggleSelectAll}
-                      className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-brand-500 cursor-pointer"
+                      className="w-4 h-4 rounded border-2 border-[#c6c5d6] checked:bg-[#434fcf] checked:border-[#434fcf] cursor-pointer accent-[#434fcf] transition-colors"
                     />
                   </th>
                 )}
@@ -494,20 +516,21 @@ const SortIcon = memo(function SortIcon({ field, sortField, sortDir }) {
 });
 
 // Extracted row component for clarity
+const ROW_BADGE_CLASSES = {
+  success: 'bg-success-bg text-green-900',
+  warning: 'bg-warning-bg text-amber-800',
+  danger: 'bg-danger-bg text-red-800',
+  primary: 'bg-brand-50 text-brand-500',
+  secondary: 'bg-slate-100 text-slate-500',
+};
+
 const EmployeeRow = memo(function EmployeeRow({ emp, isAdmin, isExpanded, isSelected, onToggleExpand, onToggleSelect, onToggleStatus, onUnbind, onResetPassword }) {
   const totalCols = isAdmin ? 9 : 8;
-  const BADGE_VARIANT_CLASSES = {
-    success: 'bg-success-bg text-green-900',
-    warning: 'bg-warning-bg text-amber-800',
-    danger: 'bg-danger-bg text-red-800',
-    primary: 'bg-brand-50 text-brand-500',
-    secondary: 'bg-slate-100 text-slate-500',
-  };
 
   return (
     <>
       <tr
-        className={`group transition-colors cursor-pointer ${isExpanded ? 'bg-[#F8FAFC]' : 'hover:bg-[#FAFBFC]'}`}
+        className={`group transition-colors cursor-pointer ${isExpanded ? 'bg-surface-container-low' : 'hover:bg-[#FAFBFC]'}`}
         onClick={(e) => {
           // Do not expand when clicking checkboxes, buttons, or interactive elements
           if (e.target.closest('button') || e.target.closest('input[type="checkbox"]')) return;
@@ -521,15 +544,18 @@ const EmployeeRow = memo(function EmployeeRow({ emp, isAdmin, isExpanded, isSele
               type="checkbox"
               checked={isSelected}
               onChange={onToggleSelect}
-              className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-brand-500 cursor-pointer"
+              className="w-4 h-4 rounded border-2 border-[#c6c5d6] checked:bg-[#434fcf] checked:border-[#434fcf] cursor-pointer accent-[#434fcf] transition-colors"
             />
           </td>
         )}
         <td className={isAdmin ? 'pl-2' : 'pl-6'}>
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0 ${ROLE_AVATAR_CLASS_MAP[emp.role] || 'bg-slate-500'}`}>
-              {(emp.name || emp.wecom_userid || '?').substring(0, 1).toUpperCase()}
-            </div>
+            <div
+                className="w-10 h-10 rounded-full flex items-center justify-center text-white text-[13px] font-semibold shrink-0"
+                style={{ background: getAvatarColor(emp.name || emp.wecom_userid || '') }}
+              >
+                {(emp.name || emp.wecom_userid || '?').substring(0, 2)}
+              </div>
             <div>
               <div className="font-semibold text-slate-800">{emp.name}</div>
               <div className="text-[13px] text-slate-500 mt-0.5">{emp.wecom_userid}</div>
@@ -538,7 +564,7 @@ const EmployeeRow = memo(function EmployeeRow({ emp, isAdmin, isExpanded, isSele
             <svg className={`w-4 h-4 text-slate-300 ml-auto transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
           </div>
         </td>
-        <td><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide ${BADGE_VARIANT_CLASSES[ROLE_CLASS_MAP[emp.role]] || BADGE_VARIANT_CLASSES.secondary}`}>{ROLE_MAP[emp.role] || emp.role}</span></td>
+        <td><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide ${ROW_BADGE_CLASSES[ROLE_CLASS_MAP[emp.role]] || ROW_BADGE_CLASSES.secondary}`}>{ROLE_MAP[emp.role] || emp.role}</span></td>
         <td>
           {emp.username ? (
             <code className="text-[13px] bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-mono">{emp.username}</code>
@@ -590,7 +616,7 @@ const EmployeeRow = memo(function EmployeeRow({ emp, isAdmin, isExpanded, isSele
       </tr>
       {/* Feature B: Expanded detail row */}
       {isExpanded && (
-        <tr className="bg-[#F8FAFC]">
+        <tr className="bg-surface-container-low">
           <td colSpan={totalCols} className="px-0 py-0">
             <div className="px-8 py-4 border-t border-slate-100 animate-fade-in-up">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

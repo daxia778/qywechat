@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -43,26 +45,42 @@ func main() {
 	// 顾客数据迁移（从已有订单回填，幂等）
 	services.MigrateCustomersFromOrders()
 
+	// 种子数据填充（空库时自动执行，已有数据则跳过）
+	SeedData()
+
+	// 创建可取消的 context，用于优雅关闭所有后台 goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 设置限速器的 context（必须在创建限速中间件之前调用）
+	middleware.SetRateLimiterContext(ctx)
+
+	// 启动安全模块后台清理（替代原 init() goroutine）
+	middleware.StartFailMapCleaner(ctx)
+
 	// 启动 SQLite 定时备份调度器
-	services.StartBackupScheduler()
+	services.StartBackupScheduler(ctx)
 
 	// 启动订单超时自动触发派单调度器
-	services.StartOrderTimeoutWatcher()
+	services.StartOrderTimeoutWatcher(ctx)
 
 	// 启动交付截止倒计时提醒调度器
-	services.StartDeadlineReminderWatcher()
+	services.StartDeadlineReminderWatcher(ctx)
 
 	// 启动恶意抢单检测调度器
-	services.Monitor.Start()
+	services.Monitor.Start(ctx)
 
 	// 启动上传文件定时清理 (7天过期)
-	services.StartUploadCleanupScheduler()
+	services.StartUploadCleanupScheduler(ctx)
 
 	// 启动企微通讯录定时同步 (每小时)
-	services.StartWecomSyncScheduler()
+	services.StartWecomSyncScheduler(ctx)
 
 	// 启动企微数据 90 天过期清理
-	services.StartWecomDataCleanupScheduler()
+	services.StartWecomDataCleanupScheduler(ctx)
+
+	// 启动企微对外收款定时同步 (每2小时)
+	services.StartWecomPaymentSyncScheduler(ctx)
 
 	// 确保目录存在
 	os.MkdirAll("uploads", 0o755)
@@ -71,10 +89,13 @@ func main() {
 	// 创建 Gin 引擎
 	r := gin.Default()
 
-	// 🔒 上传文件大小限制 (10MB，防止 DoS)
+	// 只信任本地反向代理，防止 ClientIP 伪造
+	r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+
+	// 上传文件大小限制 (10MB，防止 DoS)
 	r.MaxMultipartMemory = 10 << 20
 
-	// 🛡️ 安全响应头 (X-Content-Type-Options, X-Frame-Options, HSTS, CSP 等)
+	// 安全响应头 (X-Content-Type-Options, X-Frame-Options, HSTS, CSP 等)
 	r.Use(middleware.SecurityHeaders())
 
 	// CORS
@@ -89,13 +110,13 @@ func main() {
 	// 启用 Gzip 压缩 (对大小大于默认值的响应进行压缩)
 	r.Use(gzip.Gzip(gzip.DefaultCompression))
 
-	// 🛡️ 可疑请求拦截 (阻断扫描器探测 .php/.env/wp-admin 等)
+	// 可疑请求拦截 (阻断扫描器探测 .php/.env/wp-admin 等)
 	r.Use(middleware.SuspiciousRequestFilter())
 
-	// 🛡️ 请求体大小限制 (2MB，防 DoS 大包攻击，文件上传另设)
+	// 请求体大小限制 (2MB，防 DoS 大包攻击，文件上传另设)
 	r.Use(middleware.MaxBodySize(2 << 20))
 
-	// 🛡️ CSRF 防护 (状态变更请求需携带 X-CSRF-Token)
+	// CSRF 防护 (状态变更请求需携带 X-CSRF-Token)
 	r.Use(middleware.CSRFMiddleware())
 
 	// ── 静态资源与前端 (Vue SPA) ──────────────────
@@ -103,31 +124,27 @@ func main() {
 	r.Static("/assets", "../admin-web/dist/assets")
 	r.StaticFile("/favicon.svg", "../admin-web/dist/favicon.svg")
 	r.StaticFile("/icons.svg", "../admin-web/dist/icons.svg")
-	r.Static("/uploads", "uploads") // OCR 截图等上传文件的静态访问
+	// uploads 静态访问已移至 JWT 保护路由组内 (orderAuth)
 
 	// Vue SPA: 所有非 API/静态的请求由 NoRoute 兜底 (见下方)
 
-	
+	// P2-18: health 端点只返回 status，不暴露 uptime 等信息
 	r.GET("/health", func(c *gin.Context) {
 		sqlDB, err := models.DB.DB()
 		if err != nil {
-			c.JSON(503, gin.H{"status": "error", "db": "unreachable"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error"})
 			return
 		}
 		if err := sqlDB.Ping(); err != nil {
-			c.JSON(503, gin.H{"status": "error", "db": "ping_failed"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error"})
 			return
 		}
-		c.JSON(200, gin.H{
-			"status": "ok",
-			"db":     "connected",
-			"uptime": time.Since(startupTime).String(),
-		})
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
 	// ── API v1 路由 ──────────────────────────────
 	v1 := r.Group("/api/v1")
-	// 🛡️ API 通用限速 (60 请求/分钟/IP)
+	// API 通用限速 (60 请求/分钟/IP)
 	v1.Use(middleware.APIRateLimit())
 	{
 		// 认证 (公开, 但有更严格的频率限制防爆破 + 暴力破解IP封锁)
@@ -162,8 +179,29 @@ func main() {
 			orderAuth.POST("/create", handlers.CreateOrder)
 			orderAuth.POST("/grab", handlers.GrabOrder)
 			orderAuth.PUT("/:id/status", handlers.UpdateOrderStatus)
+			orderAuth.PUT("/:id/amount", handlers.UpdateOrderAmount)
 			orderAuth.GET("/:id/detail", handlers.GetOrderDetail)
 			orderAuth.GET("/:id/timeline", handlers.GetOrderTimeline)
+			orderAuth.GET("/:id/profit", handlers.GetOrderProfit)
+			orderAuth.GET("/pending-match", handlers.ListPendingMatchOrders)
+			orderAuth.POST("/:id/match", handlers.MatchOrderContact)
+
+			// 上传文件访问（需 JWT 鉴权，防止未授权访问 OCR 截图等敏感文件）
+			orderAuth.GET("/uploads/*filepath", func(c *gin.Context) {
+				fp := c.Param("filepath")
+				c.File("uploads" + fp)
+			})
+		}
+
+		// 收款流水 (需要 JWT 登录)
+		payments := v1.Group("/payments")
+		payments.Use(middleware.JWTAuth())
+		{
+			payments.GET("", handlers.ListPayments)
+			payments.POST("", handlers.CreatePayment)
+			payments.PUT("/:id/match", handlers.MatchPayment)
+			payments.GET("/summary", handlers.GetPaymentSummary)
+			payments.POST("/sync-wecom", handlers.SyncWecomPayments)
 		}
 
 		// 管理端 (需要 JWT + Admin 角色 + IP 白名单)
@@ -177,6 +215,9 @@ func main() {
 			admin.PUT("/employees/:id/toggle", handlers.ToggleEmployee)
 			admin.PUT("/employees/:id/reset_password", handlers.ResetPassword)
 			admin.PUT("/employees/:id/unbind", handlers.UnbindDevice)
+			admin.DELETE("/employees/:id", handlers.DeleteEmployee)
+			admin.PUT("/employees/batch_toggle", handlers.BatchToggleEmployees)
+			admin.POST("/employees/batch_delete", handlers.BatchDeleteEmployees)
 			admin.GET("/team_workload", handlers.GetTeamWorkload)
 			admin.GET("/profit_breakdown", handlers.GetProfitBreakdown)
 			admin.GET("/audit_logs", handlers.ListAuditLogs)
@@ -192,6 +233,7 @@ func main() {
 			admin.GET("/customers", handlers.ListCustomers)
 			admin.GET("/customers/:id", handlers.GetCustomer)
 			admin.PUT("/customers/:id", handlers.UpdateCustomer)
+			admin.POST("/customers/merge", handlers.MergeCustomers)
 
 			// 客户联系（联系我）
 			admin.POST("/contact_way", handlers.CreateContactWay)
@@ -204,7 +246,7 @@ func main() {
 			admin.GET("/wecom/diagnostic", handlers.WecomDiagnostic)
 			admin.POST("/wecom/sync", func(c *gin.Context) {
 				go services.SyncWecomMembers()
-				c.JSON(200, gin.H{"message": "通讯录同步已触发，请查看日志"})
+				c.JSON(http.StatusOK, gin.H{"message": "通讯录同步已触发，请查看日志"})
 			})
 
 			// Phase 2: 通知
@@ -214,18 +256,33 @@ func main() {
 			// Phase 2: 数据导出
 			admin.GET("/orders/export", handlers.ExportOrdersCSV)
 			admin.GET("/profit/export", handlers.ExportProfitCSV)
+
+			// Phase 3: Excel 多 Sheet 导出
+			admin.GET("/export/excel", handlers.ExportExcel)
+
+			// 简易运行指标 (预留，后续可替换为 Prometheus)
+			admin.GET("/metrics", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{
+					"uptime_seconds": time.Since(startupTime).Seconds(),
+					"goroutines":     runtime.NumGoroutine(),
+				})
+			})
 		}
 	}
 
-	// 设置 NoRoute 处理前端 Vue Router 的 history 模式
+	// P2-17: NoRoute — API 路径返回 404 JSON，非 API 路径返回前端 SPA
 	r.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "接口不存在"})
+			return
+		}
 		c.File("../admin-web/dist/index.html")
 	})
 
 	// 启动
 	port := config.C.ServerPort
 	log.Println("=" + fmt.Sprintf("%49s", "="))
-	log.Println("🚀 PDD 派单管理系统启动")
+	log.Println("PDD 派单管理系统启动")
 	log.Printf("   地址: http://0.0.0.0:%s", port)
 	log.Printf("   API:  http://0.0.0.0:%s/api/v1", port)
 	log.Println("=" + fmt.Sprintf("%49s", "="))
@@ -238,7 +295,7 @@ func main() {
 	// 在 goroutine 中启动服务器
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("❌ 服务启动失败: %v", err)
+			log.Fatalf("服务启动失败: %v", err)
 		}
 	}()
 
@@ -248,10 +305,13 @@ func main() {
 	<-quit
 	log.Println("正在关闭服务器...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// 取消所有后台 goroutine
+	cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatal("服务器强制关闭:", err)
 	}
 

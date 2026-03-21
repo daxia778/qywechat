@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 // ─── 管理端 ──────────────────────────────────────────
@@ -127,7 +128,8 @@ func ListEmployees(c *gin.Context) {
 func CreateEmployee(c *gin.Context) {
 	var req CreateEmployeeReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Printf("CreateEmployee 参数绑定失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
 		return
 	}
 
@@ -175,7 +177,9 @@ func CreateEmployee(c *gin.Context) {
 		PasswordHash: string(hashedPwd),
 	}
 
-	if err := models.DB.Create(&emp).Error; err != nil {
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Create(&emp).Error
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建员工失败: " + err.Error()})
 		return
 	}
@@ -217,7 +221,9 @@ func ResetPassword(c *gin.Context) {
 		return
 	}
 
-	models.DB.Model(&emp).Update("password_hash", string(hashedPwd))
+	models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Model(&emp).Update("password_hash", string(hashedPwd)).Error
+	})
 
 	userID, _ := c.Get("wecom_userid")
 	userName, _ := c.Get("name")
@@ -247,7 +253,9 @@ func toggleEmployeeActive(c *gin.Context, auditOnDisable bool) {
 	}
 
 	emp.IsActive = !emp.IsActive
-	models.DB.Save(&emp)
+	models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Save(&emp).Error
+	})
 
 	status := "启用"
 	if !emp.IsActive {
@@ -286,7 +294,9 @@ func UnbindDevice(c *gin.Context) {
 	}
 
 	oldMID := emp.MachineID
-	models.DB.Model(&emp).Update("machine_id", "")
+	models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Model(&emp).Update("machine_id", "").Error
+	})
 	log.Printf("🔓 设备解绑 | 员工=%s | 旧MachineID=%s", emp.Name, oldMID)
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("已解绑 %s 的设备", emp.Name)})
 }
@@ -352,7 +362,7 @@ func GetTeamWorkload(c *gin.Context) {
 		switch d.Role {
 		case "designer":
 			count = designerMap[d.WecomUserID]
-		case "operator", "admin":
+		case "sales", "admin":
 			count = operatorMap[d.WecomUserID]
 		}
 
@@ -452,7 +462,12 @@ func RegenerateActivationCode(c *gin.Context) {
 		"machine_id":             "",
 		"mac_address":            "",
 	}
-	models.DB.Model(&emp).Updates(updates)
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Model(&emp).Updates(updates).Error
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新激活码失败: " + err.Error()})
+		return
+	}
 
 	userID, _ := c.Get("wecom_userid")
 	userName, _ := c.Get("name")
@@ -474,12 +489,12 @@ func ListWecomMembers(c *gin.Context) {
 	keyword := c.Query("keyword")
 	query := models.DB.Model(&models.WecomMember{})
 	if keyword != "" {
-		like := "%" + keyword + "%"
-		query = query.Where("name LIKE ? OR userid LIKE ?", like, like)
+		like := "%" + escapeLike(keyword) + "%"
+		query = query.Where("name LIKE ? ESCAPE '\\' OR userid LIKE ? ESCAPE '\\'", like, like)
 	}
 	var members []models.WecomMember
 	query.Order("name ASC").Find(&members)
-	c.JSON(200, gin.H{"data": members, "total": len(members)})
+	c.JSON(http.StatusOK, gin.H{"data": members, "total": len(members)})
 }
 
 // ListWecomGroups GET /api/v1/admin/wecom/groups
@@ -487,7 +502,7 @@ func ListWecomMembers(c *gin.Context) {
 func ListWecomGroups(c *gin.Context) {
 	var groups []models.WecomGroupChat
 	models.DB.Order("synced_at DESC").Find(&groups)
-	c.JSON(200, gin.H{"data": groups, "total": len(groups)})
+	c.JSON(http.StatusOK, gin.H{"data": groups, "total": len(groups)})
 }
 
 // GetWecomGroupMessages GET /api/v1/admin/wecom/groups/:chat_id/messages
@@ -496,7 +511,7 @@ func GetWecomGroupMessages(c *gin.Context) {
 	chatID := c.Param("chat_id")
 	var messages []models.WecomMessageLog
 	models.DB.Where("chat_id = ?", chatID).Order("created_at ASC").Find(&messages)
-	c.JSON(200, gin.H{"data": messages, "total": len(messages)})
+	c.JSON(http.StatusOK, gin.H{"data": messages, "total": len(messages)})
 }
 
 // ─── 审计日志 ──────────────────────────────────────────
@@ -538,4 +553,82 @@ func ListAuditLogs(c *gin.Context) {
 		"data":  logs,
 		"total": total,
 	})
+}
+
+// DeleteEmployee DELETE /admin/employees/:id
+func DeleteEmployee(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的员工ID"})
+		return
+	}
+
+	var emp models.Employee
+	if err := models.DB.First(&emp, uint(id)).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "员工不存在"})
+		return
+	}
+	if emp.Role == "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "不能删除管理员账号"})
+		return
+	}
+
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Delete(&emp).Error
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除失败: " + err.Error()})
+		return
+	}
+
+	userID, _ := c.Get("wecom_userid")
+	userName, _ := c.Get("name")
+	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "删除员工: "+emp.Name, c.ClientIP())
+	log.Printf("🗑️ 员工已删除 | 员工=%s", emp.Name)
+	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
+}
+
+// BatchToggleEmployees PUT /admin/employees/batch_toggle
+func BatchToggleEmployees(c *gin.Context) {
+	var body struct {
+		IDs    []uint `json:"ids"`
+		Active bool   `json:"active"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Model(&models.Employee{}).Where("id IN ? AND role != ?", body.IDs, "admin").Update("is_active", body.Active).Error
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "批量操作失败: " + err.Error()})
+		return
+	}
+
+	status := "启用"
+	if !body.Active {
+		status = "禁用"
+	}
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("已批量%s %d 名员工", status, len(body.IDs))})
+}
+
+// BatchDeleteEmployees POST /admin/employees/batch_delete
+func BatchDeleteEmployees(c *gin.Context) {
+	var body struct {
+		IDs []uint `json:"ids"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Where("id IN ? AND role != ?", body.IDs, "admin").Delete(&models.Employee{}).Error
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "批量删除失败: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("已批量删除 %d 名员工", len(body.IDs))})
 }

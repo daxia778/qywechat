@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -9,6 +10,7 @@ import (
 	"pdd-order-system/services"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // ListNotifications 获取当前用户的通知列表
@@ -65,7 +67,9 @@ func MarkNotificationRead(c *gin.Context) {
 				userID = uid
 			}
 		}
-		models.DB.Model(&models.Notification{}).Where("user_id = ? AND is_read = ?", userID, false).Update("is_read", true)
+		models.WriteTx(func(tx *gorm.DB) error {
+			return tx.Model(&models.Notification{}).Where("user_id = ? AND is_read = ?", userID, false).Update("is_read", true).Error
+		})
 		c.JSON(http.StatusOK, gin.H{"message": "全部已读"})
 		return
 	}
@@ -84,8 +88,13 @@ func MarkNotificationRead(c *gin.Context) {
 		}
 	}
 
-	result := models.DB.Model(&models.Notification{}).Where("id = ? AND user_id = ?", uint(id), userID).Update("is_read", true)
-	if result.RowsAffected == 0 {
+	var rowsAffected int64
+	models.WriteTx(func(tx *gorm.DB) error {
+		r := tx.Model(&models.Notification{}).Where("id = ? AND user_id = ?", uint(id), userID).Update("is_read", true)
+		rowsAffected = r.RowsAffected
+		return r.Error
+	})
+	if rowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "通知不存在或无权操作"})
 		return
 	}
@@ -115,36 +124,46 @@ func SendOrderStatusNotification(order *models.Order, newStatus string) {
 
 		// 通知设计师 (当客服完成/关闭/退款)
 		if order.DesignerID != "" && (newStatus == models.StatusCompleted || newStatus == models.StatusClosed || newStatus == models.StatusRefunded) {
-			models.DB.Create(&models.Notification{
-				UserID:   order.DesignerID,
-				Title:    title,
-				Content:  content,
-				Category: "order",
-				RefID:    fmt.Sprintf("%d", order.ID),
+			models.WriteTx(func(tx *gorm.DB) error {
+				return tx.Create(&models.Notification{
+					UserID:   order.DesignerID,
+					Title:    title,
+					Content:  content,
+					Category: "order",
+					RefID:    fmt.Sprintf("%d", order.ID),
+				}).Error
 			})
-			_ = services.Wecom.SendTextMessage([]string{order.DesignerID}, content)
+			if err := services.Wecom.SendTextMessage([]string{order.DesignerID}, content); err != nil {
+				log.Printf("⚠️ 发送企微通知失败 (设计师 %s): %v", order.DesignerID, err)
+			}
 		}
 
 		// 通知客服 (当设计师交付)
 		if order.OperatorID != "" && newStatus == models.StatusDelivered {
-			models.DB.Create(&models.Notification{
-				UserID:   order.OperatorID,
-				Title:    title,
-				Content:  content,
-				Category: "order",
-				RefID:    fmt.Sprintf("%d", order.ID),
+			models.WriteTx(func(tx *gorm.DB) error {
+				return tx.Create(&models.Notification{
+					UserID:   order.OperatorID,
+					Title:    title,
+					Content:  content,
+					Category: "order",
+					RefID:    fmt.Sprintf("%d", order.ID),
+				}).Error
 			})
-			_ = services.Wecom.SendTextMessage([]string{order.OperatorID}, content)
+			if err := services.Wecom.SendTextMessage([]string{order.OperatorID}, content); err != nil {
+				log.Printf("⚠️ 发送企微通知失败 (客服 %s): %v", order.OperatorID, err)
+			}
 		}
 
 		// 通知管理员 (所有终态)
 		if models.IsTerminalStatus(newStatus) {
-			models.DB.Create(&models.Notification{
-				UserID:   "admin",
-				Title:    title,
-				Content:  content,
-				Category: "order",
-				RefID:    fmt.Sprintf("%d", order.ID),
+			models.WriteTx(func(tx *gorm.DB) error {
+				return tx.Create(&models.Notification{
+					UserID:   "admin",
+					Title:    title,
+					Content:  content,
+					Category: "order",
+					RefID:    fmt.Sprintf("%d", order.ID),
+				}).Error
 			})
 		}
 	}()

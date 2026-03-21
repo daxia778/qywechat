@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { getRevenueChart, getProfitBreakdown } from '../api/revenue';
+import { exportExcel } from '../api/admin';
 import * as echarts from 'echarts/core';
 import { LineChart, BarChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components';
@@ -85,6 +86,9 @@ export default function RevenuePage() {
         avg_order_value: d.order_count > 0 ? d.total_revenue / d.order_count : 0,
       }));
   }, [profitItems]);
+
+  /* ── HTML escape helper for tooltip ── */
+  const escapeHtml = (str) => String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
   /* ── shared tooltip style ── */
   const tooltipStyle = {
@@ -202,13 +206,13 @@ export default function RevenuePage() {
           ...tooltipStyle,
           axisPointer: { type: 'shadow' },
           formatter(params) {
-            let s = `<div style="font-weight:600;margin-bottom:6px">${params[0].axisValue}</div>`;
+            let s = `<div style="font-weight:600;margin-bottom:6px">${escapeHtml(params[0].axisValue)}</div>`;
             let total = 0;
             params.forEach((p) => {
               total += p.value;
               s += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">` +
-                `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>` +
-                `<span style="flex:1">${p.seriesName}</span>` +
+                `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${escapeHtml(p.color)}"></span>` +
+                `<span style="flex:1">${escapeHtml(p.seriesName)}</span>` +
                 `<span style="font-weight:600">\u00A5${p.value.toFixed(2)}</span></div>`;
             });
             s += `<div style="border-top:1px solid #E2E8F0;margin-top:4px;padding-top:4px;font-weight:700">` +
@@ -292,12 +296,12 @@ export default function RevenuePage() {
   );
 
   /* ── data fetching ── */
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal) => {
     setLoading(true);
     try {
       const [chartRes, profitRes] = await Promise.all([
-        getRevenueChart(days * 2),
-        getProfitBreakdown({}).catch(() => ({ data: {} })),
+        getRevenueChart(days * 2, { signal }),
+        getProfitBreakdown({}, { signal }).catch(() => ({ data: {} })),
       ]);
 
       const allData = chartRes.data.data || [];
@@ -322,6 +326,7 @@ export default function RevenuePage() {
       updateChart(curr);
       updateProfitChart(curr, cfg);
     } catch (err) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
       console.error('Failed to fetch revenue data:', err);
     } finally {
       setLoading(false);
@@ -353,7 +358,9 @@ export default function RevenuePage() {
   }, []);
 
   useEffect(() => {
-    fetchData();
+    const controller = new AbortController();
+    fetchData(controller.signal);
+    return () => controller.abort();
   }, [fetchData]);
 
   // ResizeObserver for sidebar toggle (doesn't trigger window.resize)
@@ -373,47 +380,12 @@ export default function RevenuePage() {
     return () => ros.forEach(r => r.disconnect());
   }, []);
 
-  /* ── D. CSV export ── */
+  /* ── D. Excel export (multi-sheet) ── */
   const handleExport = useCallback(() => {
-    const pfRate = profitConfig?.platform_fee_rate || 0;
-    const dcRate = profitConfig?.designer_commission_rate || 0;
-    const scRate = profitConfig?.sales_commission_rate || 0;
-    const fcRate = profitConfig?.follow_commission_rate || 0;
-
-    const rows = [['日期', '营收', '订单量', '平台手续费', '设计师佣金', '谈单客服佣金', '跟单客服佣金', '净利润']];
-    currentData.forEach((d) => {
-      const rev = d.revenue / 100;
-      const pf = (rev * pfRate) / 100;
-      const dc = (rev * dcRate) / 100;
-      const sc = (rev * scRate) / 100;
-      const fc = (rev * fcRate) / 100;
-      const np = rev - pf - dc - sc - fc;
-      rows.push([d.date, rev.toFixed(2), d.order_count, pf.toFixed(2), dc.toFixed(2), sc.toFixed(2), fc.toFixed(2), np.toFixed(2)]);
-    });
-
-    rows.push([]);
-    rows.push(['--- Top 设计师 ---']);
-    rows.push(['设计师', '订单量', '总营收', '平均客单价']);
-    topDesigners.forEach((d) => {
-      rows.push([d.name, d.order_count, d.total_revenue.toFixed(2), d.avg_order_value.toFixed(2)]);
-    });
-
-    rows.push([]);
-    rows.push(['--- 汇总 ---']);
-    rows.push(['区间总营收', summary.total_revenue.toFixed(2)]);
-    rows.push(['区间总订单', summary.total_orders]);
-
-    const csvContent = rows.map((r) => r.join(',')).join('\n');
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `营收报表_近${days}天_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }, [currentData, profitConfig, topDesigners, summary, days]);
+    const today = new Date().toISOString().slice(0, 10);
+    const startDate = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+    exportExcel({ start_date: startDate, end_date: today });
+  }, [days]);
 
   /* ── avg order value (derived KPI) ── */
   const avgOrderValue = summary.total_orders > 0 ? summary.total_revenue / summary.total_orders : 0;
@@ -464,7 +436,7 @@ export default function RevenuePage() {
       {/* ── KPI Cards with comparison deltas (C) ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
         {/* total revenue */}
-        <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 lg:p-6 group hover:border-brand-100 transition-all duration-200">
+        <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 group hover:border-[#434FCF]/20 transition-all duration-200">
           <div className="flex items-center justify-between mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-brand-50 group-hover:bg-brand-100 transition-colors">
               <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -476,7 +448,7 @@ export default function RevenuePage() {
         </div>
 
         {/* total orders */}
-        <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 lg:p-6 group hover:border-amber-200 transition-all duration-200">
+        <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 group hover:border-[#434FCF]/20 transition-all duration-200">
           <div className="flex items-center justify-between mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-amber-50 group-hover:bg-amber-100 transition-colors">
               <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
@@ -488,7 +460,7 @@ export default function RevenuePage() {
         </div>
 
         {/* avg order value */}
-        <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 lg:p-6 group hover:border-emerald-200 transition-all duration-200">
+        <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 group hover:border-[#434FCF]/20 transition-all duration-200">
           <div className="flex items-center justify-between mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-emerald-50 group-hover:bg-emerald-100 transition-colors">
               <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
@@ -500,7 +472,7 @@ export default function RevenuePage() {
         </div>
 
         {/* net profit rate */}
-        <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 lg:p-6 group hover:border-purple-200 transition-all duration-200">
+        <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 group hover:border-[#434FCF]/20 transition-all duration-200">
           <div className="flex items-center justify-between mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-purple-50 group-hover:bg-purple-100 transition-colors">
               <svg className="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
@@ -512,7 +484,7 @@ export default function RevenuePage() {
       </div>
 
       {/* ── Revenue & Orders chart (existing) ── */}
-      <div className="bg-white border-2 border-slate-200 rounded-2xl flex flex-col">
+      <div className="bg-surface-container-lowest ghost-border rounded-xl flex flex-col">
         <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">营收与订单趋势</h2>
@@ -528,7 +500,7 @@ export default function RevenuePage() {
       </div>
 
       {/* ── A. Profit breakdown chart ── */}
-      <div className="bg-white border-2 border-slate-200 rounded-2xl flex flex-col">
+      <div className="bg-surface-container-lowest ghost-border rounded-xl flex flex-col">
         <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">利润构成分析</h2>
@@ -555,7 +527,7 @@ export default function RevenuePage() {
       </div>
 
       {/* ── B. Top designers table ── */}
-      <div className="bg-white border-2 border-slate-200 rounded-2xl">
+      <div className="bg-surface-container-lowest ghost-border rounded-xl">
         <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">Top 设计师排行</h2>
