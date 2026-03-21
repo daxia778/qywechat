@@ -1,6 +1,6 @@
 /**
- * MetricCard — 参考营收分析页设计
- * 布局：左上角大图标块 + 右侧趋势 → 下方大数字 + 标签
+ * MetricCard — Stripe/Linear/Vercel 风格
+ * 布局：[小图标 + 标题] 同行 → 大数字主导 → pill 趋势徽章
  */
 const MetricCard = ({
   title,
@@ -24,65 +24,65 @@ const MetricCard = ({
     }
   }
 
-  let trendBg, trendColor, trendSymbol, trendText;
+  const isPositive = growth !== null && growth > 0;
+  const isZero = growth !== null && growth === 0;
+  const isGood = invertTrend ? !isPositive : isPositive;
+
+  let trendBg, trendColor, trendIcon, trendPct, trendPeriod;
   if (growth !== null) {
-    const isPositive = growth > 0;
-    const isZero = growth === 0;
-    const isGood = invertTrend ? !isPositive : isPositive;
     if (isZero) {
-      trendBg = '#f1f5f9'; trendColor = '#64748b'; trendSymbol = '—'; trendText = '0%';
+      trendBg = '#f1f5f9'; trendColor = '#64748b';
+      trendIcon = '—'; trendPct = '0%'; trendPeriod = '与上期持平';
     } else {
-      trendBg = isGood ? '#d1fae5' : '#fee2e2';
-      trendColor = isGood ? '#065f46' : '#991b1b';
-      trendSymbol = isPositive ? '↑' : '↓';
-      trendText = `${Math.abs(growth).toFixed(1)}% vs 上期`;
+      trendBg = isGood ? '#ecfdf5' : '#fef2f2';
+      trendColor = isGood ? '#059669' : '#dc2626';
+      trendIcon = isPositive ? '↑' : '↓';
+      trendPct = `${Math.abs(growth).toFixed(1)}%`;
+      trendPeriod = 'vs 上期';
     }
+  } else {
+    trendBg = '#f8fafc'; trendColor = '#94a3b8';
+    trendIcon = '·'; trendPct = '—'; trendPeriod = '暂无对比';
   }
 
-  // 显示值
   const displayVal = formattedValue
     ? formattedValue
     : isCurrency
     ? `¥${Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     : value;
 
-  // 图标背景色：colorHex + 18% 透明度
-  const iconBg = colorHex + '2E';
+  const iconBg = colorHex + '18';
 
   return (
     <div
       style={{
         background: '#ffffff',
-        border: '1px solid rgba(0,0,0,0.06)',
-        borderRadius: '18px',
-        padding: '22px 22px 20px',
+        border: '1px solid rgba(0,0,0,0.07)',
+        borderRadius: '16px',
+        padding: '22px 24px 20px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '14px',
-        boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
+        gap: '0',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.03)',
         transition: 'box-shadow 0.2s, transform 0.2s, border-color 0.2s',
         cursor: 'default',
-        minHeight: '148px',
       }}
       onMouseEnter={e => {
-        e.currentTarget.style.boxShadow = '0 6px 24px rgba(0,0,0,0.09)';
+        e.currentTarget.style.boxShadow = `0 0 0 1.5px ${colorHex}30, 0 8px 24px ${colorHex}12`;
         e.currentTarget.style.transform = 'translateY(-2px)';
-        e.currentTarget.style.borderColor = colorHex + '33';
       }}
       onMouseLeave={e => {
-        e.currentTarget.style.boxShadow = '0 1px 6px rgba(0,0,0,0.04)';
+        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.03)';
         e.currentTarget.style.transform = 'translateY(0)';
-        e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)';
       }}
     >
-      {/* 第一行：图标（左）+ 趋势徽章（右） */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        {/* 图标方块 */}
+      {/* 第一行：小图标 + 标题 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
         <div
           style={{
-            width: '48px',
-            height: '48px',
-            borderRadius: '14px',
+            width: '32px',
+            height: '32px',
+            borderRadius: '9px',
             backgroundColor: iconBg,
             color: colorHex,
             display: 'flex',
@@ -93,73 +93,75 @@ const MetricCard = ({
         >
           {icon}
         </div>
-
-        {/* 趋势徽章 */}
-        {growth !== null && (
-          <span
-            style={{
-              backgroundColor: trendBg,
-              color: trendColor,
-              fontSize: '12px',
-              fontWeight: 600,
-              padding: '4px 10px',
-              borderRadius: '8px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '3px',
-              whiteSpace: 'nowrap',
-              fontFamily: 'Inter, sans-serif',
-            }}
-          >
-            <span style={{ fontSize: '11px', fontWeight: 700 }}>{trendSymbol}</span>
-            {trendText}
-          </span>
-        )}
-      </div>
-
-      {/* 第二行：大数字 + 标签 */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <div
+        <span
           style={{
-            fontFamily: "'Outfit', sans-serif",
-            fontSize: '28px',
-            fontWeight: 700,
-            color: '#1d1d1f',
-            lineHeight: 1.15,
-            letterSpacing: '-0.02em',
+            fontSize: '13px',
+            fontWeight: 500,
+            color: '#6b7280',
+            fontFamily: 'Inter, sans-serif',
+            letterSpacing: '0.01em',
           }}
         >
-          {displayVal}
-        </div>
+          {title}
+        </span>
+      </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span
-            style={{
-              fontSize: '13px',
-              color: '#8e8e93',
-              fontWeight: 500,
-              fontFamily: 'Inter, sans-serif',
-            }}
-          >
-            {title}
-          </span>
-          {subtitle && (
+      {/* 第二行：大数字（主角） */}
+      <div
+        style={{
+          fontFamily: "'Outfit', sans-serif",
+          fontSize: 'clamp(24px, 3vw, 30px)',
+          fontWeight: 700,
+          color: '#111827',
+          lineHeight: 1.1,
+          letterSpacing: '-0.025em',
+          marginBottom: '16px',
+        }}
+      >
+        {displayVal}
+      </div>
+
+      {/* 第三行：pill 趋势徽章 + 期间 + 副标题 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+        <span
+          style={{
+            backgroundColor: trendBg,
+            color: trendColor,
+            fontSize: '12px',
+            fontWeight: 600,
+            padding: '3px 8px',
+            borderRadius: '999px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '2px',
+            fontFamily: 'Inter, sans-serif',
+            flexShrink: 0,
+          }}
+        >
+          <span style={{ fontSize: '11px' }}>{trendIcon}</span>
+          {trendPct}
+        </span>
+        <span style={{ fontSize: '12px', color: '#9ca3af', fontFamily: 'Inter, sans-serif' }}>
+          {trendPeriod}
+        </span>
+        {subtitle && (
+          <>
+            <span style={{ color: '#e5e7eb', fontSize: '12px' }}>·</span>
             <span
               style={{
-                fontSize: '11px',
-                color: '#aeaeb2',
+                fontSize: '11.5px',
+                color: '#9ca3af',
                 fontFamily: 'Inter, sans-serif',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                maxWidth: '160px',
               }}
               title={typeof subtitle === 'string' ? subtitle : ''}
             >
-              · {subtitle}
+              {subtitle}
             </span>
-          )}
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
