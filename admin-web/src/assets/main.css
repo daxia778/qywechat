@@ -1,62 +1,27 @@
+/* ══════════════════════════════════════════
+   main.css — Supplementary Styles
+   Primary design system: index.css (Brave-Inspired Theme)
+   This file only contains styles NOT present in index.css.
+   ══════════════════════════════════════════ */
+
+/* ── Google Fonts (consumed by index.css @theme) ── */
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-@import "tailwindcss";
-
+/* ── Legacy CSS Variables (backward compatibility) ── */
 :root {
-  --background: #f9fafb; /* bg-gray-50 */
-  --foreground: #111827; /* text-gray-900 */
-  --card: #ffffff;
-  --card-foreground: #1f2937; /* text-gray-800 */
-  --primary: #465FFF; /* TailAdmin Blue */
-  --primary-hover: #3641f5;
-  --primary-bg: #ecf3ff;
+  --primary: #434FCF;
+  --primary-hover: #3B3FBF;
+  --primary-bg: #F5F3FF;
   --border: #e4e7ec;
-  --muted: #6b7280; /* text-gray-500 */
-  --muted-light: #9ca3af; /* text-gray-400 */
-  --success: #10b981;
-  --success-bg: rgba(16, 185, 129, 0.1);
-  --warning: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.1);
-  --danger: #ef4444;
-  --danger-bg: rgba(239, 68, 68, 0.1);
+  --muted: #6b7280;
+  --muted-light: #9ca3af;
   --radius: 12px;
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-  background-color: var(--background);
-  color: var(--foreground);
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-  min-height: 100vh;
-}
-
-h1, h2, h3, h4, h5, h6 {
-  font-family: 'Outfit', sans-serif;
-  letter-spacing: -0.02em;
-}
-
-/* Base tailwind-like utilities */
-.bg-gray-50 { background-color: #f9fafb; }
-.bg-white { background-color: #ffffff; }
-.text-gray-900 { color: #111827; }
-.text-gray-800 { color: #1f2937; }
-.text-gray-500 { color: #6b7280; }
-.text-gray-400 { color: #9ca3af; }
-.border-b { border-bottom: 1px solid var(--border); }
-.border-gray-200 { border-color: #e5e7eb; }
-.shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
-
-/* TailAdmin Enterprise Card */
+/* ── TailAdmin Enterprise Card (unique to main.css) ── */
 .card-enterprise {
-  background: var(--card);
+  background: #ffffff;
   border: 1px solid var(--border);
   border-radius: 16px;
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
@@ -67,136 +32,7 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 4px 8px -2px rgba(16, 24, 40, 0.1), 0 2px 4px -2px rgba(16, 24, 40, 0.06);
 }
 
-/* Skeleton Shimmer */
-@keyframes skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-.skeleton {
-  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.5s ease-in-out infinite;
-  border-radius: 6px;
-}
-
-/* Custom Scrollbar */
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-/* Transitions */
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.animate-fade-in-up {
-  animation: fadeInUp 0.3s ease both;
-}
-
-/* Common UI Elements */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.5rem 1rem;
-  font-weight: 500;
-  font-size: 0.875rem;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn-primary {
-  background-color: var(--primary);
-  color: white;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-.btn-primary:hover {
-  background-color: var(--primary-hover);
-}
-
-.btn-secondary {
-  background-color: white;
-  color: var(--card-foreground);
-  border-color: #d1d5db;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-.btn-secondary:hover {
-  background-color: #f9fafb;
-  border-color: #9ca3af;
-}
-
-.btn-danger {
-  background-color: white;
-  color: var(--danger);
-  border-color: var(--danger-bg);
-}
-
-.btn-danger:hover {
-  background-color: var(--danger-bg);
-}
-
-.badge {
-  padding: 0.25rem 0.625rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.badge.success { background: var(--success-bg); color: var(--success); }
-.badge.warning { background: var(--warning-bg); color: var(--warning); }
-.badge.danger { background: var(--danger-bg); color: var(--danger); }
-.badge.primary { background: var(--primary-bg); color: var(--primary); }
-.badge.secondary { background: #f3f4f6; color: var(--muted); }
-
-/* Tables */
-.table-container {
-  width: 100%;
-  overflow-x: auto;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-}
-
-th {
-  padding: 0.75rem 1.25rem;
-  font-weight: 500;
-  font-size: 0.75rem;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  background-color: #f9fafb;
-  border-bottom: 1px solid var(--border);
-}
-
-td {
-  padding: 1rem 1.25rem;
-  font-size: 0.875rem;
-  color: #374151; /* gray-700 */
-  border-bottom: 1px solid var(--border);
-}
-
-tr:last-child td {
-  border-bottom: none;
-}
-
-tr:hover td {
-  background-color: #f9fafb;
-}
-
-/* Forms */
+/* ── Form Styles (unique to main.css) ── */
 .form-group {
   margin-bottom: 1.25rem;
 }
@@ -213,7 +49,7 @@ tr:hover td {
   width: 100%;
   padding: 0.625rem 0.875rem;
   background: white;
-  border: 1px solid #d1d5db; /* gray-300 */
+  border: 1px solid #d1d5db;
   border-radius: 8px;
   color: #111827;
   font-family: inherit;
@@ -225,7 +61,7 @@ tr:hover td {
 .form-input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(70, 95, 255, 0.15);
+  box-shadow: 0 0 0 3px rgba(67, 79, 207, 0.15);
 }
 
 .form-input::placeholder {

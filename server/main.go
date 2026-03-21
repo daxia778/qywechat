@@ -58,6 +58,9 @@ func main() {
 	// 启动安全模块后台清理（替代原 init() goroutine）
 	middleware.StartFailMapCleaner(ctx)
 
+	// 启动 Token 黑名单定期清理协程
+	middleware.StartTokenCleanup(ctx)
+
 	// 启动 SQLite 定时备份调度器
 	services.StartBackupScheduler(ctx)
 
@@ -162,11 +165,13 @@ func main() {
 		// 客户端 OTA (公开)
 		v1.GET("/app/version", handlers.CheckAppVersion)
 
-		// Token 校验 (需要 JWT)
+		// Token 校验/注销/刷新 (需要 JWT)
 		authGroup := v1.Group("/auth")
 		authGroup.Use(middleware.JWTAuth())
 		{
 			authGroup.GET("/validate_token", handlers.ValidateToken)
+			authGroup.POST("/logout", handlers.Logout)
+			authGroup.POST("/refresh", handlers.RefreshToken)
 		}
 
 		// 订单操作 (全部需要 JWT 登录)
@@ -178,6 +183,7 @@ func main() {
 			orderAuth.GET("/:id", handlers.GetOrder)
 			orderAuth.POST("/create", handlers.CreateOrder)
 			orderAuth.POST("/grab", handlers.GrabOrder)
+			orderAuth.PUT("/batch-status", handlers.BatchUpdateOrderStatus)
 			orderAuth.PUT("/:id/status", handlers.UpdateOrderStatus)
 			orderAuth.PUT("/:id/amount", handlers.UpdateOrderAmount)
 			orderAuth.GET("/:id/detail", handlers.GetOrderDetail)
@@ -185,6 +191,7 @@ func main() {
 			orderAuth.GET("/:id/profit", handlers.GetOrderProfit)
 			orderAuth.GET("/pending-match", handlers.ListPendingMatchOrders)
 			orderAuth.POST("/:id/match", handlers.MatchOrderContact)
+			orderAuth.PUT("/:id/reassign", handlers.ReassignOrder)
 
 			// 上传文件访问（需 JWT 鉴权，防止未授权访问 OCR 截图等敏感文件）
 			orderAuth.GET("/uploads/*filepath", func(c *gin.Context) {

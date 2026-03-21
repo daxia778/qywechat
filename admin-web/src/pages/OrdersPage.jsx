@@ -5,12 +5,13 @@ import { useToast } from '../hooks/useToast';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { usePolling } from '../hooks/usePolling';
 import { useDebounce } from '../hooks/useDebounce';
-import { listOrders, updateOrderStatus } from '../api/orders';
-import { exportExcel } from '../api/admin';
+import { listOrders, updateOrderStatus, batchUpdateOrderStatus, reassignOrder } from '../api/orders';
+import { exportExcel, listEmployees } from '../api/admin';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ORDER_STATUSES } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
+import PageHeader from '../components/ui/PageHeader';
 
 export default function OrdersPage() {
   const { role, userId } = useAuth();
@@ -25,6 +26,12 @@ export default function OrdersPage() {
   const [totalOrders, setTotalOrders] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
   const [openMoreMenu, setOpenMoreMenu] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [reassignModal, setReassignModal] = useState({ show: false, order: null });
+  const [designers, setDesigners] = useState([]);
+  const [selectedDesigner, setSelectedDesigner] = useState('');
+  const [reassignLoading, setReassignLoading] = useState(false);
   const pageSize = 50;
 
   const totalPages = Math.max(1, Math.ceil(totalOrders / pageSize));
@@ -74,6 +81,11 @@ export default function OrdersPage() {
   useEffect(() => {
     setCurrentPage(0);
   }, [debouncedKeyword]);
+
+  // Clear selection when orders change (page switch, filter, refresh)
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [orders]);
 
   usePolling(fetchOrders, connected ? 120000 : 60000);
 
@@ -140,6 +152,107 @@ export default function OrdersPage() {
     exportExcel(params);
   };
 
+  // ── Reassign ──
+  const openReassignModal = async (order) => {
+    setReassignModal({ show: true, order });
+    setSelectedDesigner('');
+    try {
+      const res = await listEmployees({ params: { role: 'designer' } });
+      const list = (res.data.data || []).filter(
+        (d) => d.is_active && d.wecom_userid !== order.designer_id
+      );
+      setDesigners(list);
+    } catch {
+      toast('获取设计师列表失败', 'error');
+      setDesigners([]);
+    }
+  };
+
+  const doReassign = async () => {
+    if (!selectedDesigner) {
+      toast('请选择目标设计师', 'warning');
+      return;
+    }
+    setReassignLoading(true);
+    try {
+      await reassignOrder(reassignModal.order.id, selectedDesigner);
+      toast(`订单 ${reassignModal.order.order_sn} 已成功转派`, 'success');
+      setReassignModal({ show: false, order: null });
+      fetchOrders();
+    } catch (err) {
+      toast('转派失败: ' + (err.response?.data?.error || err.message), 'error');
+    } finally {
+      setReassignLoading(false);
+    }
+  };
+
+  // ── Batch Selection ──
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === orders.length && orders.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(orders.map((o) => o.id)));
+    }
+  };
+
+  const selectedOrders = orders.filter((o) => selectedIds.has(o.id));
+
+  // Compute which batch actions are available based on selected orders
+  const batchActions = (() => {
+    if (selectedOrders.length === 0) return [];
+    const actions = [];
+    const canComplete = selectedOrders.every((o) => ['DELIVERED', 'AFTER_SALE'].includes(o.status));
+    if (canComplete && ['admin', 'sales', 'follow'].includes(role)) {
+      actions.push({ status: 'COMPLETED', label: '批量完成', type: 'primary' });
+    }
+    const canClose = selectedOrders.every((o) => ['PENDING', 'GROUP_CREATED', 'CONFIRMED', 'DESIGNING', 'REVISION', 'AFTER_SALE'].includes(o.status));
+    if (canClose && role === 'admin') {
+      actions.push({ status: 'CLOSED', label: '批量关闭', type: 'danger' });
+    }
+    return actions;
+  })();
+
+  const doBatchUpdate = (targetStatus, label) => {
+    showModal({
+      title: label,
+      message: `确定要将选中的 ${selectedOrders.length} 个订单${label.replace('批量', '')}吗？`,
+      type: targetStatus === 'CLOSED' ? 'danger' : 'info',
+      confirmText: label,
+      detail: { '选中订单数': `${selectedOrders.length} 个`, '目标状态': STATUS_MAP[targetStatus] || targetStatus },
+    }, async () => {
+      setBatchLoading(true);
+      try {
+        const res = await batchUpdateOrderStatus({
+          order_ids: Array.from(selectedIds),
+          status: targetStatus,
+        });
+        const data = res.data;
+        if (data.fail_count > 0) {
+          const failedItems = (data.results || []).filter((r) => !r.success);
+          const failMsg = failedItems.map((r) => `${r.order_sn || r.order_id}: ${r.error}`).join('; ');
+          toast(`${data.message}. 失败: ${failMsg}`, 'warning');
+        } else {
+          toast(data.message, 'success');
+        }
+        setSelectedIds(new Set());
+        fetchOrders();
+      } catch (err) {
+        toast('批量操作失败: ' + (err.response?.data?.error || err.message), 'error');
+      } finally {
+        setBatchLoading(false);
+      }
+    });
+  };
+
   return (
     <div className="flex flex-col gap-5 w-full max-w-[1400px] mx-auto">
       <ConfirmModal
@@ -155,6 +268,75 @@ export default function OrdersPage() {
         onCancel={() => setModal((m) => ({ ...m, show: false }))}
       />
 
+      {/* Reassign Modal */}
+      {reassignModal.show && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setReassignModal({ show: false, order: null })}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/80">
+              <h3 className="text-base font-bold text-slate-800">转派订单</h3>
+              <p className="text-[13px] text-slate-500 mt-0.5">将订单 {reassignModal.order?.order_sn} 转派给其他设计师</p>
+            </div>
+            <div className="px-6 py-5">
+              <div className="mb-4 p-3 bg-slate-50 rounded-xl text-[13px] space-y-1.5">
+                <div className="flex justify-between"><span className="text-slate-500">当前设计师</span><span className="font-semibold text-slate-700">{reassignModal.order?.designer_id || '未分配'}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">订单金额</span><span className="font-semibold text-slate-700">&yen;{reassignModal.order?.price ? (reassignModal.order.price / 100).toFixed(2) : '0.00'}</span></div>
+              </div>
+              <label className="block text-[13px] font-semibold text-slate-700 mb-2">选择目标设计师</label>
+              {designers.length === 0 ? (
+                <p className="text-[13px] text-slate-400 py-4 text-center">暂无可用设计师</p>
+              ) : (
+                <div className="space-y-1.5 max-h-[240px] overflow-y-auto">
+                  {designers.map((d) => (
+                    <label
+                      key={d.wecom_userid}
+                      className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                        selectedDesigner === d.wecom_userid
+                          ? 'border-brand-500 bg-brand-500/5 ring-1 ring-brand-500/20'
+                          : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="reassign_designer"
+                        value={d.wecom_userid}
+                        checked={selectedDesigner === d.wecom_userid}
+                        onChange={() => setSelectedDesigner(d.wecom_userid)}
+                        className="accent-[#434FCF]"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-semibold text-slate-800">{d.name}</div>
+                        <div className="text-[11px] text-slate-400">{d.wecom_userid}</div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className={`w-1.5 h-1.5 rounded-full ${d.status === 'idle' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                        <span className="text-[11px] text-slate-500">{d.status === 'idle' ? '空闲' : `${d.active_order_count}单`}</span>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50/50 flex justify-end gap-2.5">
+              <button
+                onClick={() => setReassignModal({ show: false, order: null })}
+                className="px-4 py-2 text-[13px] font-semibold rounded-xl text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 transition-all cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                onClick={doReassign}
+                disabled={!selectedDesigner || reassignLoading}
+                className={`px-5 py-2 text-[13px] font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all cursor-pointer border-none shadow-sm ${
+                  (!selectedDesigner || reassignLoading) ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                {reassignLoading ? '转派中...' : '确认转派'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Image Lightbox */}
       {previewImage && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setPreviewImage(null)}>
@@ -166,24 +348,18 @@ export default function OrdersPage() {
       )}
 
       {/* Title */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-[26px] font-extrabold text-slate-800 font-[Outfit] tracking-tight">订单大厅</h1>
-          <p className="text-sm text-slate-500 mt-1">管理和跟踪所有订单</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {role === 'admin' && (
-            <button onClick={handleExportExcel} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm" title="导出 Excel 报表">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-              <span className="hidden sm:inline">导出Excel</span>
-            </button>
-          )}
-          <button onClick={() => fetchOrders(true)} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm" disabled={loading}>
-            <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-            <span>{loading ? '同步中...' : '刷新'}</span>
+      <PageHeader title="订单大厅" subtitle="管理和跟踪所有订单">
+        {role === 'admin' && (
+          <button onClick={handleExportExcel} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm" title="导出 Excel 报表">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+            <span className="hidden sm:inline">导出Excel</span>
           </button>
-        </div>
-      </div>
+        )}
+        <button onClick={() => fetchOrders(true)} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm" disabled={loading}>
+          <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+          <span>{loading ? '同步中...' : '刷新'}</span>
+        </button>
+      </PageHeader>
 
       {/* Main Card */}
       <div className="bg-surface-container-lowest ghost-border rounded-xl flex flex-col overflow-hidden hover:border-[#434FCF]/20 transition-colors">
@@ -226,13 +402,58 @@ export default function OrdersPage() {
           </div>
         </div>
 
+        {/* Batch Action Toolbar */}
+        {selectedIds.size > 0 && (
+          <div className="px-6 py-3 bg-brand-500/5 border-b border-brand-500/10 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-[13px] font-semibold text-brand-500">
+                已选中 {selectedIds.size} 个订单
+              </span>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="text-[12px] text-slate-500 hover:text-slate-700 underline cursor-pointer bg-transparent border-none"
+              >
+                取消选择
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              {batchActions.length === 0 && (
+                <span className="text-[12px] text-slate-400">选中订单的状态不一致，无可用批量操作</span>
+              )}
+              {batchActions.map((action) => (
+                <button
+                  key={action.status}
+                  onClick={() => doBatchUpdate(action.status, action.label)}
+                  disabled={batchLoading}
+                  className={`inline-flex items-center justify-center gap-1.5 px-4 py-1.5 text-[12px] font-semibold rounded-xl transition-all duration-150 cursor-pointer shadow-sm active:scale-[0.98] ${
+                    action.type === 'danger'
+                      ? 'text-white bg-red-500 hover:bg-red-600 border-none'
+                      : 'text-white bg-brand-500 hover:bg-brand-600 border-none'
+                  } ${batchLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
+                >
+                  {batchLoading ? '处理中...' : action.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Table */}
         <div className="w-full overflow-x-auto relative min-h-[450px]">
           {loading && orders.length === 0 && <LoadingSpinner />}
           <table>
             <thead>
               <tr>
-                <th className="pl-6">订单信息</th>
+                <th className="w-10 pl-4 pr-0">
+                  <input
+                    type="checkbox"
+                    checked={orders.length > 0 && selectedIds.size === orders.length}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-brand-500/20 cursor-pointer accent-[#434FCF]"
+                    title="全选/取消全选"
+                  />
+                </th>
+                <th className="pl-2">订单信息</th>
                 <th>客户</th>
                 <th>金额</th>
                 <th>负责人</th>
@@ -243,7 +464,7 @@ export default function OrdersPage() {
             <tbody>
               {orders.length === 0 && !loading && (
                 <tr>
-                  <td colSpan="6" className="py-20 text-center">
+                  <td colSpan="7" className="py-20 text-center">
                     <div className="flex flex-col items-center justify-center text-slate-400">
                       <svg className="w-12 h-12 mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                       <p className="font-medium text-slate-600">暂无订单</p>
@@ -258,6 +479,8 @@ export default function OrdersPage() {
                   order={order}
                   role={role}
                   userId={userId}
+                  selected={selectedIds.has(order.id)}
+                  onToggleSelect={toggleSelect}
                   openMoreMenu={openMoreMenu}
                   onSetMoreMenu={setOpenMoreMenu}
                   onUpdateStatus={doUpdateStatus}
@@ -266,6 +489,7 @@ export default function OrdersPage() {
                   onConfirmClose={confirmClose}
                   hasMoreActions={hasMoreActions(order)}
                   onPreviewImage={setPreviewImage}
+                  onReassign={openReassignModal}
                 />
               ))}
             </tbody>
@@ -291,10 +515,18 @@ export default function OrdersPage() {
 }
 
 // ── Memoized Order Row ──
-const OrderRow = memo(function OrderRow({ order, role, userId, openMoreMenu, onSetMoreMenu, onUpdateStatus, onConfirmComplete, onHandleRefund, onConfirmClose, hasMoreActions, onPreviewImage }) {
+const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggleSelect, openMoreMenu, onSetMoreMenu, onUpdateStatus, onConfirmComplete, onHandleRefund, onConfirmClose, hasMoreActions, onPreviewImage, onReassign }) {
   return (
-    <tr className="group transition-colors hover:bg-[#FAFBFC]">
-      <td className="pl-6">
+    <tr className={`group transition-colors ${selected ? 'bg-brand-500/5' : 'hover:bg-[#FAFBFC]'}`}>
+      <td className="w-10 pl-4 pr-0">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelect(order.id)}
+          className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-brand-500/20 cursor-pointer accent-[#434FCF]"
+        />
+      </td>
+      <td className="pl-2">
         <div className="flex items-center gap-2.5">
           {order.screenshot_path ? (
             <button
@@ -378,6 +610,13 @@ const OrderRow = memo(function OrderRow({ order, role, userId, openMoreMenu, onS
                     <button onClick={() => { onHandleRefund(order); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors flex items-center gap-2">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z" /></svg>
                       退款
+                    </button>
+                  )}
+                  {/* admin: 转派设计师 */}
+                  {['GROUP_CREATED','CONFIRMED','DESIGNING','DELIVERED','REVISION','AFTER_SALE'].includes(order.status) && order.designer_id && role === 'admin' && (
+                    <button onClick={() => { onReassign(order); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                      转派设计师
                     </button>
                   )}
                   {/* admin: 关闭订单 */}

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"net/http"
 	"strconv"
 	"time"
 
@@ -60,7 +59,7 @@ func ListPayments(c *gin.Context) {
 			models.DB.Model(&models.Order{}).Select("id").Where("designer_id = ?", uidStr),
 		)
 	default:
-		c.JSON(http.StatusForbidden, gin.H{"error": "未知角色，无权访问"})
+		forbidden(c, "未知角色，无权访问")
 		return
 	}
 
@@ -94,7 +93,7 @@ func ListPayments(c *gin.Context) {
 	var payments []models.PaymentRecord
 	query.Order("paid_at DESC").Offset(offset).Limit(pageSize).Find(&payments)
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"data":      payments,
 		"total":     total,
 		"page":      page,
@@ -116,28 +115,28 @@ func CreatePayment(c *gin.Context) {
 	var req CreatePaymentReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("CreatePayment 参数绑定失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
+		badRequest(c, "请求参数格式错误")
 		return
 	}
 
 	// 参数校验
 	if req.Amount <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "金额必须大于0"})
+		badRequest(c, "金额必须大于0")
 		return
 	}
 	if req.Amount > 99999999 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "金额超出合理范围"})
+		badRequest(c, "金额超出合理范围")
 		return
 	}
 	if !models.IsValidPaymentSource(req.Source) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的收款来源，可选: pdd / wecom / manual"})
+		badRequest(c, "无效的收款来源，可选: pdd / wecom / manual")
 		return
 	}
 
 	// 校验关联订单是否存在
 	var order models.Order
 	if err := models.DB.First(&order, req.OrderID).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "关联订单不存在"})
+		badRequest(c, "关联订单不存在")
 		return
 	}
 
@@ -148,13 +147,13 @@ func CreatePayment(c *gin.Context) {
 	uidStr, _ := userID.(string)
 
 	if roleStr != "admin" && roleStr != "follow" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "无权录入收款记录"})
+		forbidden(c, "无权录入收款记录")
 		return
 	}
 
 	// follow 角色只能为自己关联的订单录入
 	if roleStr == "follow" && order.FollowOperatorID != uidStr && order.OperatorID != uidStr {
-		c.JSON(http.StatusForbidden, gin.H{"error": "只能为自己关联的订单录入收款"})
+		forbidden(c, "只能为自己关联的订单录入收款")
 		return
 	}
 
@@ -187,13 +186,13 @@ func CreatePayment(c *gin.Context) {
 		return tx.Create(&payment).Error
 	})
 	if err != nil {
-		log.Printf("❌ 创建收款记录失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建收款记录失败"})
+		log.Printf("创建收款记录失败: %v", err)
+		internalError(c, "创建收款记录失败，请稍后重试")
 		return
 	}
 
-	log.Printf("✅ 手动录入收款 | txn=%s | order=%d | amount=%d | source=%s", transactionID, req.OrderID, req.Amount, req.Source)
-	c.JSON(http.StatusOK, gin.H{"message": "收款记录创建成功", "payment": payment})
+	log.Printf("手动录入收款 | txn=%s | order=%d | amount=%d | source=%s", transactionID, req.OrderID, req.Amount, req.Source)
+	respondOK(c, gin.H{"message": "收款记录创建成功", "payment": payment})
 }
 
 // MatchPaymentReq 手动关联订单请求体
@@ -206,14 +205,14 @@ func MatchPayment(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的流水ID"})
+		badRequest(c, "无效的流水ID")
 		return
 	}
 
 	var req MatchPaymentReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("MatchPayment 参数绑定失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
+		badRequest(c, "请求参数格式错误")
 		return
 	}
 
@@ -221,14 +220,14 @@ func MatchPayment(c *gin.Context) {
 	role, _ := c.Get("role")
 	roleStr, _ := role.(string)
 	if roleStr != "admin" && roleStr != "follow" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "无权操作"})
+		forbidden(c, "无权操作")
 		return
 	}
 
 	// 校验目标订单是否存在
 	var order models.Order
 	if err := models.DB.First(&order, req.OrderID).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "目标订单不存在"})
+		badRequest(c, "目标订单不存在")
 		return
 	}
 
@@ -253,12 +252,12 @@ func MatchPayment(c *gin.Context) {
 	})
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 
-	log.Printf("✅ 手动关联流水 | txn=%s → order=%d", payment.TransactionID, req.OrderID)
-	c.JSON(http.StatusOK, gin.H{"message": "关联成功", "payment": payment})
+	log.Printf("手动关联流水 | txn=%s -> order=%d", payment.TransactionID, req.OrderID)
+	respondOK(c, gin.H{"message": "关联成功", "payment": payment})
 }
 
 // GetPaymentSummary GET /api/v1/payments/summary — 收款汇总统计
@@ -267,7 +266,7 @@ func GetPaymentSummary(c *gin.Context) {
 	role, _ := c.Get("role")
 	roleStr, _ := role.(string)
 	if roleStr != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "仅管理员可查看汇总统计"})
+		forbidden(c, "仅管理员可查看汇总统计")
 		return
 	}
 
@@ -312,7 +311,7 @@ func GetPaymentSummary(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"total_amount":  totalAmount,
 		"by_source":     sourceMap,
 		"source_detail": sourceSummaries,
@@ -325,21 +324,18 @@ func SyncWecomPayments(c *gin.Context) {
 	role, _ := c.Get("role")
 	roleStr, _ := role.(string)
 	if roleStr != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "仅管理员可触发企微收款同步"})
+		forbidden(c, "仅管理员可触发企微收款同步")
 		return
 	}
 
 	result, err := services.SyncWecomPayments()
 	if err != nil {
 		log.Printf("手动触发企微收款同步失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":  fmt.Sprintf("同步失败: %v", err),
-			"result": result,
-		})
+		internalError(c, "企微收款同步失败，请稍后重试")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"message": "企微收款同步完成",
 		"result":  result,
 	})

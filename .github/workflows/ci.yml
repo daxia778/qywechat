@@ -36,10 +36,25 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Run tests
+      - name: Lint (golangci-lint)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: server
+
+      - name: Security scan (gosec)
+        uses: securego/gosec@master
+        with:
+          args: -exclude=G104 ./...
+        env:
+          GOFLAGS: ""
+
+      - name: Test with coverage
         env:
           CGO_ENABLED: '0'
-        run: go test ./... -v -count=1
+        run: |
+          go test ./... -v -count=1 -coverprofile=coverage.out
+          go tool cover -func=coverage.out | tail -1
 
   # ─── 前端 (React/Vite) ─────────────────────
   frontend:
@@ -61,6 +76,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Lint
+        run: npm run lint
 
       - name: Build
         run: npm run build

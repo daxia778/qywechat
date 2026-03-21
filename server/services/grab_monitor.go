@@ -17,11 +17,14 @@ type GrabMonitor struct {
 	TimeoutThreshold time.Duration
 	// 检查间隔（默认5分钟）
 	CheckInterval time.Duration
+	// DESIGNING 状态超时阈值（默认48小时）
+	DesigningTimeoutThreshold time.Duration
 }
 
 var Monitor = &GrabMonitor{
-	TimeoutThreshold: 30 * time.Minute,
-	CheckInterval:    5 * time.Minute,
+	TimeoutThreshold:          30 * time.Minute,
+	CheckInterval:             5 * time.Minute,
+	DesigningTimeoutThreshold: 48 * time.Hour,
 }
 
 // Start 启动定时检测
@@ -48,10 +51,18 @@ func (m *GrabMonitor) Start(ctx context.Context) {
 					}()
 					m.checkTimeoutGrabs()
 				}()
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("[GrabMonitor] checkDesigningTimeout panic recovered: %v", r)
+						}
+					}()
+					m.checkDesigningTimeout()
+				}()
 			}
 		}
 	}()
-	log.Printf("[GrabMonitor] 已启动，每 %v 检查一次，超时阈值 %v", m.CheckInterval, m.TimeoutThreshold)
+	log.Printf("[GrabMonitor] 已启动，每 %v 检查一次，抢单超时阈值 %v，设计超时阈值 %v", m.CheckInterval, m.TimeoutThreshold, m.DesigningTimeoutThreshold)
 }
 
 // checkTimeoutGrabs 检查超时未推进的抢单（仅告警未告警过的订单）
@@ -132,6 +143,110 @@ func (m *GrabMonitor) checkTimeoutGrabs() {
 
 		log.Printf("⚠️ 抢单超时告警已发送 | sn=%s | designer=%s | 超时 %v",
 			order.OrderSN, order.DesignerID, time.Since(*order.AssignedAt).Round(time.Minute))
+	}
+}
+
+// checkDesigningTimeout 检查 DESIGNING 状态超时未交付的订单
+// 设计师抢单后长时间不交付，向管理员发送告警
+func (m *GrabMonitor) checkDesigningTimeout() {
+	threshold := time.Now().Add(-m.DesigningTimeoutThreshold)
+
+	var orders []models.Order
+	models.DB.Where(
+		"status = ? AND updated_at < ? AND designing_alert_sent = ?",
+		models.StatusDesigning, threshold, false,
+	).Find(&orders)
+
+	if len(orders) == 0 {
+		return
+	}
+
+	// 查询所有 admin 用户
+	var admins []models.Employee
+	models.DB.Where("role = ? AND is_active = ?", "admin", true).Find(&admins)
+
+	// 批量查设计师姓名
+	designerIDSet := make(map[string]struct{})
+	for _, o := range orders {
+		if o.DesignerID != "" {
+			designerIDSet[o.DesignerID] = struct{}{}
+		}
+	}
+	designerIDs := make([]string, 0, len(designerIDSet))
+	for id := range designerIDSet {
+		designerIDs = append(designerIDs, id)
+	}
+	nameMap := make(map[string]string)
+	if len(designerIDs) > 0 {
+		var emps []models.Employee
+		models.DB.Select("wecom_userid, name").Where("wecom_userid IN ?", designerIDs).Find(&emps)
+		for _, e := range emps {
+			nameMap[e.WecomUserID] = e.Name
+		}
+	}
+
+	for _, order := range orders {
+		designerName := nameMap[order.DesignerID]
+		if designerName == "" {
+			designerName = order.DesignerID
+		}
+
+		elapsedHours := int(time.Since(order.UpdatedAt).Hours())
+
+		// 1. 创建站内通知给所有 admin
+		for _, admin := range admins {
+			if err := models.WriteTx(func(tx *gorm.DB) error {
+				return tx.Create(&models.Notification{
+					UserID:   admin.WecomUserID,
+					Title:    "设计超时告警",
+					Content:  fmt.Sprintf("订单 %s 设计中已超过 %d 小时未交付，设计师：%s，请关注", order.OrderSN, elapsedHours, designerName),
+					Category: "alert",
+					RefID:    fmt.Sprintf("%d", order.ID),
+				}).Error
+			}); err != nil {
+				log.Printf("❌ 创建设计超时告警通知失败: sn=%s admin=%s err=%v", order.OrderSN, admin.WecomUserID, err)
+			}
+		}
+
+		// 2. 企微消息通知所有 admin
+		adminIDs := make([]string, len(admins))
+		for i, a := range admins {
+			adminIDs[i] = a.WecomUserID
+		}
+		if len(adminIDs) > 0 {
+			msg := fmt.Sprintf("⚠️ 设计超时告警\n订单号：%s\n设计师：%s\n主题：%s\n已设计中：%d 小时\n━━━━━━━━━━━\n设计师抢单后长时间未交付，请及时跟进！",
+				order.OrderSN,
+				designerName,
+				order.Topic,
+				elapsedHours,
+			)
+			if err := Wecom.SendTextMessage(adminIDs, msg); err != nil {
+				log.Printf("⚠️ 发送设计超时企微通知失败: sn=%s err=%v", order.OrderSN, err)
+			}
+		}
+
+		// 3. WebSocket 广播
+		Hub.Broadcast(WSEvent{
+			Type: "designing_timeout_alert",
+			Payload: map[string]any{
+				"order_id":      order.ID,
+				"order_sn":      order.OrderSN,
+				"designer_id":   order.DesignerID,
+				"designer_name": designerName,
+				"topic":         order.Topic,
+				"elapsed_hours": elapsedHours,
+			},
+		})
+
+		// 4. 标记已告警，避免重复通知
+		if err := models.WriteTx(func(tx *gorm.DB) error {
+			return tx.Model(&order).Update("designing_alert_sent", true).Error
+		}); err != nil {
+			log.Printf("❌ 标记designing_alert_sent失败: sn=%s err=%v", order.OrderSN, err)
+		}
+
+		log.Printf("⚠️ 设计超时告警已发送 | sn=%s | designer=%s | 已超时 %d 小时",
+			order.OrderSN, designerName, elapsedHours)
 	}
 }
 

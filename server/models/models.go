@@ -79,7 +79,8 @@ type Order struct {
 	ClosedAt        *time.Time `json:"closed_at,omitempty"`
 	DeadlineReminded bool      `gorm:"column:deadline_reminded;default:false" json:"deadline_reminded"`
 	AssignRetryCount int       `gorm:"column:assign_retry_count;default:0" json:"assign_retry_count"`
-	GrabAlertSent    bool      `gorm:"column:grab_alert_sent;default:false" json:"grab_alert_sent"`
+	GrabAlertSent        bool      `gorm:"column:grab_alert_sent;default:false" json:"grab_alert_sent"`
+	DesigningAlertSent   bool      `gorm:"column:designing_alert_sent;default:false" json:"designing_alert_sent"`
 }
 
 // OrderStatus 状态机常量

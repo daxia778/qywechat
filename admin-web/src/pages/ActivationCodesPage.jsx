@@ -5,6 +5,7 @@ import { ROLE_MAP, ROLE_CLASS_MAP, ROLE_AVATAR_CLASS_MAP, BADGE_VARIANT_CLASSES 
 import { formatDate } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
+import PageHeader from '../components/ui/PageHeader';
 
 const STATUS_FILTERS = [
   { value: '', label: '全部设备' },
@@ -164,16 +165,12 @@ export default function ActivationCodesPage() {
       )}
 
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-[26px] font-extrabold text-slate-800 font-[Outfit] tracking-tight">设备管理</h1>
-          <p className="text-sm text-slate-500 mt-1">激活码与设备绑定状态管理</p>
-        </div>
+      <PageHeader title="设备管理" subtitle="激活码与设备绑定状态管理">
         <button onClick={() => fetchData(true)} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm" disabled={loading}>
           <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
           <span>{loading ? '同步中...' : '刷新'}</span>
         </button>
-      </div>
+      </PageHeader>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

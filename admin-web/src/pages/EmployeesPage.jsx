@@ -6,6 +6,7 @@ import { ROLE_MAP, ROLE_CLASS_MAP, ROLE_AVATAR_CLASS_MAP, BADGE_VARIANT_CLASSES 
 import { formatDate } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
+import PageHeader from '../components/ui/PageHeader';
 
 const AVATAR_COLORS = [
   'linear-gradient(135deg,#434fcf,#7c3aed)',
@@ -323,16 +324,12 @@ export default function EmployeesPage() {
       )}
 
       {/* Title */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-[28px] font-bold text-[#1d1d1f] font-[Outfit] tracking-tight">员工管理</h1>
-          <p className="text-[13px] text-[#6e6e73] mt-1">团队成员与权限管理</p>
-        </div>
+      <PageHeader title="员工管理" subtitle="团队成员与权限管理">
         <button onClick={() => { setForm({ name: '', role: 'sales' }); setShowAddModal(true); }} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm">
           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
           <span>添加员工</span>
         </button>
-      </div>
+      </PageHeader>
 
       {/* Table */}
       <div className="bg-surface-container-lowest ghost-border rounded-xl flex flex-col overflow-hidden">

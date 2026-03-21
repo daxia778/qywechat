@@ -174,6 +174,9 @@ func UpdateOrderStatus(orderID uint, newStatus string) (*models.Order, error) {
 		now := time.Now()
 		order.Status = newStatus
 		switch newStatus {
+		case models.StatusDesigning:
+			// 重新进入 DESIGNING 时重置告警标记，保证再次超时能触发告警
+			order.DesigningAlertSent = false
 		case models.StatusDelivered:
 			order.DeliveredAt = &now
 		case models.StatusCompleted:
@@ -225,6 +228,102 @@ func UpdateOrderStatus(orderID uint, newStatus string) (*models.Order, error) {
 		}()
 	}
 
+	return &order, nil
+}
+
+// ReassignOrder 管理员转派订单给另一个设计师
+func ReassignOrder(orderID uint, newDesignerUserID, operatorID string) (*models.Order, error) {
+	var order models.Order
+
+	err := models.WriteTx(func(tx *gorm.DB) error {
+		// 1. 查询订单
+		if err := tx.First(&order, orderID).Error; err != nil {
+			return fmt.Errorf("订单不存在")
+		}
+
+		// 2. 校验状态: 只允许已分配设计师且非终态的订单转派
+		allowedStatuses := map[string]bool{
+			models.StatusGroupCreated: true,
+			models.StatusConfirmed:    true,
+			models.StatusDesigning:    true,
+			models.StatusDelivered:    true,
+			models.StatusRevision:     true,
+			models.StatusAfterSale:    true,
+		}
+		if !allowedStatuses[order.Status] {
+			return fmt.Errorf("当前状态 %s 不允许转派", order.Status)
+		}
+
+		// 3. 校验新设计师存在且 is_active=true 且 role=designer
+		var newDesigner models.Employee
+		if err := tx.Where("wecom_userid = ? AND is_active = ? AND role = ?",
+			newDesignerUserID, true, "designer").First(&newDesigner).Error; err != nil {
+			return fmt.Errorf("目标设计师不存在或未激活")
+		}
+
+		// 4. 不能转派给自己
+		if order.DesignerID == newDesignerUserID {
+			return fmt.Errorf("不能转派给当前设计师（相同人员）")
+		}
+
+		oldDesignerID := order.DesignerID
+
+		// 5. 释放旧设计师负载
+		if oldDesignerID != "" {
+			if err := tx.Exec(
+				"UPDATE employees SET active_order_count = MAX(active_order_count - 1, 0) WHERE wecom_userid = ?",
+				oldDesignerID,
+			).Error; err != nil {
+				return fmt.Errorf("释放旧设计师负载失败: %w", err)
+			}
+			if err := tx.Exec(
+				"UPDATE employees SET status = 'idle' WHERE wecom_userid = ? AND active_order_count <= 0",
+				oldDesignerID,
+			).Error; err != nil {
+				return fmt.Errorf("更新旧设计师状态失败: %w", err)
+			}
+		}
+
+		// 6. 更新订单 designer_id 和 assigned_at
+		now := time.Now()
+		order.DesignerID = newDesignerUserID
+		order.AssignedAt = &now
+		if err := tx.Save(&order).Error; err != nil {
+			return fmt.Errorf("更新订单失败: %w", err)
+		}
+
+		// 7. 增加新设计师负载
+		if err := tx.Exec(
+			"UPDATE employees SET active_order_count = active_order_count + 1, status = 'busy' WHERE wecom_userid = ?",
+			newDesignerUserID,
+		).Error; err != nil {
+			return fmt.Errorf("更新新设计师负载失败: %w", err)
+		}
+
+		// 8. 获取操作人姓名
+		var operator models.Employee
+		operatorName := operatorID
+		if tx.Where("wecom_userid = ?", operatorID).First(&operator).Error == nil {
+			operatorName = operator.Name
+		}
+
+		// 9. 写 OrderTimeline 记录
+		return tx.Create(&models.OrderTimeline{
+			OrderID:      order.ID,
+			EventType:    "designer_reassigned",
+			OldValue:     oldDesignerID,
+			NewValue:     newDesignerUserID,
+			OperatorID:   operatorID,
+			OperatorName: operatorName,
+			Remark:       fmt.Sprintf("订单转派: %s -> %s", oldDesignerID, newDesignerUserID),
+		}).Error
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ 订单转派 | sn=%s | %s -> %s | operator=%s", order.OrderSN, order.DesignerID, order.DesignerID, operatorID)
 	return &order, nil
 }
 
@@ -358,6 +457,52 @@ func StartOrderTimeoutWatcher(ctx context.Context) {
 
 					if o.AssignRetryCount+1 >= MaxAssignRetries {
 						log.Printf("🚨 订单超时派单已达上限，跳过后续重试 | sn=%s | retries=%d", o.OrderSN, o.AssignRetryCount+1)
+
+						// 向所有 admin 发送告警：派单重试已耗尽
+						go func(orderSN string, orderID uint, retries int) {
+							var admins []models.Employee
+							models.DB.Where("role = ? AND is_active = ?", "admin", true).Find(&admins)
+							if len(admins) == 0 {
+								return
+							}
+
+							// 企微消息通知
+							adminIDs := make([]string, len(admins))
+							for i, a := range admins {
+								adminIDs[i] = a.WecomUserID
+							}
+							msg := fmt.Sprintf("🚨 派单失败告警\n订单号：%s\n自动派单已重试 %d 次均失败\n━━━━━━━━━━━\n请立即手动处理此订单！",
+								orderSN, retries)
+							if err := Wecom.SendTextMessage(adminIDs, msg); err != nil {
+								log.Printf("⚠️ 发送派单上限企微通知失败: sn=%s err=%v", orderSN, err)
+							}
+
+							// 站内通知
+							for _, admin := range admins {
+								if err := models.WriteTx(func(tx *gorm.DB) error {
+									return tx.Create(&models.Notification{
+										UserID:   admin.WecomUserID,
+										Title:    "派单失败告警",
+										Content:  fmt.Sprintf("订单 %s 自动派单已重试 %d 次均失败，请手动处理", orderSN, retries),
+										Category: "alert",
+										RefID:    fmt.Sprintf("%d", orderID),
+									}).Error
+								}); err != nil {
+									log.Printf("❌ 创建派单上限告警通知失败: sn=%s admin=%s err=%v", orderSN, admin.WecomUserID, err)
+								}
+							}
+
+							// WebSocket 广播
+							Hub.Broadcast(WSEvent{
+								Type: "assign_exhausted_alert",
+								Payload: map[string]any{
+									"order_id": orderID,
+									"order_sn": orderSN,
+									"retries":  retries,
+								},
+							})
+						}(o.OrderSN, o.ID, o.AssignRetryCount+1)
+
 						continue
 					}
 
@@ -549,21 +694,68 @@ func GetDashboardStats() *DashboardStats {
 	stats := &DashboardStats{}
 	todayStart := time.Now().Truncate(24 * time.Hour)
 
-	models.DB.Model(&models.Order{}).Count(&stats.TotalOrders)
-	models.DB.Model(&models.Order{}).Where("status = ?", models.StatusPending).Count(&stats.PendingOrders)
-	models.DB.Model(&models.Order{}).Where("status IN ?", []string{models.StatusGroupCreated, models.StatusDesigning}).Count(&stats.DesigningOrders)
-	models.DB.Model(&models.Order{}).Where("status = ?", models.StatusCompleted).Count(&stats.CompletedOrders)
-
-	// 今日统计
-	var todayOrders []models.Order
-	models.DB.Where("created_at >= ?", todayStart).Find(&todayOrders)
-	stats.TodayOrderCount = len(todayOrders)
-	for _, o := range todayOrders {
-		stats.TodayRevenue += o.Price
+	// ── 订单状态分布 (单次 GROUP BY 替代 4+3=7 次独立 COUNT) ──
+	type StatusCount struct {
+		Status string `gorm:"column:status"`
+		Cnt    int64  `gorm:"column:cnt"`
+	}
+	var statusCounts []StatusCount
+	models.DB.Model(&models.Order{}).
+		Select("status, COUNT(*) as cnt").
+		Group("status").
+		Find(&statusCounts)
+	for _, sc := range statusCounts {
+		stats.TotalOrders += sc.Cnt
+		switch sc.Status {
+		case models.StatusPending:
+			stats.PendingOrders = sc.Cnt
+		case models.StatusGroupCreated:
+			stats.DesigningOrders += sc.Cnt
+		case models.StatusDesigning:
+			stats.DesigningOrders += sc.Cnt
+		case models.StatusCompleted:
+			stats.CompletedOrders = sc.Cnt
+		case models.StatusAfterSale:
+			stats.AfterSaleCount = sc.Cnt
+		case models.StatusRevision:
+			stats.RevisionCount = sc.Cnt
+		case models.StatusConfirmed:
+			stats.ConfirmedCount = sc.Cnt
+		}
 	}
 
-	models.DB.Model(&models.Employee{}).Where("role = ? AND is_active = ? AND status = ?", "designer", true, "busy").Count(&stats.ActiveDesigners)
-	models.DB.Model(&models.Employee{}).Where("role = ? AND is_active = ? AND status = ?", "designer", true, "idle").Count(&stats.IdleDesigners)
+	// ── 今日统计 (SQL 聚合替代全量加载) ──
+	type CountSum struct {
+		Cnt   int `gorm:"column:cnt"`
+		Total int `gorm:"column:total"`
+	}
+	var todayStats CountSum
+	models.DB.Model(&models.Order{}).
+		Select("COUNT(*) as cnt, COALESCE(SUM(price), 0) as total").
+		Where("created_at >= ?", todayStart).
+		Scan(&todayStats)
+	stats.TodayOrderCount = todayStats.Cnt
+	stats.TodayRevenue = todayStats.Total
+
+	// ── 设计师在线状态 (单次 GROUP BY 替代 2 次 COUNT) ──
+	type DesignerStatusCount struct {
+		Status string `gorm:"column:status"`
+		Cnt    int64  `gorm:"column:cnt"`
+	}
+	var designerStatusCounts []DesignerStatusCount
+	models.DB.Model(&models.Employee{}).
+		Select("status, COUNT(*) as cnt").
+		Where("role = ? AND is_active = ?", "designer", true).
+		Group("status").
+		Find(&designerStatusCounts)
+	for _, dsc := range designerStatusCounts {
+		switch dsc.Status {
+		case "busy":
+			stats.ActiveDesigners = dsc.Cnt
+		case "idle":
+			stats.IdleDesigners = dsc.Cnt
+		}
+	}
 
 	// ── Phase 2: 本周/上周对比 ──
 	now := time.Now()
@@ -574,33 +766,32 @@ func GetDashboardStats() *DashboardStats {
 	thisWeekStart := todayStart.AddDate(0, 0, -(weekday - 1))
 	lastWeekStart := thisWeekStart.AddDate(0, 0, -7)
 
-	var thisWeekOrders []models.Order
-	models.DB.Where("created_at >= ? AND created_at < ?", thisWeekStart, now).Find(&thisWeekOrders)
-	stats.WeekOrderCount = len(thisWeekOrders)
-	for _, o := range thisWeekOrders {
-		stats.WeekRevenue += o.Price
-	}
+	var thisWeekStats CountSum
+	models.DB.Model(&models.Order{}).
+		Select("COUNT(*) as cnt, COALESCE(SUM(price), 0) as total").
+		Where("created_at >= ? AND created_at < ?", thisWeekStart, now).
+		Scan(&thisWeekStats)
+	stats.WeekOrderCount = thisWeekStats.Cnt
+	stats.WeekRevenue = thisWeekStats.Total
 
-	var lastWeekOrders []models.Order
-	models.DB.Where("created_at >= ? AND created_at < ?", lastWeekStart, thisWeekStart).Find(&lastWeekOrders)
-	stats.LastWeekOrderCount = len(lastWeekOrders)
-	for _, o := range lastWeekOrders {
-		stats.LastWeekRevenue += o.Price
-	}
+	var lastWeekStats CountSum
+	models.DB.Model(&models.Order{}).
+		Select("COUNT(*) as cnt, COALESCE(SUM(price), 0) as total").
+		Where("created_at >= ? AND created_at < ?", lastWeekStart, thisWeekStart).
+		Scan(&lastWeekStats)
+	stats.LastWeekOrderCount = lastWeekStats.Cnt
+	stats.LastWeekRevenue = lastWeekStats.Total
 
-	// ── 平均完成时长 ──
-	var completedOrders []models.Order
-	models.DB.Where("status = ? AND completed_at IS NOT NULL AND created_at IS NOT NULL", models.StatusCompleted).
-		Order("completed_at DESC").Limit(100).Find(&completedOrders)
-	if len(completedOrders) > 0 {
-		var totalHours float64
-		for _, o := range completedOrders {
-			if o.CompletedAt != nil {
-				totalHours += o.CompletedAt.Sub(o.CreatedAt).Hours()
-			}
-		}
-		stats.AvgCompletionHours = totalHours / float64(len(completedOrders))
+	// ── 平均完成时长 (SQL 聚合替代加载100条到内存) ──
+	type AvgCompletionResult struct {
+		AvgHours float64 `gorm:"column:avg_hours"`
 	}
+	var avgCompletion AvgCompletionResult
+	models.DB.Model(&models.Order{}).
+		Select("AVG((julianday(completed_at) - julianday(created_at)) * 24) as avg_hours").
+		Where("status = ? AND completed_at IS NOT NULL AND created_at IS NOT NULL", models.StatusCompleted).
+		Scan(&avgCompletion)
+	stats.AvgCompletionHours = avgCompletion.AvgHours
 
 	// ── 设计师绩效排名 (批量聚合，避免 N+1) ──
 	var designers []models.Employee
@@ -706,14 +897,15 @@ func GetDashboardStats() *DashboardStats {
 		models.StatusGroupCreated, grabThreshold, false,
 	).Count(&stats.GrabAlertCount)
 
-	// ── Phase 4: 昨日对比数据 (日环比) ──
+	// ── Phase 4: 昨日对比数据 (日环比, SQL 聚合替代全量加载) ──
 	yesterdayStart := todayStart.AddDate(0, 0, -1)
-	var yesterdayOrders []models.Order
-	models.DB.Where("created_at >= ? AND created_at < ?", yesterdayStart, todayStart).Find(&yesterdayOrders)
-	stats.YesterdayOrderCount = len(yesterdayOrders)
-	for _, o := range yesterdayOrders {
-		stats.YesterdayRevenue += o.Price
-	}
+	var yesterdayStats CountSum
+	models.DB.Model(&models.Order{}).
+		Select("COUNT(*) as cnt, COALESCE(SUM(price), 0) as total").
+		Where("created_at >= ? AND created_at < ?", yesterdayStart, todayStart).
+		Scan(&yesterdayStats)
+	stats.YesterdayOrderCount = yesterdayStats.Cnt
+	stats.YesterdayRevenue = yesterdayStats.Total
 
 	// 昨日异常抢单
 	yesterdayGrabThreshold := yesterdayStart.Add(-30 * time.Minute)
@@ -747,10 +939,8 @@ func GetDashboardStats() *DashboardStats {
 		}
 	}
 
-	// ── Phase 5: 售后统计 ──
-	models.DB.Model(&models.Order{}).Where("status = ?", models.StatusAfterSale).Count(&stats.AfterSaleCount)
-	models.DB.Model(&models.Order{}).Where("status = ?", models.StatusRevision).Count(&stats.RevisionCount)
-	models.DB.Model(&models.Order{}).Where("status = ?", models.StatusConfirmed).Count(&stats.ConfirmedCount)
+	// (售后统计 AfterSaleCount / RevisionCount / ConfirmedCount
+	//  已在函数开头的 GROUP BY status 单次查询中一并计算，无需重复查询)
 
 	// ── Phase 5: 今日/昨日收款金额 ──
 	type AmountResult struct {

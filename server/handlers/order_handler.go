@@ -1,8 +1,8 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
-	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,14 +21,15 @@ import (
 func UploadOCR(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请上传图片文件"})
+		badRequest(c, "请上传图片文件")
 		return
 	}
 
 	// 上传到 OSS 或本地磁盘 (取决于 OSS_PROVIDER 配置)
 	uploadResult, err := services.UploadFile(file, "ocr")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "文件上传失败: " + err.Error()})
+		log.Printf("文件上传失败: %v", err)
+		internalError(c, "文件上传失败，请稍后重试")
 		return
 	}
 
@@ -40,12 +41,13 @@ func UploadOCR(c *gin.Context) {
 
 	result, err := services.ExtractOrderFromImage(ocrInput)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "OCR 解析失败: " + err.Error()})
+		log.Printf("OCR 解析失败: %v", err)
+		internalError(c, "OCR 解析失败，请稍后重试")
 		return
 	}
 
 	// 将 OCR 结果和截图 URL 一起返回
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"order_sn":       result.OrderSN,
 		"price":          result.Price,
 		"raw_price":      result.RawPrice,
@@ -73,17 +75,17 @@ func CreateOrder(c *gin.Context) {
 	var req CreateOrderReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("CreateOrder 参数绑定失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
+		badRequest(c, "请求参数格式错误")
 		return
 	}
 
 	// 服务端价格校验
 	if req.Price <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "价格必须大于0"})
+		badRequest(c, "价格必须大于0")
 		return
 	}
 	if req.Price > 999999 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "价格超出合理范围（最大999999分）"})
+		badRequest(c, "价格超出合理范围（最大999999分）")
 		return
 	}
 
@@ -95,7 +97,7 @@ func CreateOrder(c *gin.Context) {
 		}
 	}
 	if operatorID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 operator_id"})
+		badRequest(c, "缺少 operator_id")
 		return
 	}
 
@@ -112,7 +114,7 @@ func CreateOrder(c *gin.Context) {
 		var count int64
 		models.DB.Model(&models.Order{}).Where("order_sn = ?", req.OrderSN).Count(&count)
 		if count > 0 {
-			c.JSON(http.StatusConflict, gin.H{"error": "订单号已存在"})
+			conflict(c, "订单号已存在")
 			return
 		}
 	}
@@ -122,7 +124,8 @@ func CreateOrder(c *gin.Context) {
 		req.Topic, req.Remark, req.ScreenshotURL, req.Price, req.Pages, deadline,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("创建订单失败: %v", err)
+		internalError(c, "创建订单失败，请稍后重试")
 		return
 	}
 
@@ -139,12 +142,12 @@ func CreateOrder(c *gin.Context) {
 		}
 		if len(ids) > 0 {
 			if err := services.Wecom.NotifyNewOrder(order.OrderSN, operatorID, req.Topic, req.Pages, req.Price, deadlineStr, ids); err != nil {
-				log.Printf("⚠️ 发送新订单企微通知失败: sn=%s err=%v", order.OrderSN, err)
+				log.Printf("发送新订单企微通知失败: sn=%s err=%v", order.OrderSN, err)
 			}
 		}
 	}()
 
-	c.JSON(http.StatusOK, order)
+	respondOK(c, order)
 }
 
 type GrabOrderReq struct {
@@ -157,7 +160,7 @@ func GrabOrder(c *gin.Context) {
 	var req GrabOrderReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("GrabOrder 参数绑定失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
+		badRequest(c, "请求参数格式错误")
 		return
 	}
 
@@ -165,17 +168,17 @@ func GrabOrder(c *gin.Context) {
 	callerID, _ := c.Get("wecom_userid")
 	callerStr, _ := callerID.(string)
 	if callerStr == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		unauthorized(c, "未授权")
 		return
 	}
 	if req.DesignerUserID != callerStr {
-		c.JSON(http.StatusForbidden, gin.H{"error": "只能为自己抢单"})
+		forbidden(c, "只能为自己抢单")
 		return
 	}
 
 	order, err := services.GrabOrder(req.OrderID, req.DesignerUserID)
 	if err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		conflict(c, err.Error())
 		return
 	}
 
@@ -196,7 +199,7 @@ func GrabOrder(c *gin.Context) {
 		}
 	}()
 
-	c.JSON(http.StatusOK, order)
+	respondOK(c, order)
 }
 
 // UpdateOrderStatus 更新订单状态 (包含鉴权逻辑)
@@ -204,7 +207,7 @@ func UpdateOrderStatus(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的订单ID"})
+		badRequest(c, "无效的订单ID")
 		return
 	}
 
@@ -214,7 +217,7 @@ func UpdateOrderStatus(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		log.Printf("UpdateOrderStatus 参数绑定失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
+		badRequest(c, "请求参数格式错误")
 		return
 	}
 
@@ -227,35 +230,35 @@ func UpdateOrderStatus(c *gin.Context) {
 	// 2. 角色基本权限校验
 	allowedRoles, ok := models.StatusChangePermission[body.Status]
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "未知的目标状态"})
+		badRequest(c, "未知的目标状态")
 		return
 	}
 
 	if !slices.Contains(allowedRoles, roleStr) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "当前角色无权流转到该状态"})
+		forbidden(c, "当前角色无权流转到该状态")
 		return
 	}
 
 	// 3. 属主权限校验 (对于设计师，只能操作自己的单子；客服也只能操作自己录的单子，除非是admin)
 	var order models.Order
 	if err := models.DB.First(&order, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
+		notFound(c, "订单不存在")
 		return
 	}
 
 	if roleStr == "designer" && order.DesignerID != uidStr {
-		c.JSON(http.StatusForbidden, gin.H{"error": "只能操作指派给自己的订单"})
+		forbidden(c, "只能操作指派给自己的订单")
 		return
 	}
 	if roleStr == "sales" && order.OperatorID != uidStr {
-		c.JSON(http.StatusForbidden, gin.H{"error": "只能操作自己录入的订单"})
+		forbidden(c, "只能操作自己录入的订单")
 		return
 	}
 
 	// 4. 执行状态流转
 	updatedOrder, err := services.UpdateOrderStatus(uint(id), body.Status)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 
@@ -284,7 +287,7 @@ func UpdateOrderStatus(c *gin.Context) {
 		}).Error
 	})
 
-	c.JSON(http.StatusOK, gin.H{"message": "状态更新成功", "order": updatedOrder})
+	respondOK(c, gin.H{"message": "状态更新成功", "order": updatedOrder})
 
 	// 7. WebSocket 广播订单状态变更
 	services.Hub.Broadcast(services.WSEvent{
@@ -294,6 +297,150 @@ func UpdateOrderStatus(c *gin.Context) {
 
 	// 8. 异步发送状态变更通知 (企微 + 站内)
 	SendOrderStatusNotification(updatedOrder, body.Status)
+}
+
+// ─── 批量状态更新 ──────────────────────────────────
+
+type BatchUpdateStatusReq struct {
+	OrderIDs []uint `json:"order_ids" binding:"required,min=1"`
+	Status   string `json:"status" binding:"required"`
+}
+
+type BatchUpdateResult struct {
+	OrderID uint   `json:"order_id"`
+	OrderSN string `json:"order_sn"`
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// BatchUpdateOrderStatus 批量更新订单状态
+func BatchUpdateOrderStatus(c *gin.Context) {
+	var req BatchUpdateStatusReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("BatchUpdateOrderStatus 参数绑定失败: %v", err)
+		badRequest(c, "请求参数格式错误")
+		return
+	}
+
+	// 限制单次批量操作数量，防止滥用
+	if len(req.OrderIDs) > 100 {
+		badRequest(c, "单次批量操作最多100条订单")
+		return
+	}
+
+	// 1. 获取当前操作人信息
+	userID, _ := c.Get("wecom_userid")
+	role, _ := c.Get("role")
+	roleStr, _ := role.(string)
+	uidStr, _ := userID.(string)
+
+	operatorName := ""
+	if name, exists := c.Get("name"); exists {
+		operatorName, _ = name.(string)
+	}
+
+	// 2. 角色基本权限校验
+	allowedRoles, ok := models.StatusChangePermission[req.Status]
+	if !ok {
+		badRequest(c, "未知的目标状态")
+		return
+	}
+
+	if !slices.Contains(allowedRoles, roleStr) {
+		forbidden(c, "当前角色无权流转到该状态")
+		return
+	}
+
+	// 3. 逐个处理订单，收集结果
+	results := make([]BatchUpdateResult, 0, len(req.OrderIDs))
+	successCount := 0
+
+	for _, orderID := range req.OrderIDs {
+		result := BatchUpdateResult{OrderID: orderID}
+
+		// 查询订单
+		var order models.Order
+		if err := models.DB.First(&order, orderID).Error; err != nil {
+			result.Error = "订单不存在"
+			results = append(results, result)
+			continue
+		}
+		result.OrderSN = order.OrderSN
+
+		// 属主权限校验
+		if roleStr == "designer" && order.DesignerID != uidStr {
+			result.Error = "只能操作指派给自己的订单"
+			results = append(results, result)
+			continue
+		}
+		if roleStr == "sales" && order.OperatorID != uidStr {
+			result.Error = "只能操作自己录入的订单"
+			results = append(results, result)
+			continue
+		}
+
+		// 状态流转合法性校验
+		allowed, exists := models.ValidTransitions[order.Status]
+		if !exists {
+			result.Error = fmt.Sprintf("当前状态 %s 不支持转换", order.Status)
+			results = append(results, result)
+			continue
+		}
+		valid := false
+		for _, s := range allowed {
+			if s == req.Status {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			result.Error = fmt.Sprintf("非法状态转换: %s -> %s", order.Status, req.Status)
+			results = append(results, result)
+			continue
+		}
+
+		// 在事务中执行状态更新 + 时间线记录
+		oldStatus := order.Status
+		updatedOrder, err := services.UpdateOrderStatus(orderID, req.Status)
+		if err != nil {
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
+
+		// 记录状态流转时间线
+		models.WriteTx(func(tx *gorm.DB) error {
+			return tx.Create(&models.OrderTimeline{
+				OrderID:      updatedOrder.ID,
+				EventType:    "status_changed",
+				FromStatus:   oldStatus,
+				ToStatus:     req.Status,
+				OperatorID:   uidStr,
+				OperatorName: operatorName,
+				Remark:       "批量操作",
+			}).Error
+		})
+
+		result.Success = true
+		results = append(results, result)
+		successCount++
+
+		// WebSocket 广播
+		services.Hub.Broadcast(services.WSEvent{
+			Type:    "order_updated",
+			Payload: updatedOrder,
+		})
+
+		// 异步发送状态变更通知
+		SendOrderStatusNotification(updatedOrder, req.Status)
+	}
+
+	respondOK(c, gin.H{
+		"message":       fmt.Sprintf("批量操作完成: %d/%d 成功", successCount, len(req.OrderIDs)),
+		"success_count": successCount,
+		"fail_count":    len(req.OrderIDs) - successCount,
+		"results":       results,
+	})
 }
 
 // ListOrders 订单列表 (支持多条件筛选)
@@ -322,7 +469,7 @@ func ListOrders(c *gin.Context) {
 
 	query, ok := filterByRole(query, roleStr, uidStr)
 	if !ok {
-		c.JSON(http.StatusForbidden, gin.H{"error": "未知角色，无权访问"})
+		forbidden(c, "未知角色，无权访问")
 		return
 	}
 
@@ -356,7 +503,7 @@ func ListOrders(c *gin.Context) {
 	var orders []models.Order
 	query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&orders)
 
-	c.JSON(http.StatusOK, gin.H{"data": orders, "total": total})
+	respondOK(c, gin.H{"data": orders, "total": total})
 }
 
 // GetOrder 获取单个订单详情 (含角色权限校验)
@@ -364,7 +511,7 @@ func GetOrder(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的订单ID"})
+		badRequest(c, "无效的订单ID")
 		return
 	}
 
@@ -377,17 +524,17 @@ func GetOrder(c *gin.Context) {
 	query := models.DB.Model(&models.Order{}).Where("id = ?", uint(id))
 	query, ok := filterByRole(query, roleStr, uidStr)
 	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
+		notFound(c, "订单不存在")
 		return
 	}
 
 	var order models.Order
 	if err := query.First(&order).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
+		notFound(c, "订单不存在")
 		return
 	}
 
-	c.JSON(http.StatusOK, order)
+	respondOK(c, order)
 }
 
 // ─── 金额/页数修改 ──────────────────────────────────
@@ -403,38 +550,38 @@ func UpdateOrderAmount(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的订单ID"})
+		badRequest(c, "无效的订单ID")
 		return
 	}
 
 	var req UpdateOrderAmountReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("UpdateOrderAmount 参数绑定失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
+		badRequest(c, "请求参数格式错误")
 		return
 	}
 
 	// 至少修改一项
 	if req.Price == nil && req.Pages == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请至少提供新金额或新页数"})
+		badRequest(c, "请至少提供新金额或新页数")
 		return
 	}
 
 	// 校验金额范围
 	if req.Price != nil {
 		if *req.Price <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "价格必须大于0"})
+			badRequest(c, "价格必须大于0")
 			return
 		}
 		if *req.Price > 999999 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "价格超出合理范围（最大999999分）"})
+			badRequest(c, "价格超出合理范围（最大999999分）")
 			return
 		}
 	}
 
 	// 校验页数范围
 	if req.Pages != nil && *req.Pages < 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "页数不能为负数"})
+		badRequest(c, "页数不能为负数")
 		return
 	}
 
@@ -446,26 +593,26 @@ func UpdateOrderAmount(c *gin.Context) {
 
 	// 权限校验: 仅 designer 和 admin 可修改
 	if roleStr != "admin" && roleStr != "designer" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "当前角色无权修改订单金额"})
+		forbidden(c, "当前角色无权修改订单金额")
 		return
 	}
 
 	// 查询订单
 	var order models.Order
 	if err := models.DB.First(&order, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
+		notFound(c, "订单不存在")
 		return
 	}
 
 	// designer 只能修改自己的订单
 	if roleStr == "designer" && order.DesignerID != uidStr {
-		c.JSON(http.StatusForbidden, gin.H{"error": "只能修改指派给自己的订单"})
+		forbidden(c, "只能修改指派给自己的订单")
 		return
 	}
 
 	// 终态订单不允许修改
 	if order.Status == models.StatusRefunded || order.Status == models.StatusClosed || order.Status == models.StatusCompleted {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "终态订单不允许修改金额/页数"})
+		badRequest(c, "终态订单不允许修改金额/页数")
 		return
 	}
 
@@ -534,7 +681,7 @@ func UpdateOrderAmount(c *gin.Context) {
 
 	if err != nil {
 		log.Printf("UpdateOrderAmount 事务失败: order_id=%d err=%v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新失败: " + err.Error()})
+		internalError(c, "更新失败，请稍后重试")
 		return
 	}
 
@@ -546,12 +693,65 @@ func UpdateOrderAmount(c *gin.Context) {
 		services.TriggerProfitRecalculation(order.ID)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "订单金额/页数已更新", "order": order})
+	respondOK(c, gin.H{"message": "订单金额/页数已更新", "order": order})
 
 	// WebSocket 广播订单变更
 	services.Hub.Broadcast(services.WSEvent{
 		Type:    "order_updated",
 		Payload: order,
+	})
+}
+
+// ─── 转派 ──────────────────────────────────────
+
+type ReassignOrderReq struct {
+	DesignerUserID string `json:"designer_userid" binding:"required"`
+}
+
+// ReassignOrder 管理员转派订单给另一个设计师
+// PUT /api/v1/orders/:id/reassign
+func ReassignOrder(c *gin.Context) {
+	// 1. 权限校验: 仅 admin
+	role, _ := c.Get("role")
+	roleStr, _ := role.(string)
+	if roleStr != "admin" {
+		forbidden(c, "仅管理员可执行转派操作")
+		return
+	}
+
+	// 2. 解析订单 ID
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		badRequest(c, "无效的订单ID")
+		return
+	}
+
+	// 3. 解析请求体
+	var req ReassignOrderReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ReassignOrder 参数绑定失败: %v", err)
+		badRequest(c, "请提供目标设计师ID (designer_userid)")
+		return
+	}
+
+	// 4. 获取操作人
+	userID, _ := c.Get("wecom_userid")
+	uidStr, _ := userID.(string)
+
+	// 5. 调用 service
+	updatedOrder, err := services.ReassignOrder(uint(id), req.DesignerUserID, uidStr)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+
+	respondOK(c, gin.H{"message": "订单已成功转派", "order": updatedOrder})
+
+	// 6. WebSocket 广播
+	services.Hub.Broadcast(services.WSEvent{
+		Type:    "order_updated",
+		Payload: updatedOrder,
 	})
 }
 
@@ -562,7 +762,7 @@ func ListPendingMatchOrders(c *gin.Context) {
 	role, _ := c.Get("role")
 	roleStr, _ := role.(string)
 	if roleStr != "admin" && roleStr != "follow" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "无权访问"})
+		forbidden(c, "无权访问")
 		return
 	}
 
@@ -603,7 +803,7 @@ func ListPendingMatchOrders(c *gin.Context) {
 		result = append(result, item)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result, "total": len(result)})
+	respondList(c, result, len(result))
 }
 
 // MatchOrderContact 将待匹配订单关联到外部联系人
@@ -611,14 +811,14 @@ func MatchOrderContact(c *gin.Context) {
 	role, _ := c.Get("role")
 	roleStr, _ := role.(string)
 	if roleStr != "admin" && roleStr != "follow" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "无权操作"})
+		forbidden(c, "无权操作")
 		return
 	}
 
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的订单ID"})
+		badRequest(c, "无效的订单ID")
 		return
 	}
 
@@ -627,17 +827,17 @@ func MatchOrderContact(c *gin.Context) {
 		Nickname       string `json:"nickname"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请提供 external_user_id"})
+		badRequest(c, "请提供 external_user_id")
 		return
 	}
 
 	var order models.Order
 	if err := models.DB.First(&order, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
+		notFound(c, "订单不存在")
 		return
 	}
 	if order.Status != models.StatusPending {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "只能匹配 PENDING 状态的订单"})
+		badRequest(c, "只能匹配 PENDING 状态的订单")
 		return
 	}
 
@@ -703,13 +903,13 @@ func MatchOrderContact(c *gin.Context) {
 
 	if err != nil {
 		log.Printf("MatchOrderContact 事务失败: order_id=%d err=%v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "匹配失败: " + err.Error()})
+		internalError(c, "匹配失败，请稍后重试")
 		return
 	}
 
 	// 重新查询最新订单数据并广播
 	models.DB.First(&order, uint(id))
-	c.JSON(http.StatusOK, gin.H{"message": "订单已成功关联外部联系人", "order": order})
+	respondOK(c, gin.H{"message": "订单已成功关联外部联系人", "order": order})
 
 	services.Hub.Broadcast(services.WSEvent{
 		Type:    "order_updated",

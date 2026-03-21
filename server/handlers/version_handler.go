@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"log"
-	"net/http"
 
 	"pdd-order-system/models"
 
@@ -16,7 +15,7 @@ func CheckAppVersion(c *gin.Context) {
 	result := models.DB.Where("is_active = ?", true).Order("created_at DESC").First(&latest)
 	if result.Error != nil {
 		// 还没有发布过任何版本 — 返回空版本，客户端不会触发更新
-		c.JSON(http.StatusOK, gin.H{
+		respondOK(c, gin.H{
 			"version":       "",
 			"force_update":  false,
 			"download_url":  "",
@@ -24,7 +23,7 @@ func CheckAppVersion(c *gin.Context) {
 		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"version":       latest.VersionCode,
 		"force_update":  latest.ForceUpdate,
 		"download_url":  latest.DownloadURL,
@@ -37,18 +36,19 @@ func CreateAppVersion(c *gin.Context) {
 	var req models.AppVersion
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("CreateAppVersion 参数绑定失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
+		badRequest(c, "请求参数格式错误")
 		return
 	}
 	if req.VersionCode == "" || req.DownloadURL == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "版本号和下载链接不能为空"})
+		badRequest(c, "版本号和下载链接不能为空")
 		return
 	}
 	if err := models.WriteTx(func(tx *gorm.DB) error {
 		return tx.Create(&req).Error
 	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "版本发布失败"})
+		log.Printf("版本发布失败: %v", err)
+		internalError(c, "版本发布失败，请稍后重试")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": req, "message": "版本发布成功"})
+	respondOK(c, gin.H{"data": req, "message": "版本发布成功"})
 }

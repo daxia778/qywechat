@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"net/http"
 	"strconv"
-	"time"
 
+	"pdd-order-system/middleware"
 	"pdd-order-system/models"
 	"pdd-order-system/services"
 
@@ -22,7 +21,7 @@ import (
 // GetDashboard 仪表盘综合数据
 func GetDashboard(c *gin.Context) {
 	stats := services.GetDashboardStats()
-	c.JSON(http.StatusOK, stats)
+	respondOK(c, stats)
 }
 
 // GetRevenueChart 最近 N 天营收折线
@@ -33,58 +32,8 @@ func GetRevenueChart(c *gin.Context) {
 		days = 7
 	}
 
-	type DayData struct {
-		Date       string `json:"date"`
-		Revenue    int    `json:"revenue"`
-		OrderCount int    `json:"order_count"`
-	}
-
-	// 单次聚合查询替代 N+1 循环
-	startDate := time.Now().AddDate(0, 0, -(days - 1)).Truncate(24 * time.Hour)
-
-	type AggRow struct {
-		Day        string `gorm:"column:day"`
-		Revenue    int    `gorm:"column:revenue"`
-		OrderCount int    `gorm:"column:order_count"`
-	}
-	var rows []AggRow
-	models.DB.Model(&models.Order{}).
-		Select("strftime('%Y-%m-%d', created_at) as day, COALESCE(SUM(price), 0) as revenue, COUNT(*) as order_count").
-		Where("created_at >= ?", startDate).
-		Group("day").
-		Order("day ASC").
-		Find(&rows)
-
-	// 构建日期到聚合结果的映射
-	dayMap := make(map[string]AggRow, len(rows))
-	for _, r := range rows {
-		dayMap[r.Day] = r
-	}
-
-	// 填充完整日期范围（含无数据的日期）
-	result := make([]DayData, 0, days)
-	totalRevenue := 0
-	totalOrders := 0
-	for i := days - 1; i >= 0; i-- {
-		d := time.Now().AddDate(0, 0, -i).Truncate(24 * time.Hour)
-		dateStr := d.Format("2006-01-02")
-		dd := DayData{Date: dateStr}
-		if agg, ok := dayMap[dateStr]; ok {
-			dd.Revenue = agg.Revenue
-			dd.OrderCount = agg.OrderCount
-		}
-		result = append(result, dd)
-		totalRevenue += dd.Revenue
-		totalOrders += dd.OrderCount
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"summary": gin.H{
-			"total_revenue": totalRevenue,
-			"total_orders":  totalOrders,
-		},
-		"data": result,
-	})
+	result := services.GetRevenueChart(days)
+	respondOK(c, result)
 }
 
 // ─── 员工管理 ──────────────────────────────────────────
@@ -121,7 +70,7 @@ func ListEmployees(c *gin.Context) {
 		query = query.Where("role = ?", role)
 	}
 	query.Find(&employees)
-	c.JSON(http.StatusOK, gin.H{"data": employees})
+	respondOK(c, gin.H{"data": employees})
 }
 
 // CreateEmployee 添加员工 (V2: 自动生成账号密码)
@@ -129,13 +78,13 @@ func CreateEmployee(c *gin.Context) {
 	var req CreateEmployeeReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("CreateEmployee 参数绑定失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
+		badRequest(c, "请求参数格式错误")
 		return
 	}
 
 	// 校验角色
 	if !models.IsValidRole(req.Role) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "角色必须是 sales/designer/follow/admin"})
+		badRequest(c, "角色必须是 sales/designer/follow/admin")
 		return
 	}
 
@@ -165,7 +114,8 @@ func CreateEmployee(c *gin.Context) {
 	plainPassword := generateRandomPassword()
 	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码加密失败"})
+		log.Printf("密码加密失败: %v", err)
+		internalError(c, "密码加密失败")
 		return
 	}
 
@@ -180,7 +130,8 @@ func CreateEmployee(c *gin.Context) {
 	if err := models.WriteTx(func(tx *gorm.DB) error {
 		return tx.Create(&emp).Error
 	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建员工失败: " + err.Error()})
+		log.Printf("创建员工失败: %v", err)
+		internalError(c, "创建员工失败，请稍后重试")
 		return
 	}
 
@@ -188,13 +139,13 @@ func CreateEmployee(c *gin.Context) {
 	userName, _ := c.Get("name")
 	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "添加员工: "+req.Name+" 角色: "+req.Role, c.ClientIP())
 
-	log.Printf("✅ 创建员工 | %s | 用户名=%s | 角色=%s", req.Name, username, req.Role)
+	log.Printf("创建员工 | %s | 用户名=%s | 角色=%s", req.Name, username, req.Role)
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"employee": emp,
 		"username": username,
 		"password": plainPassword,
-		"notice":   "⚠️ 账号密码仅显示一次，请立即记录并告知员工！",
+		"notice":   "账号密码仅显示一次，请立即记录并告知员工！",
 	})
 }
 
@@ -204,20 +155,21 @@ func ResetPassword(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的员工ID"})
+		badRequest(c, "无效的员工ID")
 		return
 	}
 
 	var emp models.Employee
 	if err := models.DB.First(&emp, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "员工不存在"})
+		notFound(c, "员工不存在")
 		return
 	}
 
 	plainPassword := generateRandomPassword()
 	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码加密失败"})
+		log.Printf("密码加密失败: %v", err)
+		internalError(c, "密码加密失败")
 		return
 	}
 
@@ -225,15 +177,18 @@ func ResetPassword(c *gin.Context) {
 		return tx.Model(&emp).Update("password_hash", string(hashedPwd)).Error
 	})
 
+	// 密码重置后，使该用户所有已签发的 token 失效
+	middleware.RevokeAllUserTokens(emp.WecomUserID)
+
 	userID, _ := c.Get("wecom_userid")
 	userName, _ := c.Get("name")
 	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "重置密码: "+emp.Name, c.ClientIP())
 
-	log.Printf("🔑 密码已重置 | 员工=%s", emp.Name)
+	log.Printf("密码已重置 | 员工=%s | 旧Token已全部失效", emp.Name)
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"password": plainPassword,
-		"notice":   "⚠️ 新密码仅显示一次，请立即告知员工！",
+		"notice":   "新密码仅显示一次，请立即告知员工！",
 	})
 }
 
@@ -242,13 +197,13 @@ func toggleEmployeeActive(c *gin.Context, auditOnDisable bool) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的员工ID"})
+		badRequest(c, "无效的员工ID")
 		return
 	}
 
 	var emp models.Employee
 	if err := models.DB.First(&emp, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "员工不存在"})
+		notFound(c, "员工不存在")
 		return
 	}
 
@@ -260,12 +215,14 @@ func toggleEmployeeActive(c *gin.Context, auditOnDisable bool) {
 	status := "启用"
 	if !emp.IsActive {
 		status = "禁用"
+		// 禁用时，使该用户所有已签发的 token 失效
+		middleware.RevokeAllUserTokens(emp.WecomUserID)
 		if auditOnDisable {
 			models.WriteAuditLog("", "", models.AuditSecurityAlert, emp.WecomUserID, "管理员远程暂停设备激活码登录: "+emp.Name, c.ClientIP())
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%s成功", status), "is_active": emp.IsActive})
+	respondOK(c, gin.H{"message": fmt.Sprintf("%s成功", status), "is_active": emp.IsActive})
 }
 
 // ToggleEmployee 启用/禁用员工
@@ -278,18 +235,18 @@ func UnbindDevice(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的员工ID"})
+		badRequest(c, "无效的员工ID")
 		return
 	}
 
 	var emp models.Employee
 	if err := models.DB.First(&emp, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "员工不存在"})
+		notFound(c, "员工不存在")
 		return
 	}
 
 	if emp.MachineID == "" {
-		c.JSON(http.StatusOK, gin.H{"message": "该员工未绑定任何设备"})
+		respondMessage(c, "该员工未绑定任何设备")
 		return
 	}
 
@@ -297,86 +254,14 @@ func UnbindDevice(c *gin.Context) {
 	models.WriteTx(func(tx *gorm.DB) error {
 		return tx.Model(&emp).Update("machine_id", "").Error
 	})
-	log.Printf("🔓 设备解绑 | 员工=%s | 旧MachineID=%s", emp.Name, oldMID)
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("已解绑 %s 的设备", emp.Name)})
+	log.Printf("设备解绑 | 员工=%s | 旧MachineID=%s", emp.Name, oldMID)
+	respondMessage(c, fmt.Sprintf("已解绑 %s 的设备", emp.Name))
 }
 
 // GetTeamWorkload 设计师工作负载
 func GetTeamWorkload(c *gin.Context) {
-	var employees []models.Employee
-	models.DB.Where("is_active = ?", true).Find(&employees)
-
-	type WorkloadItem struct {
-		Name             string  `json:"name"`
-		WecomUserID      string  `json:"wecom_userid"`
-		Role             string  `json:"role"`
-		Status           string  `json:"status"`
-		ActiveOrders     int64   `json:"active_orders"`
-		GrabTimeoutRate  float64 `json:"grab_timeout_rate"`
-	}
-
-	// 批量查询设计师活跃订单数
-	type CountRow struct {
-		UserID string `gorm:"column:user_id"`
-		Count  int64  `gorm:"column:cnt"`
-	}
-	var designerCounts []CountRow
-	models.DB.Model(&models.Order{}).
-		Select("designer_id as user_id, COUNT(*) as cnt").
-		Where("status IN ?", []string{models.StatusGroupCreated, models.StatusDesigning}).
-		Group("designer_id").
-		Find(&designerCounts)
-
-	// 批量查询客服/管理员活跃订单数
-	var operatorCounts []CountRow
-	models.DB.Model(&models.Order{}).
-		Select("operator_id as user_id, COUNT(*) as cnt").
-		Where("status IN ?", []string{models.StatusPending, models.StatusGroupCreated, models.StatusDesigning, models.StatusDelivered}).
-		Group("operator_id").
-		Find(&operatorCounts)
-
-	// 构建映射
-	designerMap := make(map[string]int64, len(designerCounts))
-	for _, r := range designerCounts {
-		designerMap[r.UserID] = r.Count
-	}
-	operatorMap := make(map[string]int64, len(operatorCounts))
-	for _, r := range operatorCounts {
-		operatorMap[r.UserID] = r.Count
-	}
-
-	// 批量查询设计师抢单超时率
-	grabStats, _ := services.GetDesignerGrabStats()
-	timeoutRateMap := make(map[string]float64, len(grabStats))
-	for _, s := range grabStats {
-		if uid, ok := s["designer_id"].(string); ok {
-			if rate, ok := s["timeout_rate"].(float64); ok {
-				timeoutRateMap[uid] = rate
-			}
-		}
-	}
-
-	result := make([]WorkloadItem, 0, len(employees))
-	for _, d := range employees {
-		var count int64
-		switch d.Role {
-		case "designer":
-			count = designerMap[d.WecomUserID]
-		case "sales", "admin":
-			count = operatorMap[d.WecomUserID]
-		}
-
-		result = append(result, WorkloadItem{
-			Name:            d.Name,
-			WecomUserID:     d.WecomUserID,
-			Role:            d.Role,
-			Status:          d.Status,
-			ActiveOrders:    count,
-			GrabTimeoutRate: timeoutRateMap[d.WecomUserID],
-		})
-	}
-
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	result := services.GetTeamWorkload()
+	respondOK(c, gin.H{"data": result})
 }
 
 // ─── 抢单监控 ──────────────────────────────────────────
@@ -385,10 +270,11 @@ func GetTeamWorkload(c *gin.Context) {
 func GetGrabAlerts(c *gin.Context) {
 	alerts, err := services.GetGrabAlerts()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("获取抢单超时列表失败: %v", err)
+		internalError(c, "获取抢单超时列表失败，请稍后重试")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": alerts, "total": len(alerts)})
+	respondList(c, alerts, len(alerts))
 }
 
 // ─── 激活码管理 ──────────────────────────────────────────
@@ -406,7 +292,7 @@ func ListActivationCodes(c *gin.Context) {
 		query = query.Where("machine_id = ''")
 	}
 	query.Order("created_at DESC").Find(&employees)
-	c.JSON(http.StatusOK, gin.H{"data": employees, "total": len(employees)})
+	respondList(c, employees, len(employees))
 }
 
 // PauseActivationCode 远程暂停或恢复激活码 (复用 toggleEmployeeActive)
@@ -419,18 +305,18 @@ func RegenerateActivationCode(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的员工ID"})
+		badRequest(c, "无效的员工ID")
 		return
 	}
 
 	var emp models.Employee
 	if err := models.DB.First(&emp, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "员工不存在"})
+		notFound(c, "员工不存在")
 		return
 	}
 
 	if emp.Role == "admin" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "管理员角色不使用激活码"})
+		badRequest(c, "管理员角色不使用激活码")
 		return
 	}
 
@@ -440,7 +326,8 @@ func RegenerateActivationCode(c *gin.Context) {
 	for i := range codeBytes {
 		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "生成激活码失败"})
+			log.Printf("生成激活码随机数失败: %v", err)
+			internalError(c, "生成激活码失败")
 			return
 		}
 		codeBytes[i] = chars[n.Int64()]
@@ -449,7 +336,8 @@ func RegenerateActivationCode(c *gin.Context) {
 
 	hashedCode, err := bcrypt.GenerateFromPassword([]byte(plainCode), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "加密激活码失败"})
+		log.Printf("加密激活码失败: %v", err)
+		internalError(c, "加密激活码失败")
 		return
 	}
 
@@ -465,7 +353,8 @@ func RegenerateActivationCode(c *gin.Context) {
 	if err := models.WriteTx(func(tx *gorm.DB) error {
 		return tx.Model(&emp).Updates(updates).Error
 	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新激活码失败: " + err.Error()})
+		log.Printf("更新激活码失败: %v", err)
+		internalError(c, "更新激活码失败，请稍后重试")
 		return
 	}
 
@@ -473,11 +362,11 @@ func RegenerateActivationCode(c *gin.Context) {
 	userName, _ := c.Get("name")
 	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "重新生成激活码并解绑旧设备: "+emp.Name, c.ClientIP())
 
-	log.Printf("🔑 激活码已重新生成 | 员工=%s | 旧设备已解绑", emp.Name)
+	log.Printf("激活码已重新生成 | 员工=%s | 旧设备已解绑", emp.Name)
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"activation_code_plain": plainCode,
-		"notice":                "⚠️ 新激活码仅显示一次，旧设备绑定已同时解除！",
+		"notice":                "新激活码仅显示一次，旧设备绑定已同时解除！",
 	})
 }
 
@@ -494,7 +383,7 @@ func ListWecomMembers(c *gin.Context) {
 	}
 	var members []models.WecomMember
 	query.Order("name ASC").Find(&members)
-	c.JSON(http.StatusOK, gin.H{"data": members, "total": len(members)})
+	respondList(c, members, len(members))
 }
 
 // ListWecomGroups GET /api/v1/admin/wecom/groups
@@ -502,7 +391,7 @@ func ListWecomMembers(c *gin.Context) {
 func ListWecomGroups(c *gin.Context) {
 	var groups []models.WecomGroupChat
 	models.DB.Order("synced_at DESC").Find(&groups)
-	c.JSON(http.StatusOK, gin.H{"data": groups, "total": len(groups)})
+	respondList(c, groups, len(groups))
 }
 
 // GetWecomGroupMessages GET /api/v1/admin/wecom/groups/:chat_id/messages
@@ -511,7 +400,7 @@ func GetWecomGroupMessages(c *gin.Context) {
 	chatID := c.Param("chat_id")
 	var messages []models.WecomMessageLog
 	models.DB.Where("chat_id = ?", chatID).Order("created_at ASC").Find(&messages)
-	c.JSON(http.StatusOK, gin.H{"data": messages, "total": len(messages)})
+	respondList(c, messages, len(messages))
 }
 
 // ─── 审计日志 ──────────────────────────────────────────
@@ -549,7 +438,7 @@ func ListAuditLogs(c *gin.Context) {
 	}
 	countQuery.Count(&total)
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"data":  logs,
 		"total": total,
 	})
@@ -560,32 +449,33 @@ func DeleteEmployee(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的员工ID"})
+		badRequest(c, "无效的员工ID")
 		return
 	}
 
 	var emp models.Employee
 	if err := models.DB.First(&emp, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "员工不存在"})
+		notFound(c, "员工不存在")
 		return
 	}
 	if emp.Role == "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "不能删除管理员账号"})
+		forbidden(c, "不能删除管理员账号")
 		return
 	}
 
 	if err := models.WriteTx(func(tx *gorm.DB) error {
 		return tx.Delete(&emp).Error
 	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除失败: " + err.Error()})
+		log.Printf("删除员工失败: %v", err)
+		internalError(c, "删除失败，请稍后重试")
 		return
 	}
 
 	userID, _ := c.Get("wecom_userid")
 	userName, _ := c.Get("name")
 	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "删除员工: "+emp.Name, c.ClientIP())
-	log.Printf("🗑️ 员工已删除 | 员工=%s", emp.Name)
-	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
+	log.Printf("员工已删除 | 员工=%s", emp.Name)
+	respondMessage(c, "删除成功")
 }
 
 // BatchToggleEmployees PUT /admin/employees/batch_toggle
@@ -595,14 +485,15 @@ func BatchToggleEmployees(c *gin.Context) {
 		Active bool   `json:"active"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil || len(body.IDs) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		badRequest(c, "参数错误")
 		return
 	}
 
 	if err := models.WriteTx(func(tx *gorm.DB) error {
 		return tx.Model(&models.Employee{}).Where("id IN ? AND role != ?", body.IDs, "admin").Update("is_active", body.Active).Error
 	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "批量操作失败: " + err.Error()})
+		log.Printf("批量操作员工状态失败: %v", err)
+		internalError(c, "批量操作失败，请稍后重试")
 		return
 	}
 
@@ -610,7 +501,7 @@ func BatchToggleEmployees(c *gin.Context) {
 	if !body.Active {
 		status = "禁用"
 	}
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("已批量%s %d 名员工", status, len(body.IDs))})
+	respondMessage(c, fmt.Sprintf("已批量%s %d 名员工", status, len(body.IDs)))
 }
 
 // BatchDeleteEmployees POST /admin/employees/batch_delete
@@ -619,16 +510,17 @@ func BatchDeleteEmployees(c *gin.Context) {
 		IDs []uint `json:"ids"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil || len(body.IDs) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		badRequest(c, "参数错误")
 		return
 	}
 
 	if err := models.WriteTx(func(tx *gorm.DB) error {
 		return tx.Where("id IN ? AND role != ?", body.IDs, "admin").Delete(&models.Employee{}).Error
 	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "批量删除失败: " + err.Error()})
+		log.Printf("批量删除员工失败: %v", err)
+		internalError(c, "批量删除失败，请稍后重试")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("已批量删除 %d 名员工", len(body.IDs))})
+	respondMessage(c, fmt.Sprintf("已批量删除 %d 名员工", len(body.IDs)))
 }

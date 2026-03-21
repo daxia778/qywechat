@@ -3,7 +3,6 @@ package handlers
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"strconv"
 	"time"
 
@@ -37,7 +36,7 @@ func ExportExcel(c *gin.Context) {
 	f, err := services.ExportOrderReport(startDate, endDate, employeeID)
 	if err != nil {
 		log.Printf("Excel 导出失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "导出失败: " + err.Error()})
+		internalError(c, "导出失败，请稍后重试")
 		return
 	}
 	defer f.Close()

@@ -40,3 +40,11 @@ release/
 *.db
 *.db-wal
 *.db-shm
+
+# Staff Web
+staff-web/node_modules/
+staff-web/dist/
+
+# Logs
+server/server.log
+*.log

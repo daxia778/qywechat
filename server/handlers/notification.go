@@ -3,7 +3,6 @@ package handlers
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"strconv"
 
 	"pdd-order-system/models"
@@ -48,7 +47,7 @@ func ListNotifications(c *gin.Context) {
 	var unreadCount int64
 	models.DB.Model(&models.Notification{}).Where("user_id = ? AND is_read = ?", userID, false).Count(&unreadCount)
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"data":         notifications,
 		"total":        total,
 		"unread_count": unreadCount,
@@ -70,13 +69,13 @@ func MarkNotificationRead(c *gin.Context) {
 		models.WriteTx(func(tx *gorm.DB) error {
 			return tx.Model(&models.Notification{}).Where("user_id = ? AND is_read = ?", userID, false).Update("is_read", true).Error
 		})
-		c.JSON(http.StatusOK, gin.H{"message": "全部已读"})
+		respondMessage(c, "全部已读")
 		return
 	}
 
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的通知ID"})
+		badRequest(c, "无效的通知ID")
 		return
 	}
 
@@ -95,10 +94,10 @@ func MarkNotificationRead(c *gin.Context) {
 		return r.Error
 	})
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "通知不存在或无权操作"})
+		notFound(c, "通知不存在或无权操作")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "已标记已读"})
+	respondMessage(c, "已标记已读")
 }
 
 // SendOrderStatusNotification 订单状态变更后发送通知
@@ -134,7 +133,7 @@ func SendOrderStatusNotification(order *models.Order, newStatus string) {
 				}).Error
 			})
 			if err := services.Wecom.SendTextMessage([]string{order.DesignerID}, content); err != nil {
-				log.Printf("⚠️ 发送企微通知失败 (设计师 %s): %v", order.DesignerID, err)
+				log.Printf("发送企微通知失败 (设计师 %s): %v", order.DesignerID, err)
 			}
 		}
 
@@ -150,7 +149,7 @@ func SendOrderStatusNotification(order *models.Order, newStatus string) {
 				}).Error
 			})
 			if err := services.Wecom.SendTextMessage([]string{order.OperatorID}, content); err != nil {
-				log.Printf("⚠️ 发送企微通知失败 (客服 %s): %v", order.OperatorID, err)
+				log.Printf("发送企微通知失败 (客服 %s): %v", order.OperatorID, err)
 			}
 		}
 

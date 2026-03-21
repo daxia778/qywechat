@@ -51,6 +51,7 @@ func setupTestDB(t *testing.T) {
 		&models.Notification{},
 		&models.PaymentRecord{},
 		&models.Customer{},
+		&models.AuditLog{},
 	); err != nil {
 		t.Fatalf("AutoMigrate failed: %v", err)
 	}

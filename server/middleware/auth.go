@@ -1,11 +1,14 @@
 package middleware
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"pdd-order-system/config"
@@ -13,6 +16,79 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
+
+// ─── Token 黑名单 ──────────────────────────────────────────
+
+// revokedEntry 存储被注销的 jti 及其原始过期时间
+type revokedEntry struct {
+	ExpAt time.Time // token 原始过期时间，过期后可从黑名单中清除
+}
+
+// tokenBlacklist 存储被注销的 jti -> revokedEntry
+var tokenBlacklist sync.Map
+
+// userMinIssuedAt 存储 userID -> 最小有效签发时间
+// 签发时间早于此值的 token 一律视为无效（用于密码重置/禁用账号时批量失效）
+var userMinIssuedAt sync.Map
+
+// RevokeToken 将单个 token 的 jti 加入黑名单
+func RevokeToken(jti string, expAt time.Time) {
+	tokenBlacklist.Store(jti, revokedEntry{ExpAt: expAt})
+}
+
+// RevokeAllUserTokens 使某用户在此刻之前签发的所有 token 失效
+// 用于密码重置、账号禁用等场景
+func RevokeAllUserTokens(userID string) {
+	userMinIssuedAt.Store(userID, time.Now())
+}
+
+// isTokenRevoked 检查 jti 是否在黑名单中
+func isTokenRevoked(jti string) bool {
+	_, ok := tokenBlacklist.Load(jti)
+	return ok
+}
+
+// isIssuedBeforeMinValid 检查 token 签发时间是否早于用户的最小有效签发时间
+func isIssuedBeforeMinValid(userID string, iat time.Time) bool {
+	val, ok := userMinIssuedAt.Load(userID)
+	if !ok {
+		return false
+	}
+	minTime := val.(time.Time)
+	return iat.Before(minTime)
+}
+
+// StartTokenCleanup 启动后台协程，定期清理过期的黑名单条目，防止内存泄漏
+func StartTokenCleanup(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("Token 黑名单清理协程已停止")
+				return
+			case <-ticker.C:
+				now := time.Now()
+				cleaned := 0
+				tokenBlacklist.Range(func(key, value any) bool {
+					entry := value.(revokedEntry)
+					if now.After(entry.ExpAt) {
+						tokenBlacklist.Delete(key)
+						cleaned++
+					}
+					return true
+				})
+				if cleaned > 0 {
+					log.Printf("Token 黑名单清理: 移除 %d 个过期条目", cleaned)
+				}
+			}
+		}
+	}()
+	log.Println("Token 黑名单清理协程已启动 (每10分钟)")
+}
+
+// ─── JWT 中间件 ──────────────────────────────────────────
 
 // JWTAuth JWT 认证中间件
 func JWTAuth() gin.HandlerFunc {
@@ -46,12 +122,34 @@ func JWTAuth() gin.HandlerFunc {
 			return
 		}
 
+		// 检查 jti 是否在黑名单中
+		jti, _ := claims["jti"].(string)
+		if jti != "" && isTokenRevoked(jti) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Token 已注销"})
+			c.Abort()
+			return
+		}
+
+		// 检查 iat 是否早于该用户的最小有效签发时间
+		sub, _ := claims["sub"].(string)
+		if iatFloat, ok := claims["iat"].(float64); ok && sub != "" {
+			iat := time.Unix(int64(iatFloat), 0)
+			if isIssuedBeforeMinValid(sub, iat) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Token 已失效，请重新登录"})
+				c.Abort()
+				return
+			}
+		}
+
 		c.Set("wecom_userid", claims["sub"])
 		c.Set("name", claims["name"])
 		c.Set("role", claims["role"])
+		c.Set("jwt_claims", claims) // 供 logout/refresh 使用
 		c.Next()
 	}
 }
+
+// ─── Token 生成 ──────────────────────────────────────────
 
 // generateJTI 生成 JWT 唯一 ID (16 字节 hex)
 func generateJTI() string {

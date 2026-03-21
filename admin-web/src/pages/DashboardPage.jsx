@@ -4,6 +4,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { usePolling } from '../hooks/usePolling';
 import { getDashboard, getProfitSummary } from '../api/admin';
 import MetricCard from '../components/MetricCard';
+import PageHeader from '../components/ui/PageHeader';
 import * as echarts from 'echarts/core';
 import { BarChart, PieChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components';
@@ -257,17 +258,11 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col gap-8 w-full max-w-[1400px] mx-auto">
       {/* Page Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
-        <div>
-          <h1 className="headline text-[28px] font-bold text-[#1d1d1f]">数据总览</h1>
-          <p className="text-sm text-[#454654] mt-1">实时运营数据看板</p>
-        </div>
-        <div className="flex gap-2.5 items-center">
-          <button onClick={() => fetchDashboardData(true)} className="flex items-center gap-1.5 bg-[#f3f4f5] border border-[#e1e3e4] rounded-lg px-3.5 py-2 text-sm font-medium text-[#454654] cursor-pointer hover:bg-[#e7e8e9] transition-colors">
-            <span className="material-symbols-outlined" style={{fontSize:16}}>calendar_today</span> 本月
-          </button>
-        </div>
-      </div>
+      <PageHeader title="数据总览" subtitle="实时运营数据看板" className="mb-1">
+        <button onClick={() => fetchDashboardData(true)} className="flex items-center gap-1.5 bg-[#f3f4f5] border border-[#e1e3e4] rounded-lg px-3.5 py-2 text-sm font-medium text-[#454654] cursor-pointer hover:bg-[#e7e8e9] transition-colors">
+          <span className="material-symbols-outlined" style={{fontSize:16}}>calendar_today</span> 本月
+        </button>
+      </PageHeader>
 
       {/* KPI Cards -- Row 1: 4 primary cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 lg:gap-6">

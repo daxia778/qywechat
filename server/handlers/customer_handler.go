@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"log"
-	"net/http"
 	"strconv"
 
 	"pdd-order-system/models"
@@ -25,11 +24,12 @@ func ListCustomers(c *gin.Context) {
 
 	customers, total, err := services.ListCustomers(keyword, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("查询顾客列表失败: %v", err)
+		internalError(c, "查询顾客列表失败，请稍后重试")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": customers, "total": total})
+	respondOK(c, gin.H{"data": customers, "total": total})
 }
 
 // GetCustomer GET /api/v1/admin/customers/:id
@@ -37,17 +37,17 @@ func GetCustomer(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的顾客ID"})
+		badRequest(c, "无效的顾客ID")
 		return
 	}
 
 	customer, orders, err := services.GetCustomerWithOrders(uint(id))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		notFound(c, "顾客不存在")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"customer": customer, "orders": orders})
+	respondOK(c, gin.H{"customer": customer, "orders": orders})
 }
 
 // UpdateCustomer PUT /api/v1/admin/customers/:id
@@ -55,7 +55,7 @@ func UpdateCustomer(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的顾客ID"})
+		badRequest(c, "无效的顾客ID")
 		return
 	}
 
@@ -65,13 +65,13 @@ func UpdateCustomer(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		log.Printf("UpdateCustomer 参数绑定失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误"})
+		badRequest(c, "请求参数格式错误")
 		return
 	}
 
 	var customer models.Customer
 	if err := models.DB.First(&customer, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "顾客不存在"})
+		notFound(c, "顾客不存在")
 		return
 	}
 
@@ -90,7 +90,7 @@ func UpdateCustomer(c *gin.Context) {
 	}
 
 	models.DB.First(&customer, uint(id))
-	c.JSON(http.StatusOK, gin.H{"message": "更新成功", "customer": customer})
+	respondOK(c, gin.H{"message": "更新成功", "customer": customer})
 }
 
 // MergeCustomers POST /api/v1/admin/customers/merge
@@ -102,19 +102,19 @@ func MergeCustomers(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		log.Printf("MergeCustomers 参数绑定失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式错误，需要 primary_id 和 duplicate_id"})
+		badRequest(c, "请求参数格式错误，需要 primary_id 和 duplicate_id")
 		return
 	}
 
 	if body.PrimaryID == 0 || body.DuplicateID == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "primary_id 和 duplicate_id 不能为 0"})
+		badRequest(c, "primary_id 和 duplicate_id 不能为 0")
 		return
 	}
 
 	merged, err := services.MergeCustomerRecords(models.DB, body.PrimaryID, body.DuplicateID)
 	if err != nil {
 		log.Printf("MergeCustomers 合并失败: primary=%d duplicate=%d err=%v", body.PrimaryID, body.DuplicateID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, "顾客合并失败，请稍后重试")
 		return
 	}
 
@@ -123,5 +123,5 @@ func MergeCustomers(c *gin.Context) {
 
 	// 重新读取最新数据返回
 	models.DB.First(merged, merged.ID)
-	c.JSON(http.StatusOK, gin.H{"message": "顾客合并成功", "customer": merged})
+	respondOK(c, gin.H{"message": "顾客合并成功", "customer": merged})
 }

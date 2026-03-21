@@ -5,6 +5,7 @@ import * as echarts from 'echarts/core';
 import { LineChart, BarChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
+import PageHeader from '../components/ui/PageHeader';
 
 echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
 
@@ -399,39 +400,33 @@ export default function RevenuePage() {
   return (
     <div className="flex flex-col gap-5 w-full max-w-[1400px] mx-auto">
       {/* ── Header ── */}
-      <div className="flex justify-between items-center flex-wrap gap-3">
-        <div>
-          <h1 className="text-[26px] font-extrabold text-slate-800 font-[Outfit] tracking-tight">营收分析</h1>
-          <p className="text-sm text-slate-500 mt-1">营收趋势与订单量明细</p>
+      <PageHeader title="营收分析" subtitle="营收趋势与订单量明细">
+        {/* D. Export button */}
+        <button
+          onClick={handleExport}
+          className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold rounded-lg
+            bg-white text-slate-700 border border-slate-200 shadow-sm
+            hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          导出报表
+        </button>
+        <div className="flex bg-slate-100 p-1 rounded-lg">
+          {ranges.map((range) => (
+            <button
+              key={range.days}
+              onClick={() => setDays(range.days)}
+              className={`px-3.5 py-1.5 text-[13px] font-semibold rounded-md transition-colors border-none cursor-pointer ${
+                days === range.days ? 'bg-white text-slate-800 shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {range.label}
+            </button>
+          ))}
         </div>
-        <div className="flex items-center gap-3">
-          {/* D. Export button */}
-          <button
-            onClick={handleExport}
-            className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold rounded-lg
-              bg-white text-slate-700 border border-slate-200 shadow-sm
-              hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            导出报表
-          </button>
-          <div className="flex bg-slate-100 p-1 rounded-lg">
-            {ranges.map((range) => (
-              <button
-                key={range.days}
-                onClick={() => setDays(range.days)}
-                className={`px-3.5 py-1.5 text-[13px] font-semibold rounded-md transition-colors border-none cursor-pointer ${
-                  days === range.days ? 'bg-white text-slate-800 shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                {range.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+      </PageHeader>
 
       {/* ── KPI Cards with comparison deltas (C) ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
