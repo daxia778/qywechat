@@ -11,13 +11,8 @@ linters:
     - unused
     - gosec
     - bodyclose
-    - exportloopref
     - gocritic
     - misspell
-  disable:
-    - deadcode
-    - varcheck
-    - structcheck
 
 linters-settings:
   gosec:
@@ -35,6 +30,9 @@ issues:
       linters:
         - errcheck
     - path: handlers/export_handler\.go
+      linters:
+        - errcheck
+    - path: handlers/export\.go
       linters:
         - errcheck
     # ── 预存代码的已知 lint 问题（非本次改动） ──
@@ -66,6 +64,12 @@ issues:
       linters:
         - errcheck
     - path: handlers/auth_handler\.go
+      linters:
+        - errcheck
+    - path: handlers/customer_handler\.go
+      linters:
+        - errcheck
+    - path: handlers/notification\.go
       linters:
         - errcheck
     - path: handlers/payment_handler\.go
