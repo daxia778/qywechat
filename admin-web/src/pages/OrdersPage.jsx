@@ -640,7 +640,7 @@ export default function OrdersPage() {
                           </div>
                         );
                       }
-                    } catch {}
+                    } catch { /* ignore parse error */ }
                     return null;
                   })()}
 
