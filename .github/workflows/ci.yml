@@ -22,7 +22,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.24'
           cache-dependency-path: server/go.sum
 
       - name: Download dependencies
@@ -44,12 +44,9 @@ jobs:
           working-directory: server
 
       - name: Security scan (gosec)
-        uses: securego/gosec@v2
-        with:
-          args: -exclude=G104 ./...
-          working-directory: server
-        env:
-          GOFLAGS: ""
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -exclude=G104 ./...
 
       - name: Test with coverage
         env:
@@ -100,7 +97,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.24'
           cache-dependency-path: server/go.sum
 
       - name: Build Linux AMD64
