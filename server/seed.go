@@ -85,7 +85,7 @@ func seedEmployees() map[string]empInfo {
 		{"admin", "管理员柒", "admin", "admin888"},
 		{"follow_001", "小王", "follow", "pass1234"},
 		{"follow_002", "小李", "follow", "pass1234"},
-		{"sales_001", "小张", "sales", "pass1234"},
+		{"sales_001", "测试客服", "sales", "pass1234"},
 		{"designer_001", "阿杰", "designer", "pass1234"},
 		{"designer_002", "小美", "designer", "pass1234"},
 		{"designer_003", "大刘", "designer", "pass1234"},

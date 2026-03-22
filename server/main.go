@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -30,8 +31,17 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 	log.SetPrefix("[PDD] ")
 
-	// 加载 .env
-	_ = godotenv.Load()
+	// 加载 .env（优先工作目录，其次可执行文件所在目录）
+	if err := godotenv.Load(); err != nil {
+		// 工作目录没找到，尝试可执行文件所在目录
+		exe, _ := os.Executable()
+		exeDir := filepath.Dir(exe)
+		if err2 := godotenv.Load(filepath.Join(exeDir, ".env")); err2 != nil {
+			log.Printf("⚠️ .env 未加载 (cwd 和 exe 目录均无): %v", err2)
+		} else {
+			log.Printf("✅ .env 从可执行文件目录加载: %s", exeDir)
+		}
+	}
 
 	// 初始化配置
 	config.Init()

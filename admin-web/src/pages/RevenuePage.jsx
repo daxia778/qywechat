@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { getRevenueChart, getProfitBreakdown } from '../api/revenue';
 import { exportExcel } from '../api/admin';
+import ExportDialog from '../components/ExportDialog';
 import * as echarts from 'echarts/core';
 import { LineChart, BarChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components';
@@ -51,6 +52,7 @@ export default function RevenuePage() {
   const [profitConfig, setProfitConfig] = useState(null);
   const [profitItems, setProfitItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [exportDialogVisible, setExportDialogVisible] = useState(false);
 
   const chartRef = useRef(null);
   const chartInstanceRef = useRef(null);
@@ -382,11 +384,7 @@ export default function RevenuePage() {
   }, []);
 
   /* ── D. Excel export (multi-sheet) ── */
-  const handleExport = useCallback(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const startDate = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-    exportExcel({ start_date: startDate, end_date: today });
-  }, [days]);
+  const handleExport = useCallback(() => setExportDialogVisible(true), []);
 
   /* ── avg order value (derived KPI) ── */
   const avgOrderValue = summary.total_orders > 0 ? summary.total_revenue / summary.total_orders : 0;
@@ -575,6 +573,10 @@ export default function RevenuePage() {
           </table>
         </div>
       </div>
+      <ExportDialog
+        visible={exportDialogVisible}
+        onClose={() => setExportDialogVisible(false)}
+      />
     </div>
   );
 }

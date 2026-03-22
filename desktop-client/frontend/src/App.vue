@@ -303,8 +303,11 @@ const triggerGoFileSelect = async () => {
 };
 
 const handleGlobalPaste = async (e) => {
-  if (!state.isLoggedIn) return; // 未登录时不处理图片粘贴
-  
+  if (!state.isLoggedIn) return;
+
+  // 如果焦点在备注 textarea 内，交给 handleAttachmentPaste 处理
+  if (e.target && e.target.tagName === 'TEXTAREA') return;
+
   const items = e.clipboardData?.items;
   if (!items) return;
 
@@ -314,15 +317,43 @@ const handleGlobalPaste = async (e) => {
       const file = items[i].getAsFile();
       if (!file) continue;
 
-      // 转换为 base64
+      // OCR 已锁定或已有预览图时，粘贴的图片走备注附件逻辑
+      if (state.priceLocked || state.previewUrl) {
+        if (state.attachments.length >= 5) {
+          showToast('最多添加 5 张备注图片', 'error');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const base64Data = event.target.result;
+          state.attachmentUploading = true;
+          showToast('正在上传备注图片...', 'success');
+          try {
+            const res = await window.go.main.App.UploadAttachmentBase64(base64Data);
+            if (res.error) {
+              showToast('图片上传失败: ' + res.error, 'error');
+            } else {
+              state.attachments.push({ url: res.url, preview: base64Data });
+              showToast('备注图片已添加');
+            }
+          } catch (err) {
+            showToast('图片上传异常: ' + err, 'error');
+          } finally {
+            state.attachmentUploading = false;
+          }
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+
+      // OCR 未完成时，粘贴走 OCR 识别
       const reader = new FileReader();
       reader.onload = async (event) => {
         const base64Data = event.target.result;
-        state.previewUrl = base64Data; // 设置预览图
+        state.previewUrl = base64Data;
         state.uploading = true;
         showToast('检测到剪贴板图片，正在解析...', 'success');
         try {
-          // 调用新的 base64 OCR 方法
           const res = await window.go.main.App.UploadScreenshotBase64(base64Data);
           handleOCRResponse(res);
         } catch (err) {
@@ -332,7 +363,7 @@ const handleGlobalPaste = async (e) => {
         }
       };
       reader.readAsDataURL(file);
-      break; // 只处理第一张图
+      break;
     }
   }
 };

@@ -3,13 +3,24 @@ package services
 import (
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"pdd-order-system/config"
 	"pdd-order-system/models"
 
 	"github.com/xuri/excelize/v2"
+	"gorm.io/gorm"
 )
+
+// ExportFilter 导出筛选条件
+type ExportFilter struct {
+	StartDate   string
+	EndDate     string
+	EmployeeIDs []uint  // 支持多员工筛选
+	Role        string  // 按角色筛选: sales/designer/follow
+	Status      string  // 按状态筛选
+}
 
 // perfData 员工绩效聚合数据（用于绩效报表导出）
 type perfData struct {
@@ -66,7 +77,7 @@ func fmtYuan(cents int) string {
 }
 
 // ExportOrderReport 导出订单报表（多 Sheet Excel）
-func ExportOrderReport(startDate, endDate string, employeeID uint) (*excelize.File, error) {
+func ExportOrderReport(filter ExportFilter) (*excelize.File, error) {
 	f := excelize.NewFile()
 
 	// 创建通用样式
@@ -80,16 +91,16 @@ func ExportOrderReport(startDate, endDate string, employeeID uint) (*excelize.Fi
 	// 解析日期
 	var startTime, endTime time.Time
 	var err error
-	if startDate != "" {
-		startTime, err = time.Parse("2006-01-02", startDate)
+	if filter.StartDate != "" {
+		startTime, err = time.Parse("2006-01-02", filter.StartDate)
 		if err != nil {
 			startTime = time.Now().AddDate(0, -1, 0).Truncate(24 * time.Hour)
 		}
 	} else {
 		startTime = time.Now().AddDate(0, -1, 0).Truncate(24 * time.Hour)
 	}
-	if endDate != "" {
-		endTime, err = time.Parse("2006-01-02", endDate)
+	if filter.EndDate != "" {
+		endTime, err = time.Parse("2006-01-02", filter.EndDate)
 		if err != nil {
 			endTime = time.Now().Truncate(24 * time.Hour)
 		}
@@ -99,13 +110,13 @@ func ExportOrderReport(startDate, endDate string, employeeID uint) (*excelize.Fi
 	}
 
 	// Sheet 1: 汇总
-	writeSheetSummary(f, startTime, endTime, headerStyle, summaryKeyStyle, summaryValStyle, moneyStyle)
+	writeSheetSummary(f, startTime, endTime, filter, headerStyle, summaryKeyStyle, summaryValStyle, moneyStyle)
 
 	// Sheet 2: 订单明细
-	writeSheetOrders(f, startTime, endTime, employeeID, headerStyle, moneyStyle, refundStyle, refundMoneyStyle)
+	writeSheetOrders(f, startTime, endTime, filter, headerStyle, moneyStyle, refundStyle, refundMoneyStyle)
 
 	// Sheet 3: 员工业绩
-	writeSheetEmployeePerformance(f, startTime, endTime, headerStyle, moneyStyle)
+	writeSheetEmployeePerformance(f, startTime, endTime, filter, headerStyle, moneyStyle)
 
 	// Sheet 4: 收款流水
 	writeSheetPayments(f, startTime, endTime, headerStyle, moneyStyle)
@@ -120,15 +131,88 @@ func ExportOrderReport(startDate, endDate string, employeeID uint) (*excelize.Fi
 	return f, nil
 }
 
+// ── 订单查询构建器 ──────────────────────────────────
+
+func buildOrderQuery(startTime, endTime time.Time, filter ExportFilter) *gorm.DB {
+	query := models.DB.Where("created_at >= ? AND created_at < ?", startTime, endTime)
+
+	if filter.Status != "" {
+		query = query.Where("status = ?", filter.Status)
+	}
+
+	if len(filter.EmployeeIDs) > 0 {
+		var employees []models.Employee
+		models.DB.Where("id IN ?", filter.EmployeeIDs).Find(&employees)
+
+		if len(employees) > 0 {
+			// 按角色分组收集 WecomUserID
+			var salesIDs, designerIDs, followIDs []string
+			for _, emp := range employees {
+				switch emp.Role {
+				case "sales":
+					salesIDs = append(salesIDs, emp.WecomUserID)
+				case "designer":
+					designerIDs = append(designerIDs, emp.WecomUserID)
+				case "follow":
+					followIDs = append(followIDs, emp.WecomUserID)
+				default:
+					// admin 等角色，匹配所有角色字段
+					salesIDs = append(salesIDs, emp.WecomUserID)
+					designerIDs = append(designerIDs, emp.WecomUserID)
+					followIDs = append(followIDs, emp.WecomUserID)
+				}
+			}
+
+			// 构建 OR 条件
+			db := models.DB
+			orQuery := db
+			first := true
+			if len(salesIDs) > 0 {
+				orQuery = db.Where("operator_id IN ?", salesIDs)
+				first = false
+			}
+			if len(designerIDs) > 0 {
+				if first {
+					orQuery = db.Where("designer_id IN ?", designerIDs)
+					first = false
+				} else {
+					orQuery = orQuery.Or("designer_id IN ?", designerIDs)
+				}
+			}
+			if len(followIDs) > 0 {
+				if first {
+					orQuery = db.Where("follow_operator_id IN ?", followIDs)
+				} else {
+					orQuery = orQuery.Or("follow_operator_id IN ?", followIDs)
+				}
+			}
+			query = query.Where(orQuery)
+		}
+	}
+
+	if filter.Role != "" {
+		switch filter.Role {
+		case "sales":
+			query = query.Where("operator_id != ''")
+		case "designer":
+			query = query.Where("designer_id != ''")
+		case "follow":
+			query = query.Where("follow_operator_id != ''")
+		}
+	}
+
+	return query
+}
+
 // ── Sheet 1: 汇总 ──────────────────────────────────
 
-func writeSheetSummary(f *excelize.File, startTime, endTime time.Time, headerStyle, keyStyle, valStyle, moneyStyle int) {
+func writeSheetSummary(f *excelize.File, startTime, endTime time.Time, filter ExportFilter, headerStyle, keyStyle, valStyle, moneyStyle int) {
 	sheet := "汇总"
 	f.NewSheet(sheet)
 
-	// 查询数据
+	// 查询数据（应用筛选条件）
 	var orders []models.Order
-	models.DB.Where("created_at >= ? AND created_at < ?", startTime, endTime).Find(&orders)
+	buildOrderQuery(startTime, endTime, filter).Find(&orders)
 
 	// 统计
 	var totalRevenue, pddRevenue, wecomRevenue, manualRevenue int
@@ -207,6 +291,13 @@ func writeSheetSummary(f *excelize.File, startTime, endTime time.Time, headerSty
 		netProfitSum = totalRevenue - platformFeeSum - designerCommSum - salesCommSum - followCommSum
 	}
 
+	// 计算新指标
+	effectiveOrders := totalOrders - refundCount
+	dayCount := int(endTime.Sub(startTime).Hours() / 24)
+	if dayCount < 1 {
+		dayCount = 1
+	}
+
 	// 写入汇总数据
 	row := 4
 	writeKV := func(key, val string) {
@@ -217,13 +308,34 @@ func writeSheetSummary(f *excelize.File, startTime, endTime time.Time, headerSty
 		row++
 	}
 
-	writeKV("月度总营收", fmt.Sprintf("\u00a5%s", fmtYuan(totalRevenue)))
+	writeKV("总营收", fmt.Sprintf("\u00a5%s", fmtYuan(totalRevenue)))
 	writeKV("  拼多多收款", fmt.Sprintf("\u00a5%s", fmtYuan(pddRevenue)))
 	writeKV("  企微收款", fmt.Sprintf("\u00a5%s", fmtYuan(wecomRevenue)))
 	writeKV("  手动录入", fmt.Sprintf("\u00a5%s", fmtYuan(manualRevenue)))
 	row++ // 空行
-	writeKV("月度总订单数", fmt.Sprintf("%d 单", totalOrders))
-	writeKV("月度退款数", fmt.Sprintf("%d 单", refundCount))
+	writeKV("总订单数", fmt.Sprintf("%d 单", totalOrders))
+	writeKV("退款数", fmt.Sprintf("%d 单", refundCount))
+
+	// 新增指标：退款率
+	refundRate := "0.00%"
+	if totalOrders > 0 {
+		refundRate = fmt.Sprintf("%.2f%%", float64(refundCount)/float64(totalOrders)*100)
+	}
+	writeKV("退款率", refundRate)
+
+	// 新增指标：平均客单价
+	avgOrderValue := "\u00a50.00"
+	if effectiveOrders > 0 {
+		avgOrderValue = fmt.Sprintf("\u00a5%.2f", centsToYuan(totalRevenue/effectiveOrders))
+	}
+	writeKV("平均客单价", avgOrderValue)
+
+	// 新增指标：日均单量
+	writeKV("日均单量", fmt.Sprintf("%.1f 单", float64(totalOrders)/float64(dayCount)))
+
+	// 新增指标：日均营收
+	writeKV("日均营收", fmt.Sprintf("\u00a5%.2f", centsToYuan(totalRevenue)/float64(dayCount)))
+
 	row++ // 空行
 	writeKV("四方分润汇总", "")
 	writeKV(fmt.Sprintf("  平台手续费 (%d%%)", pfRate), fmt.Sprintf("\u00a5%s", fmtYuan(platformFeeSum)))
@@ -235,38 +347,23 @@ func writeSheetSummary(f *excelize.File, startTime, endTime time.Time, headerSty
 
 // ── Sheet 2: 订单明细 ──────────────────────────────
 
-func writeSheetOrders(f *excelize.File, startTime, endTime time.Time, employeeID uint, headerStyle, moneyStyle, refundStyle, refundMoneyStyle int) {
+func writeSheetOrders(f *excelize.File, startTime, endTime time.Time, filter ExportFilter, headerStyle, moneyStyle, refundStyle, refundMoneyStyle int) {
 	sheet := "订单明细"
 	f.NewSheet(sheet)
 
-	// 查询订单
-	query := models.DB.Where("created_at >= ? AND created_at < ?", startTime, endTime)
-	if employeeID > 0 {
-		var emp models.Employee
-		if models.DB.First(&emp, employeeID).Error == nil {
-			switch emp.Role {
-			case "designer":
-				query = query.Where("designer_id = ?", emp.WecomUserID)
-			case "sales":
-				query = query.Where("operator_id = ?", emp.WecomUserID)
-			case "follow":
-				query = query.Where("follow_operator_id = ?", emp.WecomUserID)
-			}
-		}
-	}
-
+	// 查询订单（应用筛选条件）
 	var orders []models.Order
-	query.Order("created_at DESC").Find(&orders)
+	buildOrderQuery(startTime, endTime, filter).Order("created_at DESC").Find(&orders)
 
 	// 预加载员工名称映射
 	nameMap := loadEmployeeNameMap()
 
-	// 表头
+	// 表头（新增：交付时间、完成时间、备注摘要）
 	headers := []string{
 		"订单号", "客户昵称", "联系方式", "金额(元)", "页数", "状态",
 		"跟单客服", "谈单客服", "设计师",
 		"平台费", "设计师佣金", "谈单佣金", "跟单佣金", "净利润",
-		"创建时间",
+		"创建时间", "交付时间", "完成时间", "备注摘要",
 	}
 
 	for col, h := range headers {
@@ -277,7 +374,7 @@ func writeSheetOrders(f *excelize.File, startTime, endTime time.Time, employeeID
 	f.SetCellStyle(sheet, "A1", headerEnd, headerStyle)
 
 	// 设置列宽
-	colWidths := []float64{18, 12, 14, 12, 6, 8, 10, 10, 10, 10, 10, 10, 10, 10, 18}
+	colWidths := []float64{18, 12, 14, 12, 6, 8, 10, 10, 10, 10, 10, 10, 10, 10, 18, 18, 18, 30}
 	for i, w := range colWidths {
 		colName, _ := excelize.ColumnNumberToName(i + 1)
 		f.SetColWidth(sheet, colName, colName, w)
@@ -325,6 +422,25 @@ func writeSheetOrders(f *excelize.File, startTime, endTime time.Time, employeeID
 			statusText = o.Status
 		}
 
+		// 交付时间
+		deliveredAt := ""
+		if o.DeliveredAt != nil {
+			deliveredAt = o.DeliveredAt.Format("2006-01-02 15:04:05")
+		}
+
+		// 完成时间
+		completedAt := ""
+		if o.CompletedAt != nil {
+			completedAt = o.CompletedAt.Format("2006-01-02 15:04:05")
+		}
+
+		// 备注摘要（截取前50字符，用 []rune 正确处理中文）
+		remarkSummary := o.Remark
+		runes := []rune(remarkSummary)
+		if len(runes) > 50 {
+			remarkSummary = string(runes[:50]) + "..."
+		}
+
 		rowData := []interface{}{
 			o.OrderSN,
 			customerName,
@@ -341,6 +457,9 @@ func writeSheetOrders(f *excelize.File, startTime, endTime time.Time, employeeID
 			centsToYuan(fc),
 			centsToYuan(np),
 			o.CreatedAt.Format("2006-01-02 15:04:05"),
+			deliveredAt,
+			completedAt,
+			remarkSummary,
 		}
 
 		for col, val := range rowData {
@@ -380,7 +499,7 @@ func writeSheetOrders(f *excelize.File, startTime, endTime time.Time, employeeID
 
 // ── Sheet 3: 员工业绩 ──────────────────────────────
 
-func writeSheetEmployeePerformance(f *excelize.File, startTime, endTime time.Time, headerStyle, moneyStyle int) {
+func writeSheetEmployeePerformance(f *excelize.File, startTime, endTime time.Time, filter ExportFilter, headerStyle, moneyStyle int) {
 	sheet := "员工业绩"
 	f.NewSheet(sheet)
 
@@ -388,9 +507,9 @@ func writeSheetEmployeePerformance(f *excelize.File, startTime, endTime time.Tim
 	var employees []models.Employee
 	models.DB.Where("is_active = ?", true).Find(&employees)
 
-	// 查询区间内的订单
+	// 查询区间内的订单（应用筛选条件）
 	var orders []models.Order
-	models.DB.Where("created_at >= ? AND created_at < ?", startTime, endTime).Find(&orders)
+	buildOrderQuery(startTime, endTime, filter).Find(&orders)
 
 	// 按员工聚合
 	perfMap := make(map[string]*perfData)
@@ -449,8 +568,20 @@ func writeSheetEmployeePerformance(f *excelize.File, startTime, endTime time.Tim
 		}
 	}
 
-	// 表头
-	headers := []string{"员工姓名", "角色", "经手订单数", "经手总金额(元)", "佣金收入(元)", "完成订单数", "退款订单数"}
+	// 转为 slice 并按订单数降序排列
+	var perfList []*perfData
+	for _, pd := range perfMap {
+		if pd.OrderCount == 0 {
+			continue
+		}
+		perfList = append(perfList, pd)
+	}
+	sort.Slice(perfList, func(i, j int) bool {
+		return perfList[i].OrderCount > perfList[j].OrderCount
+	})
+
+	// 表头（新增：日均单量、平均客单价、完成率、退款率）
+	headers := []string{"员工姓名", "角色", "经手订单数", "经手总金额(元)", "佣金收入(元)", "完成订单数", "退款订单数", "日均单量", "平均客单价(元)", "完成率", "退款率"}
 	for col, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(col+1, 1)
 		f.SetCellValue(sheet, cell, h)
@@ -459,21 +590,45 @@ func writeSheetEmployeePerformance(f *excelize.File, startTime, endTime time.Tim
 	f.SetCellStyle(sheet, "A1", headerEnd, headerStyle)
 
 	// 设置列宽
-	colWidths := []float64{14, 10, 12, 16, 14, 12, 12}
+	colWidths := []float64{14, 10, 12, 16, 14, 12, 12, 10, 16, 10, 10}
 	for i, w := range colWidths {
 		colName, _ := excelize.ColumnNumberToName(i + 1)
 		f.SetColWidth(sheet, colName, colName, w)
 	}
 
+	// 计算天数
+	dayCount := int(endTime.Sub(startTime).Hours() / 24)
+	if dayCount < 1 {
+		dayCount = 1
+	}
+
 	// 写入数据
 	row := 2
-	for _, pd := range perfMap {
-		if pd.OrderCount == 0 {
-			continue
-		}
+	for _, pd := range perfList {
 		roleText := roleCN[pd.Role]
 		if roleText == "" {
 			roleText = pd.Role
+		}
+
+		// 日均单量
+		dailyOrders := float64(pd.OrderCount) / float64(dayCount)
+
+		// 平均客单价
+		avgPrice := 0.0
+		if pd.OrderCount > 0 {
+			avgPrice = centsToYuan(pd.TotalAmount) / float64(pd.OrderCount)
+		}
+
+		// 完成率
+		completionRate := "0.0%"
+		if pd.OrderCount > 0 {
+			completionRate = fmt.Sprintf("%.1f%%", float64(pd.CompletedCnt)/float64(pd.OrderCount)*100)
+		}
+
+		// 退款率
+		refundRate := "0.0%"
+		if pd.OrderCount > 0 {
+			refundRate = fmt.Sprintf("%.1f%%", float64(pd.RefundedCnt)/float64(pd.OrderCount)*100)
 		}
 
 		f.SetCellValue(sheet, fmt.Sprintf("A%d", row), pd.Name)
@@ -483,10 +638,15 @@ func writeSheetEmployeePerformance(f *excelize.File, startTime, endTime time.Tim
 		f.SetCellValue(sheet, fmt.Sprintf("E%d", row), centsToYuan(pd.Commission))
 		f.SetCellValue(sheet, fmt.Sprintf("F%d", row), pd.CompletedCnt)
 		f.SetCellValue(sheet, fmt.Sprintf("G%d", row), pd.RefundedCnt)
+		f.SetCellValue(sheet, fmt.Sprintf("H%d", row), fmt.Sprintf("%.1f", dailyOrders))
+		f.SetCellValue(sheet, fmt.Sprintf("I%d", row), avgPrice)
+		f.SetCellValue(sheet, fmt.Sprintf("J%d", row), completionRate)
+		f.SetCellValue(sheet, fmt.Sprintf("K%d", row), refundRate)
 
 		// 金额列样式
 		f.SetCellStyle(sheet, fmt.Sprintf("D%d", row), fmt.Sprintf("D%d", row), moneyStyle)
 		f.SetCellStyle(sheet, fmt.Sprintf("E%d", row), fmt.Sprintf("E%d", row), moneyStyle)
+		f.SetCellStyle(sheet, fmt.Sprintf("I%d", row), fmt.Sprintf("I%d", row), moneyStyle)
 
 		row++
 	}
