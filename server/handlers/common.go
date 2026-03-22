@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"log"
+	"runtime/debug"
 	"strings"
 
 	"gorm.io/gorm"
@@ -12,6 +14,18 @@ func escapeLike(s string) string {
 	s = strings.ReplaceAll(s, "%", `\%`)
 	s = strings.ReplaceAll(s, "_", `\_`)
 	return s
+}
+
+// safeGo 启动一个带 recover 保护的 goroutine，防止异步任务 panic 导致进程崩溃
+func safeGo(tag string, fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[safeGo:%s] panic recovered: %v\n%s", tag, r, debug.Stack())
+			}
+		}()
+		fn()
+	}()
 }
 
 // filterByRole 根据角色对查询施加数据权限过滤（公共函数，避免各 handler 重复 switch）

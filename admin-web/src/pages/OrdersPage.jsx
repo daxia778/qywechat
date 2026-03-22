@@ -1,12 +1,11 @@
-import { useState, useCallback, useEffect, useRef, memo } from 'react';
+import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { usePolling } from '../hooks/usePolling';
-import { useDebounce } from '../hooks/useDebounce';
-import { listOrders, updateOrderStatus, batchUpdateOrderStatus, reassignOrder, getOrderDetail, getOrderTimeline } from '../api/orders';
-import { exportExcel, listEmployees } from '../api/admin';
+import { useOrderFilters } from '../hooks/useOrderFilters';
+import { useOrderActions } from '../hooks/useOrderActions';
+import { getOrderDetail, getOrderTimeline } from '../api/orders';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ORDER_STATUSES } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
@@ -19,24 +18,8 @@ export default function OrdersPage() {
   const { toast } = useToast();
   const { on, off, connected } = useWebSocket();
 
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [currentStatus, setCurrentStatus] = useState('');
-  const [searchKeyword, setSearchKeyword] = useState('');
-  const debouncedKeyword = useDebounce(searchKeyword, 400);
-  const [totalOrders, setTotalOrders] = useState(0);
-  const [currentPage, setCurrentPage] = useState(0);
   const [openMoreMenu, setOpenMoreMenu] = useState(null);
-  const [selectedIds, setSelectedIds] = useState(new Set());
-  const [batchLoading, setBatchLoading] = useState(false);
-  const [reassignModal, setReassignModal] = useState({ show: false, order: null });
-  const [designers, setDesigners] = useState([]);
-  const [selectedDesigner, setSelectedDesigner] = useState('');
-  const [reassignLoading, setReassignLoading] = useState(false);
   const [exportDialogVisible, setExportDialogVisible] = useState(false);
-  const pageSize = 50;
-
-  const totalPages = Math.max(1, Math.ceil(totalOrders / pageSize));
 
   const [modal, setModal] = useState({
     show: false, title: '', message: '', type: 'info', detail: null,
@@ -81,47 +64,26 @@ export default function OrdersPage() {
     actionRef.current?.(inputValue);
   };
 
-  const fetchOrders = useCallback(async (manual = false, signal) => {
-    if (manual) setLoading(true);
-    try {
-      const params = { limit: pageSize, offset: currentPage * pageSize };
-      if (currentStatus) params.status = currentStatus;
-      if (debouncedKeyword.trim()) params.keyword = debouncedKeyword.trim();
-      const res = await listOrders(params, { signal });
-      setOrders(res.data.data || []);
-      setTotalOrders(res.data.total || 0);
-      if (manual) toast('订单数据已刷新', 'success');
-    } catch (err) {
-      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
-      if (manual) toast('获取订单失败: ' + err.message, 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [currentPage, currentStatus, debouncedKeyword, toast]);
+  // ── Extracted hooks (Fix #3) ──
+  const {
+    orders, loading, currentStatus, setCurrentStatus,
+    searchKeyword, setSearchKeyword, totalOrders,
+    currentPage, setCurrentPage, totalPages, fetchOrders,
+  } = useOrderFilters({ toast, on, off, connected });
 
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchOrders(false, controller.signal);
-    return () => controller.abort();
-  }, [fetchOrders]);
-
-  // Reset to page 0 when debounced keyword changes
-  useEffect(() => {
-    setCurrentPage(0);
-  }, [debouncedKeyword]);
+  const {
+    selectedIds, setSelectedIds, batchLoading,
+    reassignModal, setReassignModal, designers,
+    selectedDesigner, setSelectedDesigner, reassignLoading,
+    doUpdateStatus, confirmComplete, confirmClose, handleRefund,
+    openReassignModal, doReassign, toggleSelect, toggleSelectAll,
+    doBatchUpdate,
+  } = useOrderActions({ toast, fetchOrders, showModal });
 
   // Clear selection when orders change (page switch, filter, refresh)
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [orders]);
-
-  usePolling(fetchOrders, connected ? 120000 : 60000);
-
-  useEffect(() => {
-    const handler = () => fetchOrders();
-    on('order_updated', handler);
-    return () => off('order_updated', handler);
-  }, [on, off, fetchOrders]);
+  }, [orders, setSelectedIds]);
 
   // Close more menu on outside click
   useEffect(() => {
@@ -129,43 +91,6 @@ export default function OrdersPage() {
     document.addEventListener('click', close);
     return () => document.removeEventListener('click', close);
   }, []);
-
-  const doUpdateStatus = async (order, newStatus, refundReason = '') => {
-    try {
-      await updateOrderStatus(order.id, { status: newStatus, refund_reason: refundReason });
-      toast(`订单 ${order.order_sn} 状态已更新`, 'success');
-      fetchOrders();
-    } catch (err) {
-      toast('更新失败: ' + (err.response?.data?.error || err.message), 'error');
-    }
-  };
-
-  const confirmComplete = (order) => {
-    showModal({
-      title: '完成订单', message: `确认已收到尾款并将订单 ${order.order_sn} 标记为完成？`,
-      type: 'info', confirmText: '确认完成',
-      detail: { '订单号': order.order_sn, '金额': `\u00A5${order.price ? (order.price / 100).toFixed(2) : '0.00'}` },
-    }, () => doUpdateStatus(order, 'COMPLETED'));
-  };
-
-  const confirmClose = (order) => {
-    showModal({
-      title: '关闭订单', message: `确定要强制关闭订单 ${order.order_sn} 吗？此操作不可撤销。`,
-      type: 'danger', confirmText: '关闭订单',
-      detail: { '订单号': order.order_sn, '金额': `\u00A5${order.price ? (order.price / 100).toFixed(2) : '0.00'}`, '状态': STATUS_MAP[order.status] },
-    }, () => doUpdateStatus(order, 'CLOSED'));
-  };
-
-  const handleRefund = (order) => {
-    showModal({
-      title: '退款 / 售后', message: `请填写订单 ${order.order_sn} 的退款原因：`,
-      type: 'warning', showInput: true, inputPlaceholder: '退款原因（必填）', confirmText: '提交退款',
-      detail: { '订单号': order.order_sn, '金额': `\u00A5${order.price ? (order.price / 100).toFixed(2) : '0.00'}` },
-    }, (reason) => {
-      if (!reason?.trim()) { toast('退款原因不能为空', 'warning'); return; }
-      doUpdateStatus(order, 'REFUNDED', reason);
-    });
-  };
 
   const hasMoreActions = (order) => {
     if (['COMPLETED', 'REFUNDED', 'CLOSED'].includes(order.status)) return false;
@@ -176,62 +101,10 @@ export default function OrdersPage() {
 
   const handleExportExcel = () => setExportDialogVisible(true);
 
-  // ── Reassign ──
-  const openReassignModal = async (order) => {
-    setReassignModal({ show: true, order });
-    setSelectedDesigner('');
-    try {
-      const res = await listEmployees({ params: { role: 'designer' } });
-      const list = (res.data.data || []).filter(
-        (d) => d.is_active && d.wecom_userid !== order.designer_id
-      );
-      setDesigners(list);
-    } catch {
-      toast('获取设计师列表失败', 'error');
-      setDesigners([]);
-    }
-  };
-
-  const doReassign = async () => {
-    if (!selectedDesigner) {
-      toast('请选择目标设计师', 'warning');
-      return;
-    }
-    setReassignLoading(true);
-    try {
-      await reassignOrder(reassignModal.order.id, selectedDesigner);
-      toast(`订单 ${reassignModal.order.order_sn} 已成功转派`, 'success');
-      setReassignModal({ show: false, order: null });
-      fetchOrders();
-    } catch (err) {
-      toast('转派失败: ' + (err.response?.data?.error || err.message), 'error');
-    } finally {
-      setReassignLoading(false);
-    }
-  };
-
-  // ── Batch Selection ──
-  const toggleSelect = (id) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedIds.size === orders.length && orders.length > 0) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(orders.map((o) => o.id)));
-    }
-  };
-
   const selectedOrders = orders.filter((o) => selectedIds.has(o.id));
 
-  // Compute which batch actions are available based on selected orders
-  const batchActions = (() => {
+  // Fix #4: Wrap batchActions in useMemo
+  const batchActions = useMemo(() => {
     if (selectedOrders.length === 0) return [];
     const actions = [];
     const canComplete = selectedOrders.every((o) => ['DELIVERED', 'AFTER_SALE'].includes(o.status));
@@ -243,39 +116,7 @@ export default function OrdersPage() {
       actions.push({ status: 'CLOSED', label: '批量关闭', type: 'danger' });
     }
     return actions;
-  })();
-
-  const doBatchUpdate = (targetStatus, label) => {
-    showModal({
-      title: label,
-      message: `确定要将选中的 ${selectedOrders.length} 个订单${label.replace('批量', '')}吗？`,
-      type: targetStatus === 'CLOSED' ? 'danger' : 'info',
-      confirmText: label,
-      detail: { '选中订单数': `${selectedOrders.length} 个`, '目标状态': STATUS_MAP[targetStatus] || targetStatus },
-    }, async () => {
-      setBatchLoading(true);
-      try {
-        const res = await batchUpdateOrderStatus({
-          order_ids: Array.from(selectedIds),
-          status: targetStatus,
-        });
-        const data = res.data;
-        if (data.fail_count > 0) {
-          const failedItems = (data.results || []).filter((r) => !r.success);
-          const failMsg = failedItems.map((r) => `${r.order_sn || r.order_id}: ${r.error}`).join('; ');
-          toast(`${data.message}. 失败: ${failMsg}`, 'warning');
-        } else {
-          toast(data.message, 'success');
-        }
-        setSelectedIds(new Set());
-        fetchOrders();
-      } catch (err) {
-        toast('批量操作失败: ' + (err.response?.data?.error || err.message), 'error');
-      } finally {
-        setBatchLoading(false);
-      }
-    });
-  };
+  }, [selectedOrders, role]);
 
   return (
     <div className="flex flex-col gap-5 w-full max-w-[1400px] mx-auto">
@@ -298,7 +139,7 @@ export default function OrdersPage() {
 
       {/* Reassign Modal */}
       {reassignModal.show && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setReassignModal({ show: false, order: null })}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setReassignModal({ show: false, order: null })} role="dialog" aria-modal="true" aria-label="转派订单" onKeyDown={(e) => { if (e.key === 'Escape') setReassignModal({ show: false, order: null }); }}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/80">
               <h3 className="text-base font-bold text-slate-800">转派订单</h3>
@@ -367,10 +208,10 @@ export default function OrdersPage() {
 
       {/* Image Lightbox */}
       {previewImage && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setPreviewImage(null)}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setPreviewImage(null)} role="dialog" aria-modal="true" aria-label="图片预览" onKeyDown={(e) => { if (e.key === 'Escape') setPreviewImage(null); }}>
           <div className="relative max-w-[90vw] max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setPreviewImage(null)} className="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full shadow-lg text-slate-500 hover:text-slate-800 flex items-center justify-center z-10 text-lg leading-none cursor-pointer">&times;</button>
-            <img src={previewImage} alt="订单截图" className="max-w-full max-h-[85vh] rounded-xl shadow-2xl object-contain" />
+            <button onClick={() => setPreviewImage(null)} className="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full shadow-lg text-slate-500 hover:text-slate-800 flex items-center justify-center z-10 text-lg leading-none cursor-pointer" aria-label="关闭图片预览">&times;</button>
+            <img src={previewImage} alt="订单截图预览" className="max-w-full max-h-[85vh] rounded-xl shadow-2xl object-contain" />
           </div>
         </div>
       )}
@@ -451,7 +292,7 @@ export default function OrdersPage() {
               {batchActions.map((action) => (
                 <button
                   key={action.status}
-                  onClick={() => doBatchUpdate(action.status, action.label)}
+                  onClick={() => doBatchUpdate(action.status, action.label, selectedOrders)}
                   disabled={batchLoading}
                   className={`inline-flex items-center justify-center gap-1.5 px-4 py-1.5 text-[12px] font-semibold rounded-xl transition-all duration-150 cursor-pointer shadow-sm active:scale-[0.98] ${
                     action.type === 'danger'
@@ -476,7 +317,7 @@ export default function OrdersPage() {
                   <input
                     type="checkbox"
                     checked={orders.length > 0 && selectedIds.size === orders.length}
-                    onChange={toggleSelectAll}
+                    onChange={() => toggleSelectAll(orders)}
                     className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-brand-500/20 cursor-pointer accent-[#434FCF]"
                     title="全选/取消全选"
                   />
@@ -542,9 +383,9 @@ export default function OrdersPage() {
 
       {/* ── Order Quick Preview Drawer ── */}
       {drawerOrder && (
-        <div className="fixed inset-0 z-[100]" onClick={() => setDrawerOrder(null)}>
+        <div className="fixed inset-0 z-[100]" onClick={() => setDrawerOrder(null)} role="dialog" aria-modal="true" aria-label="订单详情" onKeyDown={(e) => { if (e.key === 'Escape') setDrawerOrder(null); }}>
           {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
           {/* Drawer Panel */}
           <div
             className="absolute right-0 top-0 h-full w-full max-w-[480px] bg-white shadow-2xl flex flex-col animate-slide-in-right"
@@ -561,7 +402,7 @@ export default function OrdersPage() {
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                   完整详情
                 </Link>
-                <button onClick={() => setDrawerOrder(null)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer">
+                <button onClick={() => setDrawerOrder(null)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer" aria-label="关闭订单详情">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
@@ -765,23 +606,23 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
       <td className="text-right pr-6" onClick={(e) => e.stopPropagation()}>
         <div className="text-[12px] text-slate-500 mb-2.5 font-medium tabular-nums">{formatTime(order.created_at)}</div>
         <div className="flex flex-wrap items-center justify-end gap-1.5">
-          {/* sales: 确认需求 (GROUP_CREATED → CONFIRMED) */}
+          {/* sales: 确认需求 (GROUP_CREATED -> CONFIRMED) */}
           {order.status === 'GROUP_CREATED' && (role === 'admin' || role === 'sales') && (
             <button onClick={() => onUpdateStatus(order, 'CONFIRMED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">确认需求</button>
           )}
-          {/* designer: 接手设计 (CONFIRMED → DESIGNING) */}
+          {/* designer: 接手设计 (CONFIRMED -> DESIGNING) */}
           {order.status === 'CONFIRMED' && (role === 'admin' || role === 'designer') && (
             <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">接手设计</button>
           )}
-          {/* designer: 标记交付 (DESIGNING → DELIVERED) */}
+          {/* designer: 标记交付 (DESIGNING -> DELIVERED) */}
           {order.status === 'DESIGNING' && (role === 'admin' || (role === 'designer' && order.designer_id === userId)) && (
             <button onClick={() => onUpdateStatus(order, 'DELIVERED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg text-[11px] bg-white active:scale-[0.98]">标记交付</button>
           )}
-          {/* follow: 确认完成 (DELIVERED → COMPLETED) */}
+          {/* follow: 确认完成 (DELIVERED -> COMPLETED) */}
           {order.status === 'DELIVERED' && (role === 'admin' || role === 'follow') && (
             <button onClick={() => onConfirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">标记完成</button>
           )}
-          {/* follow: 需要修改 (DELIVERED → REVISION) */}
+          {/* follow: 需要修改 (DELIVERED -> REVISION) */}
           {order.status === 'DELIVERED' && (role === 'admin' || role === 'follow') && (
             <button onClick={() => onUpdateStatus(order, 'REVISION')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-400 text-amber-600 hover:bg-amber-50 text-[11px] bg-white active:scale-[0.98]">需要修改</button>
           )}
@@ -799,8 +640,8 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
                       标记售后
                     </button>
                   )}
-                  {/* follow: 退款 */}
-                  {!['REFUNDED','CLOSED'].includes(order.status) && (role === 'admin' || role === 'follow') && (
+                  {/* Fix #2: Refund permission - only admin and sales, NOT follow */}
+                  {!['REFUNDED','CLOSED'].includes(order.status) && (role === 'admin' || role === 'sales') && (
                     <button onClick={() => { onHandleRefund(order); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors flex items-center gap-2">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z" /></svg>
                       退款

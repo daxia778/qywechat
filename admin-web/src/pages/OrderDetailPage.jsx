@@ -85,7 +85,7 @@ export default function OrderDetailPage() {
       toast(`订单 ${order.order_sn} 状态已更新`, 'success');
       fetchDetail();
     } catch (err) {
-      toast('更新失败: ' + (err.response?.data?.error || err.message), 'error');
+      toast('更新失败: ' + (err.displayMessage || err.message), 'error');
     }
   };
 
@@ -142,7 +142,7 @@ export default function OrderDetailPage() {
       setShowAmountEdit(false);
       fetchDetail();
     } catch (err) {
-      toast('修改失败: ' + (err.response?.data?.error || err.message), 'error');
+      toast('修改失败: ' + (err.displayMessage || err.message), 'error');
     } finally {
       setAmountSubmitting(false);
     }

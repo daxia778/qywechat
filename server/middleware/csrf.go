@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"sort"
 	"sync"
@@ -19,19 +21,26 @@ type csrfStore struct {
 
 var csrf = &csrfStore{tokens: make(map[string]time.Time)}
 
-func init() {
-	// 每 10 分钟清理过期 CSRF token
+// StartCSRFCleanup 启动后台协程，定期清理过期 CSRF token（替代 init() goroutine）
+func StartCSRFCleanup(ctx context.Context) {
 	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
 		for {
-			time.Sleep(10 * time.Minute)
-			csrf.mu.Lock()
-			now := time.Now()
-			for k, v := range csrf.tokens {
-				if now.Sub(v) > 30*time.Minute {
-					delete(csrf.tokens, k)
+			select {
+			case <-ctx.Done():
+				log.Println("CSRF token 清理协程已停止")
+				return
+			case <-ticker.C:
+				csrf.mu.Lock()
+				now := time.Now()
+				for k, v := range csrf.tokens {
+					if now.Sub(v) > 30*time.Minute {
+						delete(csrf.tokens, k)
+					}
 				}
+				csrf.mu.Unlock()
 			}
-			csrf.mu.Unlock()
 		}
 	}()
 }

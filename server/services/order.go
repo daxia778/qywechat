@@ -148,78 +148,65 @@ func GrabOrder(orderID uint, designerUserID string) (*models.Order, error) {
 	return &order, nil
 }
 
-// UpdateOrderStatus 状态流转 (目前鉴权在 Handler 中进行)
-func UpdateOrderStatus(orderID uint, newStatus string) (*models.Order, error) {
+// updateOrderStatusCore 状态流转核心逻辑 (在已有事务中执行)。
+// 可被 UpdateOrderStatus 和 BatchUpdateOrderStatus 复用，保证
+// 状态更新 + 其他写操作在同一事务内完成。
+func updateOrderStatusCore(tx *gorm.DB, orderID uint, newStatus string) (*models.Order, error) {
 	var order models.Order
+	if err := tx.First(&order, orderID).Error; err != nil {
+		return nil, fmt.Errorf("订单不存在")
+	}
 
-	err := models.WriteTx(func(tx *gorm.DB) error {
-		if err := tx.First(&order, orderID).Error; err != nil {
-			return fmt.Errorf("订单不存在")
-		}
-
-		allowed, ok := models.ValidTransitions[order.Status]
-		if !ok {
-			return fmt.Errorf("当前状态 %s 不支持转换", order.Status)
-		}
-		valid := false
-		for _, s := range allowed {
-			if s == newStatus {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			return fmt.Errorf("非法状态转换: %s → %s", order.Status, newStatus)
-		}
-
-		now := time.Now()
-		order.Status = newStatus
-		switch newStatus {
-		case models.StatusDesigning:
-			// 重新进入 DESIGNING 时重置告警标记，保证再次超时能触发告警
-			order.DesigningAlertSent = false
-		case models.StatusDelivered:
-			order.DeliveredAt = &now
-		case models.StatusCompleted:
-			order.CompletedAt = &now
-		case models.StatusClosed:
-			order.ClosedAt = &now
-		case models.StatusRefunded:
-			order.ClosedAt = &now
-		}
-
-		// 终态处理：释放设计师负载
-		if models.IsTerminalStatus(newStatus) && order.DesignerID != "" {
-			if err := tx.Exec(
-				"UPDATE employees SET active_order_count = MAX(active_order_count - 1, 0) WHERE wecom_userid = ?",
-				order.DesignerID,
-			).Error; err != nil {
-				return fmt.Errorf("释放设计师负载失败: %w", err)
-			}
-			if err := tx.Exec(
-				"UPDATE employees SET status = 'idle' WHERE wecom_userid = ? AND active_order_count <= 0",
-				order.DesignerID,
-			).Error; err != nil {
-				return fmt.Errorf("更新设计师状态失败: %w", err)
-			}
-		}
-
-		return tx.Save(&order).Error
-	})
-
-	if err != nil {
+	if err := models.ValidateStatusTransition(order.Status, newStatus); err != nil {
 		return nil, err
 	}
 
+	now := time.Now()
+	order.Status = newStatus
+	switch newStatus {
+	case models.StatusDesigning:
+		order.DesigningAlertSent = false
+	case models.StatusDelivered:
+		order.DeliveredAt = &now
+	case models.StatusCompleted:
+		order.CompletedAt = &now
+	case models.StatusClosed:
+		order.ClosedAt = &now
+	case models.StatusRefunded:
+		order.ClosedAt = &now
+	}
+
+	// 终态处理：释放设计师负载
+	if models.IsTerminalStatus(newStatus) && order.DesignerID != "" {
+		if err := tx.Exec(
+			"UPDATE employees SET active_order_count = MAX(active_order_count - 1, 0) WHERE wecom_userid = ?",
+			order.DesignerID,
+		).Error; err != nil {
+			return nil, fmt.Errorf("释放设计师负载失败: %w", err)
+		}
+		if err := tx.Exec(
+			"UPDATE employees SET status = 'idle' WHERE wecom_userid = ? AND active_order_count <= 0",
+			order.DesignerID,
+		).Error; err != nil {
+			return nil, fmt.Errorf("更新设计师状态失败: %w", err)
+		}
+	}
+
+	if err := tx.Save(&order).Error; err != nil {
+		return nil, err
+	}
+	return &order, nil
+}
+
+// postStatusChangeEffects 在事务提交后执行的副作用 (分润、日志)。
+// 不在事务内执行，因为分润重算和异步清零各自管理自己的事务。
+func postStatusChangeEffects(order *models.Order, newStatus string) {
 	log.Printf("✅ 订单状态更新 | sn=%s | %s", order.OrderSN, newStatus)
 
-	// 分润触发: 根据目标状态决定分润动作
 	switch newStatus {
 	case models.StatusCompleted:
-		// 订单完成 — 最终结算，重算并落库
 		TriggerProfitRecalculation(order.ID)
 	case models.StatusRefunded:
-		// 退款 — 分润字段全部清零
 		go func() {
 			if err := models.WriteTx(func(tx *gorm.DB) error {
 				return ClearProfitFields(tx, order.ID)
@@ -228,13 +215,42 @@ func UpdateOrderStatus(orderID uint, newStatus string) (*models.Order, error) {
 			}
 		}()
 	}
+}
 
-	return &order, nil
+// UpdateOrderStatus 状态流转 (目前鉴权在 Handler 中进行)
+func UpdateOrderStatus(orderID uint, newStatus string) (*models.Order, error) {
+	var order *models.Order
+
+	err := models.WriteTx(func(tx *gorm.DB) error {
+		var txErr error
+		order, txErr = updateOrderStatusCore(tx, orderID, newStatus)
+		return txErr
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	postStatusChangeEffects(order, newStatus)
+	return order, nil
+}
+
+// UpdateOrderStatusInTx 在调用方提供的事务中执行状态流转，
+// 允许调用方将状态更新与其他写操作 (如时间线记录) 合并到同一事务。
+// 注意: 调用方必须在事务提交后自行调用 postStatusChangeEffects。
+func UpdateOrderStatusInTx(tx *gorm.DB, orderID uint, newStatus string) (*models.Order, error) {
+	return updateOrderStatusCore(tx, orderID, newStatus)
+}
+
+// PostStatusChangeEffects 导出的副作用触发器，供 handler 在事务提交后调用。
+func PostStatusChangeEffects(order *models.Order, newStatus string) {
+	postStatusChangeEffects(order, newStatus)
 }
 
 // ReassignOrder 管理员转派订单给另一个设计师
 func ReassignOrder(orderID uint, newDesignerUserID, operatorID string) (*models.Order, error) {
 	var order models.Order
+	var oldDesignerID string
 
 	err := models.WriteTx(func(tx *gorm.DB) error {
 		// 1. 查询订单
@@ -267,7 +283,7 @@ func ReassignOrder(orderID uint, newDesignerUserID, operatorID string) (*models.
 			return fmt.Errorf("不能转派给当前设计师（相同人员）")
 		}
 
-		oldDesignerID := order.DesignerID
+		oldDesignerID = order.DesignerID
 
 		// 5. 释放旧设计师负载
 		if oldDesignerID != "" {
@@ -324,7 +340,7 @@ func ReassignOrder(orderID uint, newDesignerUserID, operatorID string) (*models.
 		return nil, err
 	}
 
-	log.Printf("✅ 订单转派 | sn=%s | %s -> %s | operator=%s", order.OrderSN, order.DesignerID, order.DesignerID, operatorID)
+	log.Printf("✅ 订单转派 | sn=%s | %s -> %s | operator=%s", order.OrderSN, oldDesignerID, newDesignerUserID, operatorID)
 	return &order, nil
 }
 
@@ -789,7 +805,7 @@ func GetDashboardStats() *DashboardStats {
 	}
 	var avgCompletion AvgCompletionResult
 	models.DB.Model(&models.Order{}).
-		Select("AVG((julianday(completed_at) - julianday(created_at)) * 24) as avg_hours").
+		Select(sqlAvgHoursDiff("completed_at", "created_at") + " as avg_hours").
 		Where("status = ? AND completed_at IS NOT NULL AND created_at IS NOT NULL", models.StatusCompleted).
 		Scan(&avgCompletion)
 	stats.AvgCompletionHours = avgCompletion.AvgHours
@@ -834,7 +850,7 @@ func GetDashboardStats() *DashboardStats {
 	}
 	var avgResults []AvgResult
 	models.DB.Model(&models.Order{}).
-		Select("designer_id, AVG((julianday(completed_at) - julianday(created_at)) * 24) as avg_hours").
+		Select("designer_id, " + sqlAvgHoursDiff("completed_at", "created_at") + " as avg_hours").
 		Where("status = ? AND completed_at IS NOT NULL AND designer_id != ''", models.StatusCompleted).
 		Group("designer_id").
 		Find(&avgResults)
@@ -876,7 +892,7 @@ func GetDashboardStats() *DashboardStats {
 	}
 	var monthRows []MonthRow
 	models.DB.Model(&models.Order{}).
-		Select("strftime('%m', created_at) as month, COUNT(*) as cnt").
+		Select(sqlFormatMonth("created_at") + " as month, COUNT(*) as cnt").
 		Where("created_at >= ? AND created_at < ?", yearStart, yearEnd).
 		Group("month").
 		Find(&monthRows)

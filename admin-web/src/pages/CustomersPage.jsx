@@ -40,7 +40,7 @@ export default function CustomersPage() {
       setTotalCustomers(res.data.total || 0);
       if (manual) toast('顾客数据已刷新', 'success');
     } catch (err) {
-      if (manual) toast('获取顾客失败: ' + (err.response?.data?.error || err.message), 'error');
+      if (manual) toast('获取顾客失败: ' + (err.displayMessage || err.message), 'error');
     } finally {
       setLoading(false);
     }
@@ -79,7 +79,7 @@ export default function CustomersPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          toast('获取顾客详情失败: ' + (err.response?.data?.error || err.message), 'error');
+          toast('获取顾客详情失败: ' + (err.displayMessage || err.message), 'error');
           setSelectedCustomerId(null);
         }
       } finally {
@@ -105,7 +105,7 @@ export default function CustomersPage() {
       const res = await getCustomerDetail(selectedCustomerId);
       setDetail(res.data);
     } catch (err) {
-      toast('保存失败: ' + (err.response?.data?.error || err.message), 'error');
+      toast('保存失败: ' + (err.displayMessage || err.message), 'error');
     } finally {
       setSaving(false);
     }
@@ -228,9 +228,9 @@ export default function CustomersPage() {
 
       {/* Slide-over Detail Panel */}
       {selectedCustomerId && (
-        <div className="fixed inset-0 z-[80]" onClick={closePanel}>
+        <div className="fixed inset-0 z-[80]" onClick={closePanel} role="dialog" aria-modal="true" aria-label="顾客详情" onKeyDown={(e) => { if (e.key === 'Escape') closePanel(); }}>
           {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px] transition-opacity" />
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px] transition-opacity" aria-hidden="true" />
           {/* Panel */}
           <div
             className="absolute right-0 top-0 h-full w-full max-w-lg bg-white shadow-2xl flex flex-col animate-slide-in-right"
@@ -247,7 +247,7 @@ export default function CustomersPage() {
                   <p className="text-[13px] text-slate-500">{customer?.customer_contact || '-'}</p>
                 </div>
               </div>
-              <button onClick={closePanel} className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors active:scale-[0.98]">
+              <button onClick={closePanel} className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors active:scale-[0.98]" aria-label="关闭顾客详情">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>

@@ -137,7 +137,7 @@ func SuspiciousRequestFilter() gin.HandlerFunc {
 		// 其他攻击特征
 		"eval(", "exec(", "system(",
 		"/actuator", "/jolokia", "/console",
-		"/debug/", "/trace/", "/metrics",
+		"/debug/", "/trace/",
 	}
 
 	// 已知扫描器 / 攻击工具 User-Agent 关键词 (小写匹配)

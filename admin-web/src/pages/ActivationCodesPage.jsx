@@ -74,7 +74,7 @@ export default function ActivationCodesPage() {
           toast(`已${actionLabel} ${emp.name}`, 'success');
           fetchData();
         } catch (err) {
-          toast('操作失败: ' + (err.response?.data?.error || err.message), 'error');
+          toast('操作失败: ' + (err.displayMessage || err.message), 'error');
         }
       },
     });
@@ -93,7 +93,7 @@ export default function ActivationCodesPage() {
           toast(res.data.message || '解绑成功', 'success');
           fetchData();
         } catch (err) {
-          toast('解绑失败: ' + (err.response?.data?.error || err.message), 'error');
+          toast('解绑失败: ' + (err.displayMessage || err.message), 'error');
         }
       },
     });
@@ -112,7 +112,7 @@ export default function ActivationCodesPage() {
           setCodeModal({ show: true, name: emp.name, code: res.data.activation_code_plain });
           fetchData();
         } catch (err) {
-          toast('操作失败: ' + (err.response?.data?.error || err.message), 'error');
+          toast('操作失败: ' + (err.displayMessage || err.message), 'error');
         }
       },
     });

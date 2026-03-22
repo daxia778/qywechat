@@ -34,7 +34,7 @@ export default function OrderMatchModal({ visible, contactInfo, onClose, onMatch
       const res = await listPendingMatchOrders();
       setOrders(res.data?.data || []);
     } catch (err) {
-      toast('获取待匹配订单失败: ' + (err.response?.data?.error || err.message), 'error');
+      toast('获取待匹配订单失败: ' + (err.displayMessage || err.message), 'error');
     } finally {
       setLoading(false);
     }
@@ -80,7 +80,7 @@ export default function OrderMatchModal({ visible, contactInfo, onClose, onMatch
       onMatched?.();
       onClose();
     } catch (err) {
-      toast('关联失败: ' + (err.response?.data?.error || err.message), 'error');
+      toast('关联失败: ' + (err.displayMessage || err.message), 'error');
     } finally {
       setMatching(null);
     }

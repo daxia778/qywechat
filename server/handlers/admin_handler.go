@@ -44,11 +44,23 @@ type CreateEmployeeReq struct {
 	Role string `json:"role" binding:"required"`
 }
 
-// generateUsername 根据角色自动生成用户名: designer_001, sales_001, follow_001
-func generateUsername(role string) string {
+// generateUsernameTx 在事务内根据角色生成唯一用户名，防止并发竞态。
+// 通过 SELECT ... FOR UPDATE (PostgreSQL) 或 WriteTx 互斥锁 (SQLite) 保证序列号唯一。
+func generateUsernameTx(tx *gorm.DB, role string) string {
 	var count int64
-	models.DB.Model(&models.Employee{}).Where("role = ?", role).Count(&count)
-	return fmt.Sprintf("%s_%03d", role, count+1)
+	tx.Model(&models.Employee{}).Where("role = ?", role).Count(&count)
+	candidate := fmt.Sprintf("%s_%03d", role, count+1)
+
+	// 冲突重试: 如果用户名已存在 (如删除员工后序号不连续)，递增直到找到空位
+	for i := 0; i < 100; i++ {
+		var exists int64
+		tx.Model(&models.Employee{}).Where("username = ?", candidate).Count(&exists)
+		if exists == 0 {
+			return candidate
+		}
+		candidate = fmt.Sprintf("%s_%03d", role, count+1+int64(i+1))
+	}
+	return candidate
 }
 
 // generateRandomPassword 生成 8 位随机密码 (大小写字母+数字)
@@ -89,29 +101,7 @@ func CreateEmployee(c *gin.Context) {
 		return
 	}
 
-	// 自动生成用户名
-	username := generateUsername(req.Role)
-	if req.Role == "admin" {
-		username = "admin" // admin 用户名保持自定义
-	}
-
-	// 检查用户名唯一性
-	var userExist int64
-	models.DB.Model(&models.Employee{}).Where("username = ?", username).Count(&userExist)
-	if userExist > 0 {
-		// 用户名已存在，递增序号
-		for i := 0; i < 100; i++ {
-			var cnt int64
-			models.DB.Model(&models.Employee{}).Where("role = ?", req.Role).Count(&cnt)
-			username = fmt.Sprintf("%s_%03d", req.Role, cnt+1+int64(i))
-			models.DB.Model(&models.Employee{}).Where("username = ?", username).Count(&userExist)
-			if userExist == 0 {
-				break
-			}
-		}
-	}
-
-	// 生成随机密码
+	// 生成随机密码 (在事务外完成，bcrypt 较慢不应持锁)
 	plainPassword := generateRandomPassword()
 	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
 	if err != nil {
@@ -120,15 +110,23 @@ func CreateEmployee(c *gin.Context) {
 		return
 	}
 
-	emp := models.Employee{
-		WecomUserID:  username, // 默认用 username 作为 wecom_userid，后续可通过通讯录同步覆盖
-		Name:         req.Name,
-		Role:         req.Role,
-		Username:     username,
-		PasswordHash: string(hashedPwd),
-	}
-
+	// 在同一个写事务内生成用户名并创建员工，防止并发竞态产生重复用户名
+	var emp models.Employee
+	var username string
 	if err := models.WriteTx(func(tx *gorm.DB) error {
+		if req.Role == "admin" {
+			username = "admin"
+		} else {
+			username = generateUsernameTx(tx, req.Role)
+		}
+
+		emp = models.Employee{
+			WecomUserID:  username,
+			Name:         req.Name,
+			Role:         req.Role,
+			Username:     username,
+			PasswordHash: string(hashedPwd),
+		}
 		return tx.Create(&emp).Error
 	}); err != nil {
 		log.Printf("创建员工失败: %v", err)
@@ -174,16 +172,20 @@ func ResetPassword(c *gin.Context) {
 		return
 	}
 
-	models.WriteTx(func(tx *gorm.DB) error {
+	if err := models.WriteTx(func(tx *gorm.DB) error {
 		return tx.Model(&emp).Update("password_hash", string(hashedPwd)).Error
-	})
+	}); err != nil {
+		log.Printf("重置密码失败: %v", err)
+		internalError(c, "重置密码失败，请稍后重试")
+		return
+	}
 
 	// 密码重置后，使该用户所有已签发的 token 失效
 	middleware.RevokeAllUserTokens(emp.WecomUserID)
 
 	userID, _ := c.Get("wecom_userid")
 	userName, _ := c.Get("name")
-	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "重置密码: "+emp.Name, c.ClientIP())
+	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditPasswordReset, emp.WecomUserID, "重置密码: "+emp.Name, c.ClientIP())
 
 	log.Printf("密码已重置 | 员工=%s | 旧Token已全部失效", emp.Name)
 
@@ -209,9 +211,13 @@ func toggleEmployeeActive(c *gin.Context, auditOnDisable bool) {
 	}
 
 	emp.IsActive = !emp.IsActive
-	models.WriteTx(func(tx *gorm.DB) error {
+	if err := models.WriteTx(func(tx *gorm.DB) error {
 		return tx.Save(&emp).Error
-	})
+	}); err != nil {
+		log.Printf("切换员工状态失败: %v", err)
+		internalError(c, "操作失败，请稍后重试")
+		return
+	}
 
 	status := "启用"
 	if !emp.IsActive {
@@ -252,9 +258,13 @@ func UnbindDevice(c *gin.Context) {
 	}
 
 	oldMID := emp.MachineID
-	models.WriteTx(func(tx *gorm.DB) error {
+	if err := models.WriteTx(func(tx *gorm.DB) error {
 		return tx.Model(&emp).Update("machine_id", "").Error
-	})
+	}); err != nil {
+		log.Printf("设备解绑失败: %v", err)
+		internalError(c, "设备解绑失败，请稍后重试")
+		return
+	}
 	log.Printf("设备解绑 | 员工=%s | 旧MachineID=%s", emp.Name, oldMID)
 	respondMessage(c, fmt.Sprintf("已解绑 %s 的设备", emp.Name))
 }
@@ -414,7 +424,7 @@ func RegenerateActivationCode(c *gin.Context) {
 
 	userID, _ := c.Get("wecom_userid")
 	userName, _ := c.Get("name")
-	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "重新生成激活码并解绑旧设备: "+emp.Name, c.ClientIP())
+	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditActivationCodeRegen, emp.WecomUserID, "重新生成激活码并解绑旧设备: "+emp.Name, c.ClientIP())
 
 	log.Printf("激活码已重新生成 | 员工=%s | 旧设备已解绑 | 旧Token已全部失效", emp.Name)
 
@@ -527,7 +537,7 @@ func DeleteEmployee(c *gin.Context) {
 
 	userID, _ := c.Get("wecom_userid")
 	userName, _ := c.Get("name")
-	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "删除员工: "+emp.Name, c.ClientIP())
+	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeDelete, emp.WecomUserID, "删除员工: "+emp.Name, c.ClientIP())
 	log.Printf("员工已删除 | 员工=%s", emp.Name)
 	respondMessage(c, "删除成功")
 }
@@ -549,6 +559,16 @@ func BatchToggleEmployees(c *gin.Context) {
 		log.Printf("批量操作员工状态失败: %v", err)
 		internalError(c, "批量操作失败，请稍后重试")
 		return
+	}
+
+	// 禁用时，使被禁用员工的所有已签发 token 失效，防止继续操作
+	if !body.Active {
+		var disabledEmps []models.Employee
+		models.DB.Select("wecom_userid").Where("id IN ? AND role != ?", body.IDs, "admin").Find(&disabledEmps)
+		for _, emp := range disabledEmps {
+			middleware.RevokeAllUserTokens(emp.WecomUserID)
+		}
+		log.Printf("批量禁用员工 | count=%d | 已撤销所有相关Token", len(disabledEmps))
 	}
 
 	status := "启用"

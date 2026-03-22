@@ -34,6 +34,7 @@ const (
 	AuditSecurityAlert        = "SECURITY_ALERT"
 	AuditPasswordReset        = "PASSWORD_RESET"
 	AuditActivationCodeRegen  = "ACTIVATION_CODE_REGEN"
+	AuditEmployeeDelete       = "EMPLOYEE_DELETE"
 )
 
 // WriteAuditLog 写入一条审计日志

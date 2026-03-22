@@ -266,7 +266,6 @@ func (self *WXBizMsgCrypt) VerifyURL(msg_signature, timestamp, nonce, echostr st
 	}
 
 	if len(self.receiver_id) > 0 && strings.Compare(string(receiver_id), self.receiver_id) != 0 {
-		fmt.Println(string(receiver_id), self.receiver_id, len(receiver_id), len(self.receiver_id))
 		return nil, NewCryptError(ValidateCorpidError, "receiver_id is not equil")
 	}
 

@@ -35,6 +35,8 @@ client.interceptors.response.use(
       clearAuth();
       window.dispatchEvent(new Event('auth:logout'));
     }
+    const msg = error.response?.data?.message || error.message;
+    error.displayMessage = msg;
     return Promise.reject(error);
   }
 );

@@ -68,6 +68,12 @@ func main() {
 	// 启动安全模块后台清理（替代原 init() goroutine）
 	middleware.StartFailMapCleaner(ctx)
 
+	// 启动 CSRF token 定期清理协程
+	middleware.StartCSRFCleanup(ctx)
+
+	// 从数据库恢复 Token 黑名单（重启后不丢失）
+	middleware.LoadTokenBlacklistFromDB()
+
 	// 启动 Token 黑名单定期清理协程
 	middleware.StartTokenCleanup(ctx)
 
@@ -207,7 +213,17 @@ func main() {
 			// 上传文件访问（需 JWT 鉴权，防止未授权访问 OCR 截图等敏感文件）
 			orderAuth.GET("/uploads/*filepath", func(c *gin.Context) {
 				fp := c.Param("filepath")
-				c.File("uploads" + fp)
+				// 清洗路径防止路径穿越攻击 (e.g. ../../etc/passwd)
+				cleaned := filepath.Clean(fp)
+				// filepath.Clean 后可能以 "/" 开头，Join 会正确处理
+				absUploads, _ := filepath.Abs("uploads")
+				target := filepath.Join(absUploads, cleaned)
+				// 确保最终路径仍在 uploads/ 目录下
+				if !strings.HasPrefix(target, absUploads+string(filepath.Separator)) && target != absUploads {
+					c.JSON(http.StatusForbidden, gin.H{"error": "非法路径"})
+					return
+				}
+				c.File(target)
 			})
 		}
 

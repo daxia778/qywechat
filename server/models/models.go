@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -133,3 +134,25 @@ var StatusChangePermission = map[string][]string{
 func IsTerminalStatus(status string) bool {
 	return status == StatusRefunded || status == StatusClosed
 }
+
+// ValidateStatusTransition 校验状态流转是否合法，返回 nil 表示合法，否则返回错误描述
+func ValidateStatusTransition(currentStatus, newStatus string) error {
+	allowed, ok := ValidTransitions[currentStatus]
+	if !ok {
+		return fmt.Errorf("当前状态 %s 不支持转换", currentStatus)
+	}
+	for _, s := range allowed {
+		if s == newStatus {
+			return nil
+		}
+	}
+	return fmt.Errorf("非法状态转换: %s -> %s", currentStatus, newStatus)
+}
+
+// ─── 业务常量 ──────────────────────────────────────────
+const (
+	MaxOrderPrice     = 999999 // 订单最大价格（分）
+	BatchOperationMax = 100    // 单次批量操作最大数量
+	PaginationMax     = 200    // 分页查询最大条数
+	PaginationDefault = 50     // 分页查询默认条数
+)

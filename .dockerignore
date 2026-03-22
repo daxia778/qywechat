@@ -1,17 +1,35 @@
 .git
-node_modules
+.github
+.gitignore
+.DS_Store
+.env
+.env.*
+
+# Source not needed in image
 desktop-client
+staff-web
+admin-web-vue-backup
+
+# Build artifacts & runtime data
 release
 backups
 data
 uploads
+node_modules
 *.db
 *.db-wal
 *.db-shm
-.DS_Store
-.env
 *.log
+*.tar.gz
+
+# Documentation & review files
+*.md
 DEEP_REVIEW*.md
 REVIEW*.md
 CLAUDE.md
-admin-web-vue-backup
+LICENSE
+
+# Deploy scripts (not needed inside image)
+deploy/harden.sh
+deploy/backup.sh
+build.sh

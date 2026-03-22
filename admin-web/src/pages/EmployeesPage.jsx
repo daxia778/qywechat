@@ -136,7 +136,7 @@ export default function EmployeesPage() {
         }
         toast(`已${actionLabel}`, 'success');
         fetchEmployees();
-      } catch (err) { toast('操作失败: ' + (err.response?.data?.error || err.message), 'error'); }
+      } catch (err) { toast('操作失败: ' + (err.displayMessage || err.message), 'error'); }
     });
   };
 
@@ -150,7 +150,7 @@ export default function EmployeesPage() {
         const res = await apiUnbind(emp.id);
         toast(res.data.message || '解绑成功', 'success');
         fetchEmployees();
-      } catch (err) { toast('解绑失败: ' + (err.response?.data?.error || err.message), 'error'); }
+      } catch (err) { toast('解绑失败: ' + (err.displayMessage || err.message), 'error'); }
     });
   };
 
@@ -169,7 +169,7 @@ export default function EmployeesPage() {
         const res = await apiResetPassword(emp.id);
         const { password, notice } = res.data;
         setCredentialModal({ show: true, username: emp.username || emp.wecom_userid, password, notice: notice || '' });
-      } catch (err) { toast('重置密码失败: ' + (err.response?.data?.error || err.message), 'error'); }
+      } catch (err) { toast('重置密码失败: ' + (err.displayMessage || err.message), 'error'); }
     });
   };
 
@@ -185,7 +185,7 @@ export default function EmployeesPage() {
       setCredentialModal({ show: true, username: username || '', password: password || '', notice: notice || '' });
       setForm({ name: '', role: 'sales' });
       fetchEmployees();
-    } catch (err) { toast('添加失败: ' + (err.response?.data?.error || err.message), 'error'); }
+    } catch (err) { toast('添加失败: ' + (err.displayMessage || err.message), 'error'); }
     finally { setAdding(false); }
   };
 
@@ -235,7 +235,7 @@ export default function EmployeesPage() {
         toast(`已批量禁用 ${count} 名员工`, 'success');
         setSelectedIds(new Set());
         fetchEmployees();
-      } catch (err) { toast('批量操作失败: ' + (err.response?.data?.error || err.message), 'error'); }
+      } catch (err) { toast('批量操作失败: ' + (err.displayMessage || err.message), 'error'); }
     });
   };
 
@@ -253,7 +253,7 @@ export default function EmployeesPage() {
         toast(`已批量删除 ${count} 名员工`, 'success');
         setSelectedIds(new Set());
         fetchEmployees();
-      } catch (err) { toast('批量操作失败: ' + (err.response?.data?.error || err.message), 'error'); }
+      } catch (err) { toast('批量操作失败: ' + (err.displayMessage || err.message), 'error'); }
     });
   };
 

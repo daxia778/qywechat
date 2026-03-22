@@ -108,7 +108,7 @@ func CreateOrder(c *gin.Context) {
 		badRequest(c, "价格必须大于0")
 		return
 	}
-	if req.Price > 999999 {
+	if req.Price > models.MaxOrderPrice {
 		badRequest(c, "价格超出合理范围（最大999999分）")
 		return
 	}
@@ -162,7 +162,7 @@ func CreateOrder(c *gin.Context) {
 	}
 
 	// 异步通知设计师
-	go func() {
+	safeGo("CreateOrder.notify", func() {
 		designers := services.GetIdleDesigners()
 		ids := make([]string, len(designers))
 		for i, d := range designers {
@@ -177,7 +177,7 @@ func CreateOrder(c *gin.Context) {
 				log.Printf("发送新订单企微通知失败: sn=%s err=%v", order.OrderSN, err)
 			}
 		}
-	}()
+	})
 
 	respondOK(c, order)
 }
@@ -215,7 +215,7 @@ func GrabOrder(c *gin.Context) {
 	}
 
 	// 异步建群
-	go func() {
+	safeGo("GrabOrder.setupGroup", func() {
 		deadlineStr := "待定"
 		if order.Deadline != nil {
 			deadlineStr = order.Deadline.Format("2006-01-02 15:04")
@@ -229,7 +229,7 @@ func GrabOrder(c *gin.Context) {
 				return tx.Model(order).Update("wecom_chat_id", chatID).Error
 			})
 		}
-	}()
+	})
 
 	respondOK(c, order)
 }
@@ -355,8 +355,8 @@ func BatchUpdateOrderStatus(c *gin.Context) {
 	}
 
 	// 限制单次批量操作数量，防止滥用
-	if len(req.OrderIDs) > 100 {
-		badRequest(c, "单次批量操作最多100条订单")
+	if len(req.OrderIDs) > models.BatchOperationMax {
+		badRequest(c, fmt.Sprintf("单次批量操作最多%d条订单", models.BatchOperationMax))
 		return
 	}
 
@@ -384,13 +384,14 @@ func BatchUpdateOrderStatus(c *gin.Context) {
 	}
 
 	// 3. 逐个处理订单，收集结果
+	// 每个订单的状态更新 + 时间线记录在同一个事务内完成，保证原子性。
 	results := make([]BatchUpdateResult, 0, len(req.OrderIDs))
 	successCount := 0
 
 	for _, orderID := range req.OrderIDs {
 		result := BatchUpdateResult{OrderID: orderID}
 
-		// 查询订单
+		// 查询订单 (事务外预检，减少不必要的事务开销)
 		var order models.Order
 		if err := models.DB.First(&order, orderID).Error; err != nil {
 			result.Error = "订单不存在"
@@ -411,37 +412,17 @@ func BatchUpdateOrderStatus(c *gin.Context) {
 			continue
 		}
 
-		// 状态流转合法性校验
-		allowed, exists := models.ValidTransitions[order.Status]
-		if !exists {
-			result.Error = fmt.Sprintf("当前状态 %s 不支持转换", order.Status)
-			results = append(results, result)
-			continue
-		}
-		valid := false
-		for _, s := range allowed {
-			if s == req.Status {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			result.Error = fmt.Sprintf("非法状态转换: %s -> %s", order.Status, req.Status)
-			results = append(results, result)
-			continue
-		}
-
-		// 在事务中执行状态更新 + 时间线记录
+		// 在单个事务中执行: 状态更新 + 时间线记录
 		oldStatus := order.Status
-		updatedOrder, err := services.UpdateOrderStatus(orderID, req.Status)
-		if err != nil {
-			result.Error = err.Error()
-			results = append(results, result)
-			continue
-		}
+		var updatedOrder *models.Order
+		txErr := models.WriteTx(func(tx *gorm.DB) error {
+			var err error
+			updatedOrder, err = services.UpdateOrderStatusInTx(tx, orderID, req.Status)
+			if err != nil {
+				return err
+			}
 
-		// 记录状态流转时间线
-		models.WriteTx(func(tx *gorm.DB) error {
+			// 时间线记录与状态更新在同一事务中
 			return tx.Create(&models.OrderTimeline{
 				OrderID:      updatedOrder.ID,
 				EventType:    "status_changed",
@@ -452,6 +433,15 @@ func BatchUpdateOrderStatus(c *gin.Context) {
 				Remark:       "批量操作",
 			}).Error
 		})
+
+		if txErr != nil {
+			result.Error = txErr.Error()
+			results = append(results, result)
+			continue
+		}
+
+		// 事务提交后触发副作用 (分润等)
+		services.PostStatusChangeEffects(updatedOrder, req.Status)
 
 		result.Success = true
 		results = append(results, result)
@@ -487,8 +477,8 @@ func ListOrders(c *gin.Context) {
 	offsetStr := c.DefaultQuery("offset", "0")
 	limit, _ := strconv.Atoi(limitStr)
 	offset, _ := strconv.Atoi(offsetStr)
-	if limit <= 0 || limit > 200 {
-		limit = 50
+	if limit <= 0 || limit > models.PaginationMax {
+		limit = models.PaginationDefault
 	}
 
 	query := models.DB.Model(&models.Order{})
@@ -530,10 +520,18 @@ func ListOrders(c *gin.Context) {
 	}
 
 	var total int64
-	query.Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		log.Printf("ListOrders 统计总数失败: %v", err)
+		internalError(c, "查询订单失败，请稍后重试")
+		return
+	}
 
 	var orders []models.Order
-	query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&orders)
+	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&orders).Error; err != nil {
+		log.Printf("ListOrders 查询订单列表失败: %v", err)
+		internalError(c, "查询订单失败，请稍后重试")
+		return
+	}
 
 	respondOK(c, gin.H{"data": orders, "total": total})
 }
@@ -605,7 +603,7 @@ func UpdateOrderAmount(c *gin.Context) {
 			badRequest(c, "价格必须大于0")
 			return
 		}
-		if *req.Price > 999999 {
+		if *req.Price > models.MaxOrderPrice {
 			badRequest(c, "价格超出合理范围（最大999999分）")
 			return
 		}
@@ -811,9 +809,13 @@ func ListPendingMatchOrders(c *gin.Context) {
 	}
 
 	var orders []models.Order
-	query.Order("created_at DESC").Limit(100).Find(&orders)
+	if err := query.Order("created_at DESC").Limit(100).Find(&orders).Error; err != nil {
+		log.Printf("ListPendingMatchOrders 查询失败: %v", err)
+		internalError(c, "查询待匹配订单失败，请稍后重试")
+		return
+	}
 
-	// 补充客户联系方式信息
+	// 补充客户联系方式信息 (批量查询替代 N+1)
 	type enrichedOrder struct {
 		models.Order
 		CustomerNickname string `json:"customer_nickname"`
@@ -821,16 +823,34 @@ func ListPendingMatchOrders(c *gin.Context) {
 		CustomerWechatID string `json:"customer_wechat_id"`
 	}
 
+	// 收集所有需要查询的 customer ID
+	customerIDs := make([]uint, 0, len(orders))
+	for _, o := range orders {
+		if o.CustomerID > 0 {
+			customerIDs = append(customerIDs, o.CustomerID)
+		}
+	}
+
+	// 批量查询客户信息
+	customerMap := make(map[uint]models.Customer, len(customerIDs))
+	if len(customerIDs) > 0 {
+		var customers []models.Customer
+		if err := models.DB.Where("id IN ?", customerIDs).Find(&customers).Error; err != nil {
+			log.Printf("ListPendingMatchOrders 批量查询客户失败: %v", err)
+		} else {
+			for _, cust := range customers {
+				customerMap[cust.ID] = cust
+			}
+		}
+	}
+
 	result := make([]enrichedOrder, 0, len(orders))
 	for _, o := range orders {
 		item := enrichedOrder{Order: o}
-		if o.CustomerID > 0 {
-			var cust models.Customer
-			if models.DB.First(&cust, o.CustomerID).Error == nil {
-				item.CustomerNickname = cust.Nickname
-				item.CustomerMobile = cust.Mobile
-				item.CustomerWechatID = cust.WechatID
-			}
+		if cust, ok := customerMap[o.CustomerID]; ok {
+			item.CustomerNickname = cust.Nickname
+			item.CustomerMobile = cust.Mobile
+			item.CustomerWechatID = cust.WechatID
 		}
 		result = append(result, item)
 	}

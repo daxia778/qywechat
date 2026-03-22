@@ -22,6 +22,61 @@ type LoginReq struct {
 	MachineID string `json:"machine_id"` // 桌面端可选传入，用于设备绑定
 }
 
+// authenticateByPassword 公共登录核心逻辑: 用户名+密码校验、审计日志、token 签发、登录时间更新
+// requiredRole 为空表示不限角色，非空则限制特定角色
+// 返回 (employee, token, error)，error 非空时调用方应直接 return（HTTP 响应已写入）
+func authenticateByPassword(c *gin.Context, username, password, requiredRole string) (*models.Employee, string, bool) {
+	var emp models.Employee
+	result := models.DB.Where("username = ? AND is_active = ?", username, true).First(&emp)
+
+	auditPrefix := "登录"
+	if requiredRole != "" {
+		auditPrefix = "管理员登录"
+	}
+
+	if result.Error != nil {
+		middleware.RecordLoginFail(c.ClientIP())
+		models.WriteAuditLog("", "", models.AuditLoginFail, "", auditPrefix+"失败: 用户不存在或已禁用 ("+username+")", c.ClientIP())
+		forbidden(c, "用户名或密码错误")
+		return nil, "", false
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(emp.PasswordHash), []byte(password)); err != nil {
+		middleware.RecordLoginFail(c.ClientIP())
+		models.WriteAuditLog(emp.WecomUserID, emp.Name, models.AuditLoginFail, "", auditPrefix+"密码错误", c.ClientIP())
+		forbidden(c, "用户名或密码错误")
+		return nil, "", false
+	}
+
+	// 角色过滤（AdminLogin 专用）
+	if requiredRole != "" && emp.Role != requiredRole {
+		models.WriteAuditLog(emp.WecomUserID, emp.Name, models.AuditLoginFail, "", "非管理员账号尝试登录管理端", c.ClientIP())
+		forbidden(c, "非管理员账号，禁止登录管理端")
+		return nil, "", false
+	}
+
+	token, err := middleware.CreateToken(emp.WecomUserID, emp.Name, emp.Role)
+	if err != nil {
+		log.Printf("生成认证令牌失败: %v", err)
+		internalError(c, "生成认证令牌失败")
+		return nil, "", false
+	}
+	models.WriteAuditLog(emp.WecomUserID, emp.Name, models.AuditLogin, "", auditPrefix+"成功", c.ClientIP())
+
+	// 更新最后登录时间和IP
+	now := time.Now()
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Model(&emp).Updates(map[string]any{
+			"last_login_at": &now,
+			"last_login_ip": c.ClientIP(),
+		}).Error
+	}); err != nil {
+		log.Printf("更新登录时间失败: %v", err)
+	}
+
+	return &emp, token, true
+}
+
 // Login 统一登录接口: 所有角色使用 username + password
 // POST /api/v1/auth/login
 func Login(c *gin.Context) {
@@ -31,48 +86,23 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	var emp models.Employee
-	result := models.DB.Where("username = ? AND is_active = ?", req.Username, true).First(&emp)
-
-	if result.Error != nil {
-		middleware.RecordLoginFail(c.ClientIP())
-		models.WriteAuditLog("", "", models.AuditLoginFail, "", "登录失败: 用户不存在或已禁用 ("+req.Username+")", c.ClientIP())
-		forbidden(c, "用户名或密码错误")
-		return
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(emp.PasswordHash), []byte(req.Password)); err != nil {
-		middleware.RecordLoginFail(c.ClientIP())
-		models.WriteAuditLog(emp.WecomUserID, emp.Name, models.AuditLoginFail, "", "登录密码错误", c.ClientIP())
-		forbidden(c, "用户名或密码错误")
+	emp, token, ok := authenticateByPassword(c, req.Username, req.Password, "")
+	if !ok {
 		return
 	}
 
 	// 桌面端设备绑定（可选）
 	if req.MachineID != "" && emp.MachineID == "" {
-		models.WriteTx(func(tx *gorm.DB) error {
-			return tx.Model(&emp).Update("machine_id", req.MachineID).Error
-		})
+		if err := models.WriteTx(func(tx *gorm.DB) error {
+			return tx.Model(emp).Update("machine_id", req.MachineID).Error
+		}); err != nil {
+			log.Printf("桌面端设备绑定失败: %v", err)
+			internalError(c, "设备绑定失败，请稍后重试")
+			return
+		}
 		emp.MachineID = req.MachineID
 		log.Printf("桌面端设备绑定 | 员工=%s | MachineID=%s", emp.Name, req.MachineID)
 	}
-
-	token, err := middleware.CreateToken(emp.WecomUserID, emp.Name, emp.Role)
-	if err != nil {
-		log.Printf("生成认证令牌失败: %v", err)
-		internalError(c, "生成认证令牌失败")
-		return
-	}
-	models.WriteAuditLog(emp.WecomUserID, emp.Name, models.AuditLogin, "", "登录成功", c.ClientIP())
-
-	// 更新最后登录时间和IP
-	now := time.Now()
-	models.WriteTx(func(tx *gorm.DB) error {
-		return tx.Model(&emp).Updates(map[string]any{
-			"last_login_at": &now,
-			"last_login_ip": c.ClientIP(),
-		}).Error
-	})
 
 	respondOK(c, gin.H{
 		"token": token,
@@ -159,9 +189,13 @@ func DeviceLogin(c *gin.Context) {
 				"activation_code":        "",
 				"activation_code_prefix": "",
 			}
-			models.WriteTx(func(tx *gorm.DB) error {
+			if err := models.WriteTx(func(tx *gorm.DB) error {
 				return tx.Model(&emp).Updates(updates).Error
-			})
+			}); err != nil {
+				log.Printf("设备永久绑定失败: %v", err)
+				internalError(c, "设备绑定失败，请稍后重试")
+				return
+			}
 			emp.MachineID = req.MachineID
 			log.Printf("设备永久绑定 | 员工=%s | MachineID=%s | MAC=%s | 激活码已销毁", emp.Name, req.MachineID, req.MacAddress)
 			models.WriteAuditLog(emp.WecomUserID, emp.Name, models.AuditLogin, "", "首次设备激活绑定，激活码已销毁", c.ClientIP())
@@ -216,46 +250,9 @@ func AdminLogin(c *gin.Context) {
 		return
 	}
 
-	var emp models.Employee
-	result := models.DB.Where("username = ? AND is_active = ?", req.Username, true).First(&emp)
-
-	if result.Error != nil {
-		middleware.RecordLoginFail(c.ClientIP())
-		models.WriteAuditLog("", "", models.AuditLoginFail, "", "管理员登录失败: 用户不存在或已禁用", c.ClientIP())
-		forbidden(c, "用户名或密码错误")
+	emp, token, ok := authenticateByPassword(c, req.Username, req.Password, "admin")
+	if !ok {
 		return
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(emp.PasswordHash), []byte(req.Password)); err != nil {
-		middleware.RecordLoginFail(c.ClientIP())
-		models.WriteAuditLog(emp.WecomUserID, emp.Name, models.AuditLoginFail, "", "管理员登录密码错误", c.ClientIP())
-		forbidden(c, "用户名或密码错误")
-		return
-	}
-
-	// 校验必须是 admin 角色
-	if emp.Role != "admin" {
-		models.WriteAuditLog(emp.WecomUserID, emp.Name, models.AuditLoginFail, "", "非管理员账号尝试登录管理端", c.ClientIP())
-		forbidden(c, "非管理员账号，禁止登录管理端")
-		return
-	}
-
-	token, err := middleware.CreateToken(emp.WecomUserID, emp.Name, emp.Role)
-	if err != nil {
-		log.Printf("生成认证令牌失败: %v", err)
-		internalError(c, "生成认证令牌失败")
-		return
-	}
-	models.WriteAuditLog(emp.WecomUserID, emp.Name, models.AuditLogin, "", "管理员登录成功", c.ClientIP())
-
-	now := time.Now()
-	if err := models.WriteTx(func(tx *gorm.DB) error {
-		return tx.Model(&emp).Updates(map[string]any{
-			"last_login_at": &now,
-			"last_login_ip": c.ClientIP(),
-		}).Error
-	}); err != nil {
-		log.Printf("更新管理员登录时间失败: %v", err)
 	}
 
 	respondOK(c, gin.H{

@@ -272,6 +272,7 @@ export default function AppShell() {
                 className="pl-10 pr-4 py-2 bg-[#f5f5f7] border border-black/[0.08] rounded-[0.5rem] text-[13px] text-[#191c1d] placeholder-[#9a9bab] w-72 focus:ring-2 focus:ring-[#2834b7]/15 focus:border-[#2834b7]/40 outline-none transition-all"
                 placeholder="搜索订单、客户..."
                 type="text"
+                aria-label="全局搜索订单和客户"
               />
             </div>
 

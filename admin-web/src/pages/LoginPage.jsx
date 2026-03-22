@@ -138,7 +138,7 @@ export default function LoginPage() {
       }
       navigate('/');
     } catch (err) {
-      setErrorMsg(err.response?.data?.error || '账号或密码错误');
+      setErrorMsg(err.displayMessage || '账号或密码错误');
     } finally {
       setLoading(false);
     }
@@ -304,7 +304,7 @@ export default function LoginPage() {
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
                     className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-300 hover:text-slate-500 transition-colors"
-                    tabIndex={-1}
+                    aria-label={showPassword ? '隐藏密码' : '显示密码'}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
