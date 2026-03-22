@@ -5,13 +5,14 @@ import { useToast } from '../hooks/useToast';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { usePolling } from '../hooks/usePolling';
 import { useDebounce } from '../hooks/useDebounce';
-import { listOrders, updateOrderStatus, batchUpdateOrderStatus, reassignOrder } from '../api/orders';
+import { listOrders, updateOrderStatus, batchUpdateOrderStatus, reassignOrder, getOrderDetail, getOrderTimeline } from '../api/orders';
 import { exportExcel, listEmployees } from '../api/admin';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ORDER_STATUSES } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/ui/PageHeader';
+import ExportDialog from '../components/ExportDialog';
 
 export default function OrdersPage() {
   const { role, userId } = useAuth();
@@ -32,6 +33,7 @@ export default function OrdersPage() {
   const [designers, setDesigners] = useState([]);
   const [selectedDesigner, setSelectedDesigner] = useState('');
   const [reassignLoading, setReassignLoading] = useState(false);
+  const [exportDialogVisible, setExportDialogVisible] = useState(false);
   const pageSize = 50;
 
   const totalPages = Math.max(1, Math.ceil(totalOrders / pageSize));
@@ -42,6 +44,32 @@ export default function OrdersPage() {
   });
   const actionRef = useRef(null);
   const [previewImage, setPreviewImage] = useState(null);
+
+  // ── Drawer state ──
+  const [drawerOrder, setDrawerOrder] = useState(null);
+  const [drawerData, setDrawerData] = useState({ order: {}, timeline: [], people: {}, profit: {} });
+  const [drawerLoading, setDrawerLoading] = useState(false);
+
+  const openDrawer = async (order) => {
+    setDrawerOrder(order);
+    setDrawerLoading(true);
+    try {
+      const [detailRes, timelineRes] = await Promise.all([
+        getOrderDetail(order.id),
+        getOrderTimeline(order.id),
+      ]);
+      setDrawerData({
+        order: detailRes.data.order || {},
+        timeline: timelineRes.data.data || [],
+        people: detailRes.data.people || {},
+        profit: detailRes.data.profit || {},
+      });
+    } catch (err) {
+      toast('加载详情失败', 'error');
+    } finally {
+      setDrawerLoading(false);
+    }
+  };
 
   const showModal = (opts, action) => {
     actionRef.current = action;
@@ -146,11 +174,7 @@ export default function OrdersPage() {
     return false;
   };
 
-  const handleExportExcel = () => {
-    const today = new Date().toISOString().slice(0, 10);
-    const params = { start_date: today.slice(0, 7) + '-01', end_date: today };
-    exportExcel(params);
-  };
+  const handleExportExcel = () => setExportDialogVisible(true);
 
   // ── Reassign ──
   const openReassignModal = async (order) => {
@@ -266,6 +290,10 @@ export default function OrdersPage() {
         confirmText={modal.confirmText}
         onConfirm={onModalConfirm}
         onCancel={() => setModal((m) => ({ ...m, show: false }))}
+      />
+      <ExportDialog
+        visible={exportDialogVisible}
+        onClose={() => setExportDialogVisible(false)}
       />
 
       {/* Reassign Modal */}
@@ -490,6 +518,7 @@ export default function OrdersPage() {
                   hasMoreActions={hasMoreActions(order)}
                   onPreviewImage={setPreviewImage}
                   onReassign={openReassignModal}
+                  onOpenDrawer={openDrawer}
                 />
               ))}
             </tbody>
@@ -510,15 +539,180 @@ export default function OrdersPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Order Quick Preview Drawer ── */}
+      {drawerOrder && (
+        <div className="fixed inset-0 z-[100]" onClick={() => setDrawerOrder(null)}>
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+          {/* Drawer Panel */}
+          <div
+            className="absolute right-0 top-0 h-full w-full max-w-[480px] bg-white shadow-2xl flex flex-col animate-slide-in-right"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/80 shrink-0">
+              <div>
+                <h3 className="text-base font-bold text-slate-800">订单详情</h3>
+                <p className="text-[13px] text-slate-500 mt-0.5 font-mono">{drawerOrder.order_sn}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Link to={`/orders/${drawerOrder.id}`} className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg text-brand-600 bg-brand-50 hover:bg-brand-100 transition-colors border border-brand-200">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                  完整详情
+                </Link>
+                <button onClick={() => setDrawerOrder(null)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Body - scrollable */}
+            <div className="flex-1 overflow-y-auto">
+              {drawerLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <div className="w-8 h-8 border-2 border-slate-200 border-t-brand-500 rounded-full animate-spin" />
+                </div>
+              ) : (
+                <div className="p-6 space-y-6">
+                  {/* Status Badge */}
+                  <div className="flex items-center gap-3">
+                    <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[drawerData.order.status]] || BADGE_VARIANT_CLASSES.secondary}`}>
+                      {STATUS_MAP[drawerData.order.status] || drawerData.order.status}
+                    </span>
+                    <span className="text-[13px] text-slate-500 tabular-nums">{formatTime(drawerData.order.created_at)}</span>
+                  </div>
+
+                  {/* Screenshot */}
+                  {drawerData.order.screenshot_path && (
+                    <div>
+                      <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">订单截图</h4>
+                      <img
+                        src={drawerData.order.screenshot_path}
+                        alt="订单截图"
+                        className="w-full rounded-xl border border-slate-200 object-contain max-h-[200px] bg-slate-50 cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => setPreviewImage(drawerData.order.screenshot_path)}
+                      />
+                    </div>
+                  )}
+
+                  {/* Order Info Grid */}
+                  <div>
+                    <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">订单信息</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <InfoItem label="客户" value={drawerData.order.customer_contact || '-'} />
+                      <InfoItem label="金额" value={`¥${((drawerData.order.price || 0) / 100).toFixed(2)}`} bold />
+                      <InfoItem label="主题" value={drawerData.order.topic || '-'} span2 />
+                      <InfoItem label="页数" value={drawerData.order.pages || '-'} />
+                      <InfoItem label="截止时间" value={drawerData.order.deadline ? formatTime(drawerData.order.deadline) : '无'} />
+                      <InfoItem label="管家" value={drawerData.people.operator_name || drawerData.order.operator_id || '-'} />
+                      <InfoItem label="设计师" value={drawerData.people.designer_name || drawerData.order.designer_id || '待分配'} />
+                    </div>
+                  </div>
+
+                  {/* Remark */}
+                  {drawerData.order.remark && (
+                    <div>
+                      <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">特殊备注</h4>
+                      <p className="text-sm text-slate-700 whitespace-pre-wrap bg-slate-50 rounded-xl p-4 border border-slate-100">{drawerData.order.remark}</p>
+                    </div>
+                  )}
+
+                  {/* Attachment Images */}
+                  {drawerData.order.attachment_urls && (() => {
+                    try {
+                      const urls = JSON.parse(drawerData.order.attachment_urls);
+                      if (urls && urls.length > 0) {
+                        return (
+                          <div>
+                            <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">备注图片 ({urls.length})</h4>
+                            <div className="grid grid-cols-3 gap-2">
+                              {urls.map((url, i) => (
+                                <img
+                                  key={i}
+                                  src={url}
+                                  alt={`附件${i + 1}`}
+                                  className="w-full aspect-square object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity"
+                                  onClick={() => setPreviewImage(url)}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+                    } catch {}
+                    return null;
+                  })()}
+
+                  {/* Refund Reason */}
+                  {drawerData.order.refund_reason && (
+                    <div>
+                      <h4 className="text-[11px] font-semibold text-red-400 uppercase tracking-wider mb-2">退款原因</h4>
+                      <p className="text-sm text-red-600 bg-red-50 rounded-xl p-4 border border-red-100">{drawerData.order.refund_reason}</p>
+                    </div>
+                  )}
+
+                  {/* Profit Summary */}
+                  {drawerData.profit.total_price > 0 && (
+                    <div>
+                      <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">利润明细</h4>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+                          <p className="text-[10px] text-slate-500 mb-1">总价</p>
+                          <p className="text-base font-bold text-slate-800 font-[Outfit] tabular-nums">¥{(drawerData.profit.total_price / 100).toFixed(2)}</p>
+                        </div>
+                        <div className="bg-green-50/60 rounded-xl p-3 text-center border border-green-100">
+                          <p className="text-[10px] text-slate-500 mb-1">净利润</p>
+                          <p className="text-base font-bold text-green-600 font-[Outfit] tabular-nums">¥{(drawerData.profit.net_profit / 100).toFixed(2)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Timeline */}
+                  {drawerData.timeline.length > 0 && (
+                    <div>
+                      <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">状态时间线</h4>
+                      <div className="relative pl-5">
+                        <div className="absolute left-[7px] top-1 bottom-1 w-0.5 bg-gradient-to-b from-brand-500/20 via-slate-200 to-slate-100" />
+                        {drawerData.timeline.map((event, i) => (
+                          <div key={i} className="relative mb-4 last:mb-0">
+                            <div className={`absolute -left-5 top-0.5 w-[14px] h-[14px] rounded-full border-2 flex items-center justify-center ${
+                              i === drawerData.timeline.length - 1
+                                ? 'border-brand-500 bg-brand-500'
+                                : 'border-slate-300 bg-white'
+                            }`}>
+                              {i === drawerData.timeline.length - 1 && <div className="w-1 h-1 rounded-full bg-white" />}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[event.to_status]] || BADGE_VARIANT_CLASSES.secondary}`}>
+                                  {STATUS_MAP[event.to_status] || event.to_status}
+                                </span>
+                                <span className="text-[11px] text-slate-400 tabular-nums">{formatTime(event.created_at)}</span>
+                              </div>
+                              {event.operator_name && <p className="text-[11px] text-slate-500 mt-0.5">操作人: {event.operator_name}</p>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Memoized Order Row ──
-const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggleSelect, openMoreMenu, onSetMoreMenu, onUpdateStatus, onConfirmComplete, onHandleRefund, onConfirmClose, hasMoreActions, onPreviewImage, onReassign }) {
+const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggleSelect, openMoreMenu, onSetMoreMenu, onUpdateStatus, onConfirmComplete, onHandleRefund, onConfirmClose, hasMoreActions, onPreviewImage, onReassign, onOpenDrawer }) {
   return (
-    <tr className={`group transition-colors ${selected ? 'bg-brand-500/5' : 'hover:bg-[#FAFBFC]'}`}>
-      <td className="w-10 pl-4 pr-0">
+    <tr className={`group transition-colors cursor-pointer ${selected ? 'bg-brand-500/5' : 'hover:bg-[#FAFBFC]'}`} onClick={() => onOpenDrawer(order)}>
+      <td className="w-10 pl-4 pr-0" onClick={(e) => e.stopPropagation()}>
         <input
           type="checkbox"
           checked={selected}
@@ -542,12 +736,12 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
             </div>
           )}
           <div>
-            <Link to={`/orders/${order.id}`} className="font-semibold text-brand-500 hover:underline text-[13px] cursor-pointer">{order.order_sn}</Link>
+            <Link to={`/orders/${order.id}`} onClick={(e) => e.stopPropagation()} className="font-semibold text-brand-500 hover:underline text-[13px] cursor-pointer">{order.order_sn}</Link>
             {order.topic && <div className="text-[12px] text-slate-500 mt-1 max-w-[160px] truncate" title={order.topic}>{order.topic}</div>}
           </div>
         </div>
       </td>
-      <td className="text-[13px] text-slate-700 font-medium">
+      <td className="text-[13px] text-slate-700 font-medium" onClick={(e) => e.stopPropagation()}>
         {order.customer_contact ? (
           <Link to={`/customers?keyword=${encodeURIComponent(order.customer_contact)}`} className="text-brand-500 hover:underline cursor-pointer">{order.customer_contact}</Link>
         ) : '-'}
@@ -568,7 +762,7 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
       <td>
         <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[order.status]] || BADGE_VARIANT_CLASSES.secondary}`}>{STATUS_MAP[order.status] || order.status}</span>
       </td>
-      <td className="text-right pr-6">
+      <td className="text-right pr-6" onClick={(e) => e.stopPropagation()}>
         <div className="text-[12px] text-slate-500 mb-2.5 font-medium tabular-nums">{formatTime(order.created_at)}</div>
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           {/* sales: 确认需求 (GROUP_CREATED → CONFIRMED) */}
@@ -635,3 +829,13 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
     </tr>
   );
 });
+
+// ── Info Item (Drawer helper) ──
+function InfoItem({ label, value, bold, span2 }) {
+  return (
+    <div className={span2 ? 'col-span-2' : ''}>
+      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">{label}</span>
+      <p className={`text-sm mt-0.5 ${bold ? 'font-bold text-slate-800' : 'text-slate-700'} truncate`} title={typeof value === 'string' ? value : ''}>{value}</p>
+    </div>
+  );
+}
