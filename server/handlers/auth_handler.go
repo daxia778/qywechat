@@ -179,13 +179,17 @@ func DeviceLogin(c *gin.Context) {
 	}
 	models.WriteAuditLog(emp.WecomUserID, emp.Name, models.AuditLogin, "", "设备登录成功", c.ClientIP())
 
-	// 更新最后登录时间和IP
+	// 更新最后登录时间、IP 和 MAC 地址（静默登录时也刷新设备信息）
 	now := time.Now()
+	loginUpdates := map[string]any{
+		"last_login_at": &now,
+		"last_login_ip": c.ClientIP(),
+	}
+	if req.MacAddress != "" {
+		loginUpdates["mac_address"] = req.MacAddress
+	}
 	if err := models.WriteTx(func(tx *gorm.DB) error {
-		return tx.Model(&emp).Updates(map[string]any{
-			"last_login_at": &now,
-			"last_login_ip": c.ClientIP(),
-		}).Error
+		return tx.Model(&emp).Updates(loginUpdates).Error
 	}); err != nil {
 		log.Printf("更新设备登录时间失败: %v", err)
 	}

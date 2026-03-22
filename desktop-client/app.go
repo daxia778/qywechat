@@ -35,7 +35,7 @@ type App struct {
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		serverURL: "http://120.26.139.90:8200",
+		serverURL: "http://118.31.56.141:8200",
 	}
 }
 
