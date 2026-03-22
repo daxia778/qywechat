@@ -5,7 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505 — 企微 API 签名规范要求 SHA1
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/xml"

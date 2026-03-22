@@ -102,8 +102,8 @@ func main() {
 	services.StartWecomPaymentSyncScheduler(ctx)
 
 	// 确保目录存在
-	os.MkdirAll("uploads", 0o755)
-	os.MkdirAll("data", 0o755)
+	os.MkdirAll("uploads", 0o750) // #nosec G301 — 服务进程专用目录
+	os.MkdirAll("data", 0o750)    // #nosec G301 — 服务进程专用目录
 
 	// 创建 Gin 引擎
 	r := gin.Default()

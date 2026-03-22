@@ -95,7 +95,7 @@ func UploadFile(fileHeader *multipart.FileHeader, subDir string) (*UploadResult,
 
 func uploadToLocal(fh *multipart.FileHeader, subDir string) (*UploadResult, error) {
 	dir := filepath.Join("uploads", subDir)
-	os.MkdirAll(dir, 0o755)
+	os.MkdirAll(dir, 0o750) // #nosec G301 — 上传目录仅服务进程访问
 
 	ext := filepath.Ext(fh.Filename)
 	filename := uuid.New().String() + ext

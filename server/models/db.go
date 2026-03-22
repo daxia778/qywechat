@@ -46,7 +46,7 @@ func InitDB() {
 		// SQLite 初始化
 		dbPath := config.C.DBPath
 		dir := filepath.Dir(dbPath)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil { // #nosec G301
 			log.Fatalf("❌ 创建数据库目录失败: %v", err)
 		}
 		dsn := fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=30000&_synchronous=FULL&_cache_size=-64000&_foreign_keys=ON", dbPath)

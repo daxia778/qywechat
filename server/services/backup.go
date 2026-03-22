@@ -23,7 +23,7 @@ const (
 // StartBackupScheduler 启动 SQLite 定时备份调度器
 // 每 24 小时执行一次，保留最近 7 份
 func StartBackupScheduler(ctx context.Context) {
-	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+	if err := os.MkdirAll(backupDir, 0o750); err != nil { // #nosec G301
 		log.Printf("❌ 创建备份目录失败: %v", err)
 		return
 	}

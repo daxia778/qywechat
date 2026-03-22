@@ -87,7 +87,7 @@ func checkWSOrigin(r *http.Request) bool {
 			return true
 		}
 	}
-	log.Printf("⚠️ WebSocket Origin 被拒绝: %s", origin)
+	log.Printf("⚠️ WebSocket Origin 被拒绝: %q", origin) // #nosec G706 — 用 %q 防注入
 	return false
 }
 
