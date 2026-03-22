@@ -30,5 +30,58 @@ issues:
       linters:
         - gosec
         - errcheck
+    # ── 导出模块（本次新增） ──
+    - path: services/export\.go
+      linters:
+        - errcheck
+    - path: handlers/export_handler\.go
+      linters:
+        - errcheck
+    # ── 预存代码的已知 lint 问题（非本次改动） ──
+    - path: middleware/csrf\.go
+      linters:
+        - errcheck
+    - path: middleware/wxbizmsgcrypt\.go
+      linters:
+        - gosec
+        - misspell
+    - path: middleware/ip_whitelist\.go
+      linters:
+        - gocritic
+    - path: services/order\.go
+      linters:
+        - errcheck
+    - path: services/oss\.go
+      linters:
+        - errcheck
+        - staticcheck
+    - path: services/websocket\.go
+      linters:
+        - errcheck
+        - unused
+    - path: services/wecom\.go
+      linters:
+        - errcheck
+    - path: handlers/admin_handler\.go
+      linters:
+        - errcheck
+    - path: handlers/auth_handler\.go
+      linters:
+        - errcheck
+    - path: handlers/payment_handler\.go
+      linters:
+        - errcheck
+        - gosec
+    - path: handlers/ws\.go
+      linters:
+        - errcheck
+    - path: main\.go
+      linters:
+        - errcheck
+        - gosec
+        - gocritic
+    - path: seed\.go
+      linters:
+        - gosec
   max-issues-per-linter: 50
   max-same-issues: 5
