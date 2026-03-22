@@ -119,7 +119,11 @@ const state = reactive({
     deadline: '',
     remark: ''
   },
-  
+
+  // 备注图片附件
+  attachments: [],        // [{url: '服务端URL', preview: 'base64预览'}]
+  attachmentUploading: false,
+
   submitLoading: false,
   toastMsg: '',
   toastType: 'success',
@@ -377,6 +381,77 @@ const resetOCR = () => {
   showToast('已撤销，可重新截图或粘贴');
 };
 
+// ══ 备注图片附件 ══
+const handleAttachmentPaste = async (e) => {
+  // 仅在备注区域聚焦时触发（由模板 @paste 绑定）
+  const items = e.clipboardData?.items;
+  if (!items) return;
+
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type.indexOf('image') !== -1) {
+      e.preventDefault();
+      e.stopPropagation();
+      const file = items[i].getAsFile();
+      if (!file) continue;
+
+      if (state.attachments.length >= 5) {
+        showToast('最多添加 5 张备注图片', 'error');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const base64Data = event.target.result;
+        state.attachmentUploading = true;
+        try {
+          const res = await window.go.main.App.UploadAttachmentBase64(base64Data);
+          if (res.error) {
+            showToast('图片上传失败: ' + res.error, 'error');
+          } else {
+            state.attachments.push({ url: res.url, preview: base64Data });
+            showToast('备注图片已添加');
+          }
+        } catch (err) {
+          showToast('图片上传异常: ' + err, 'error');
+        } finally {
+          state.attachmentUploading = false;
+        }
+      };
+      reader.readAsDataURL(file);
+      break;
+    }
+  }
+};
+
+const selectAttachmentFile = async () => {
+  if (state.attachments.length >= 5) {
+    showToast('最多添加 5 张备注图片', 'error');
+    return;
+  }
+  try {
+    const filePath = await window.go.main.App.SelectAttachmentFile();
+    if (!filePath) return;
+
+    state.attachmentUploading = true;
+    const res = await window.go.main.App.UploadAttachmentFile(filePath);
+    if (res.error) {
+      showToast('图片上传失败: ' + res.error, 'error');
+    } else {
+      // 文件选择模式没有本地预览，用服务端 URL 作为预览源
+      state.attachments.push({ url: res.url, preview: '' });
+      showToast('备注图片已添加');
+    }
+  } catch (err) {
+    showToast('图片上传异常: ' + err, 'error');
+  } finally {
+    state.attachmentUploading = false;
+  }
+};
+
+const removeAttachment = (index) => {
+  state.attachments.splice(index, 1);
+};
+
 const submit = async () => {
   const manualMode = state.ocrRetryCount >= 3;
   if (!state.priceLocked && !manualMode) {
@@ -402,9 +477,10 @@ const submit = async () => {
       state.form.remark,
       state.form.deadline,
       state.price,
-      parseInt(state.form.pages) || 0
+      parseInt(state.form.pages) || 0,
+      state.attachments.map(a => a.url)
     );
-    
+
     if (res.success) {
       showToast('下单成功！订单已进入派单池');
       // 清空表单
@@ -412,6 +488,7 @@ const submit = async () => {
       state.price = null;
       state.rawPrice = '';
       state.priceLocked = false;
+      state.attachments = [];
       state.form = { customerContact: '', topic: '', pages: '', deadline: '', remark: '' };
     } else {
       showToast(res.message, 'error');
@@ -566,7 +643,34 @@ const submit = async () => {
         
         <div class="form-group" style="margin-bottom: 0;">
           <label class="form-label">特殊备注 (直达设计师)</label>
-          <textarea v-model="state.form.remark" class="form-textarea" placeholder="例如: 偏好深蓝色，不要套模板，极简风"></textarea>
+          <textarea v-model="state.form.remark" class="form-textarea" placeholder="例如: 偏好深蓝色，不要套模板，极简风" @paste="handleAttachmentPaste"></textarea>
+        </div>
+
+        <!-- 备注图片附件 -->
+        <div class="form-group" style="margin-bottom: 0; margin-top: 12px;">
+          <label class="form-label">
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="vertical-align: -2px; margin-right: 4px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+            备注图片 ({{ state.attachments.length }}/5)
+            <span style="color: #94a3b8; font-weight: 400; margin-left: 6px;">粘贴或选择客户发来的图片</span>
+          </label>
+          <div class="attachment-zone">
+            <!-- 已上传的图片缩略图 -->
+            <div v-for="(att, idx) in state.attachments" :key="idx" class="attachment-thumb">
+              <img :src="att.preview || att.url" class="attachment-img" />
+              <button class="attachment-remove" @click="removeAttachment(idx)" title="删除">
+                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <!-- 上传中 -->
+            <div v-if="state.attachmentUploading" class="attachment-thumb attachment-loading">
+              <div class="spinner" style="width: 20px; height: 20px; border-width: 2px; border-top-color: var(--accent);"></div>
+            </div>
+            <!-- 添加按钮 -->
+            <div v-if="state.attachments.length < 5 && !state.attachmentUploading" class="attachment-add" @click="selectAttachmentFile">
+              <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+            </div>
+          </div>
+          <div class="attachment-hint">在备注框内按 <kbd>Ctrl+V</kbd> / <kbd>Cmd+V</kbd> 可直接粘贴图片</div>
         </div>
       </div>
       
@@ -774,4 +878,88 @@ const submit = async () => {
   justify-content: flex-end;
   gap: 12px;
 }
+/* 备注图片附件区域 */
+.attachment-zone {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  min-height: 56px;
+  align-items: center;
+}
+.attachment-thumb {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+.attachment-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.attachment-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  background: rgba(239, 68, 68, 0.9);
+  border: none;
+  border-radius: 50%;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.attachment-thumb:hover .attachment-remove {
+  opacity: 1;
+}
+.attachment-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f5f9;
+}
+.attachment-add {
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  border: 1px dashed #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #94a3b8;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+.attachment-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(99, 102, 241, 0.05);
+}
+.attachment-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+.attachment-hint kbd {
+  background: #e2e8f0;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-family: inherit;
+}
+
 </style>

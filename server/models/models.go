@@ -60,6 +60,7 @@ type Order struct {
 	Deadline        *time.Time `gorm:"column:deadline" json:"deadline,omitempty"`
 	Remark          string     `gorm:"column:remark;type:text" json:"remark,omitempty"`
 	ScreenshotPath  string     `gorm:"column:screenshot_path;type:text" json:"screenshot_path,omitempty"`
+	AttachmentURLs  string     `gorm:"column:attachment_urls;type:text" json:"attachment_urls,omitempty"` // JSON 数组，备注图片URL列表
 	Status          string     `gorm:"column:status;size:32;default:PENDING;index:idx_status_created,priority:1" json:"status"`
 	WecomChatID     string     `gorm:"column:wecom_chat_id;size:64" json:"wecom_chat_id,omitempty"`
 	RefundReason    string     `gorm:"column:refund_reason;type:text" json:"refund_reason,omitempty"`

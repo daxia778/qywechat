@@ -22,7 +22,7 @@ func GenerateOrderSN() string {
 }
 
 // CreateOrder 创建订单
-func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshotPath string, price, pages int, deadline *time.Time) (*models.Order, error) {
+func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshotPath, attachmentURLs string, price, pages int, deadline *time.Time) (*models.Order, error) {
 	if orderSN == "" {
 		orderSN = GenerateOrderSN()
 	}
@@ -49,6 +49,7 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 		Deadline:        deadline,
 		Remark:          remark,
 		ScreenshotPath:  screenshotPath,
+		AttachmentURLs:  attachmentURLs,
 		Status:          models.StatusPending,
 	}
 

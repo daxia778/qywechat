@@ -377,7 +377,7 @@ type SubmitResult struct {
 	OrderSN string `json:"order_sn"`
 }
 
-func (a *App) SubmitOrder(orderSN, customerContact, topic, remark, deadline string, price, pages int) *SubmitResult {
+func (a *App) SubmitOrder(orderSN, customerContact, topic, remark, deadline string, price, pages int, attachmentURLs []string) *SubmitResult {
 	payload := map[string]interface{}{
 		"order_sn":         orderSN,
 		"customer_contact": customerContact,
@@ -386,6 +386,7 @@ func (a *App) SubmitOrder(orderSN, customerContact, topic, remark, deadline stri
 		"pages":            pages,
 		"deadline":         deadline,
 		"remark":           remark,
+		"attachment_urls":  attachmentURLs,
 	}
 	body, _ := json.Marshal(payload)
 
@@ -423,6 +424,122 @@ func (a *App) SubmitOrder(orderSN, customerContact, topic, remark, deadline stri
 		Message: "订单提交成功！",
 		OrderSN: sn,
 	}
+}
+
+// ─── 备注图片上传 ──────────────────────────
+
+type UploadAttachmentResult struct {
+	URL   string `json:"url"`
+	Error string `json:"error,omitempty"`
+}
+
+// UploadAttachmentBase64 上传备注图片（base64），返回服务端 URL
+func (a *App) UploadAttachmentBase64(b64DataURL string) *UploadAttachmentResult {
+	parts := strings.SplitN(b64DataURL, ",", 2)
+	if len(parts) != 2 {
+		return &UploadAttachmentResult{Error: "无效的图片数据"}
+	}
+
+	imgBytes, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return &UploadAttachmentResult{Error: "图片解码失败"}
+	}
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", "attachment.png")
+	if err != nil {
+		return &UploadAttachmentResult{Error: "创建表单失败"}
+	}
+	io.Copy(part, bytes.NewReader(imgBytes))
+	writer.Close()
+
+	req, _ := http.NewRequest("POST", a.serverURL+"/api/v1/orders/upload_attachment", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if a.token != "" {
+		req.Header.Set("Authorization", "Bearer "+a.token)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return &UploadAttachmentResult{Error: "上传失败: " + err.Error()}
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	if resp.StatusCode != 200 {
+		return &UploadAttachmentResult{Error: "上传失败"}
+	}
+
+	url := ""
+	if v, ok := result["url"]; ok {
+		url, _ = v.(string)
+	}
+	return &UploadAttachmentResult{URL: url}
+}
+
+// UploadAttachmentFile 通过文件路径上传备注图片
+func (a *App) UploadAttachmentFile(filePath string) *UploadAttachmentResult {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return &UploadAttachmentResult{Error: "文件打开失败"}
+	}
+	defer file.Close()
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+	if err != nil {
+		return &UploadAttachmentResult{Error: "创建表单失败"}
+	}
+	io.Copy(part, file)
+	writer.Close()
+
+	req, _ := http.NewRequest("POST", a.serverURL+"/api/v1/orders/upload_attachment", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if a.token != "" {
+		req.Header.Set("Authorization", "Bearer "+a.token)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return &UploadAttachmentResult{Error: "上传失败: " + err.Error()}
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	if resp.StatusCode != 200 {
+		return &UploadAttachmentResult{Error: "上传失败"}
+	}
+
+	url := ""
+	if v, ok := result["url"]; ok {
+		url, _ = v.(string)
+	}
+	return &UploadAttachmentResult{URL: url}
+}
+
+// SelectAttachmentFile 弹出文件选择框选择备注图片
+func (a *App) SelectAttachmentFile() string {
+	selection, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "选择备注图片",
+		Filters: []wailsruntime.FileFilter{
+			{
+				DisplayName: "Images (*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp)",
+				Pattern:     "*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp",
+			},
+		},
+	})
+	if err != nil {
+		return ""
+	}
+	return selection
 }
 
 // ─── 配置服务器地址 ────────────────────────

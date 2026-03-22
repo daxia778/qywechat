@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"slices"
@@ -57,17 +58,40 @@ func UploadOCR(c *gin.Context) {
 	})
 }
 
+// ─── 通用图片上传 ──────────────────────────────────
+
+// UploadAttachment 上传备注图片（不做 OCR，仅上传返回 URL）
+func UploadAttachment(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		badRequest(c, "请上传图片文件")
+		return
+	}
+
+	uploadResult, err := services.UploadFile(file, "attachments")
+	if err != nil {
+		log.Printf("附件上传失败: %v", err)
+		internalError(c, "文件上传失败，请稍后重试")
+		return
+	}
+
+	respondOK(c, gin.H{
+		"url": uploadResult.URL,
+	})
+}
+
 // ─── 订单 ──────────────────────────────────────────
 
 type CreateOrderReq struct {
-	OrderSN         string `json:"order_sn"`
-	CustomerContact string `json:"customer_contact"`
-	Price           int    `json:"price"`
-	Topic           string `json:"topic"`
-	Pages           int    `json:"pages"`
-	Deadline        string `json:"deadline"`
-	Remark          string `json:"remark"`
-	ScreenshotURL   string `json:"screenshot_url"`
+	OrderSN         string   `json:"order_sn"`
+	CustomerContact string   `json:"customer_contact"`
+	Price           int      `json:"price"`
+	Topic           string   `json:"topic"`
+	Pages           int      `json:"pages"`
+	Deadline        string   `json:"deadline"`
+	Remark          string   `json:"remark"`
+	ScreenshotURL   string   `json:"screenshot_url"`
+	AttachmentURLs  []string `json:"attachment_urls"` // 备注图片URL列表
 }
 
 // CreateOrder 创建订单
@@ -119,9 +143,17 @@ func CreateOrder(c *gin.Context) {
 		}
 	}
 
+	// 序列化备注图片URL列表
+	attachmentURLsJSON := ""
+	if len(req.AttachmentURLs) > 0 {
+		if b, err := json.Marshal(req.AttachmentURLs); err == nil {
+			attachmentURLsJSON = string(b)
+		}
+	}
+
 	order, err := services.CreateOrder(
 		operatorID, req.OrderSN, req.CustomerContact,
-		req.Topic, req.Remark, req.ScreenshotURL, req.Price, req.Pages, deadline,
+		req.Topic, req.Remark, req.ScreenshotURL, attachmentURLsJSON, req.Price, req.Pages, deadline,
 	)
 	if err != nil {
 		log.Printf("创建订单失败: %v", err)

@@ -179,6 +179,7 @@ func main() {
 		orderAuth.Use(middleware.JWTAuth())
 		{
 			orderAuth.POST("/upload_ocr", handlers.UploadOCR)
+			orderAuth.POST("/upload_attachment", handlers.UploadAttachment)
 			orderAuth.GET("/list", handlers.ListOrders)
 			orderAuth.GET("/:id", handlers.GetOrder)
 			orderAuth.POST("/create", handlers.CreateOrder)
