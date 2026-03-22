@@ -410,7 +410,13 @@ func (a *App) SubmitOrder(orderSN, customerContact, topic, remark, deadline stri
 	if resp.StatusCode != 200 {
 		msg := "提交失败"
 		if e, ok := result["error"]; ok {
-			msg = e.(string)
+			if s, ok2 := e.(string); ok2 {
+				msg = s
+			}
+		}
+		// 409 订单号重复时给更明确的提示
+		if resp.StatusCode == 409 {
+			msg = "该订单号已存在，请勿重复提交。如需重新录入，请更换截图。"
 		}
 		return &SubmitResult{Success: false, Message: msg}
 	}

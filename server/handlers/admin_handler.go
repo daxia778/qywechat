@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/big"
 	"strconv"
+	"time"
 
 	"pdd-order-system/middleware"
 	"pdd-order-system/models"
@@ -292,7 +293,57 @@ func ListActivationCodes(c *gin.Context) {
 		query = query.Where("machine_id = ''")
 	}
 	query.Order("created_at DESC").Find(&employees)
-	respondList(c, employees, len(employees))
+
+	// 查询每个员工最后一次提交订单的时间
+	operatorIDs := make([]string, 0, len(employees))
+	for _, emp := range employees {
+		if emp.WecomUserID != "" {
+			operatorIDs = append(operatorIDs, emp.WecomUserID)
+		}
+	}
+
+	type lastOrderInfo struct {
+		OperatorID  string
+		LastOrderAt time.Time
+	}
+	lastOrderMap := make(map[string]time.Time)
+	if len(operatorIDs) > 0 {
+		var lastOrders []lastOrderInfo
+		models.DB.Model(&models.Order{}).
+			Select("operator_id, MAX(created_at) as last_order_at").
+			Where("operator_id IN ?", operatorIDs).
+			Group("operator_id").
+			Find(&lastOrders)
+		for _, lo := range lastOrders {
+			lastOrderMap[lo.OperatorID] = lo.LastOrderAt
+		}
+	}
+
+	// 组装响应，附加 last_order_at
+	result := make([]gin.H, 0, len(employees))
+	for _, emp := range employees {
+		item := gin.H{
+			"id":                 emp.ID,
+			"wecom_userid":      emp.WecomUserID,
+			"name":              emp.Name,
+			"role":              emp.Role,
+			"username":          emp.Username,
+			"machine_id":        emp.MachineID,
+			"mac_address":       emp.MacAddress,
+			"status":            emp.Status,
+			"active_order_count": emp.ActiveOrderCount,
+			"is_active":         emp.IsActive,
+			"last_login_at":     emp.LastLoginAt,
+			"last_login_ip":     emp.LastLoginIP,
+			"created_at":        emp.CreatedAt,
+			"updated_at":        emp.UpdatedAt,
+		}
+		if t, ok := lastOrderMap[emp.WecomUserID]; ok {
+			item["last_order_at"] = t
+		}
+		result = append(result, item)
+	}
+	respondList(c, result, len(result))
 }
 
 // PauseActivationCode 远程暂停或恢复激活码 (复用 toggleEmployeeActive)
@@ -358,11 +409,14 @@ func RegenerateActivationCode(c *gin.Context) {
 		return
 	}
 
+	// 踢掉该用户所有已签发的旧 token，迫使旧设备重新登录
+	middleware.RevokeAllUserTokens(emp.WecomUserID)
+
 	userID, _ := c.Get("wecom_userid")
 	userName, _ := c.Get("name")
 	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "重新生成激活码并解绑旧设备: "+emp.Name, c.ClientIP())
 
-	log.Printf("激活码已重新生成 | 员工=%s | 旧设备已解绑", emp.Name)
+	log.Printf("激活码已重新生成 | 员工=%s | 旧设备已解绑 | 旧Token已全部失效", emp.Name)
 
 	respondOK(c, gin.H{
 		"activation_code_plain": plainCode,
