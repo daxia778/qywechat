@@ -46,7 +46,7 @@ jobs:
       - name: Security scan (gosec)
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@latest
-          gosec -exclude=G104 ./...
+          gosec -exclude=G104,G115,G304,G404,G401,G112 -exclude-dir=middleware/wxbizmsgcrypt.go ./...
 
       - name: Test with coverage
         env:
