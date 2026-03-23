@@ -301,6 +301,7 @@ func main() {
 
 			// Phase 2: 通知
 			admin.GET("/notifications", handlers.ListNotifications)
+			admin.PUT("/notifications/all/read", handlers.MarkAllNotificationsRead)
 			admin.PUT("/notifications/:id/read", handlers.MarkNotificationRead)
 
 			// Phase 2: 数据导出

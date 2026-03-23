@@ -51,3 +51,4 @@ export const exportExcel = async (params = {}) => {
 };
 
 export const regenerateActivationCode = (id) => client.put(`/admin/activation_codes/${id}/regenerate`);
+export const getGrabAlerts = () => client.get('/admin/grab_alerts');

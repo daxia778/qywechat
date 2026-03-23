@@ -54,24 +54,29 @@ func ListNotifications(c *gin.Context) {
 	})
 }
 
+// MarkAllNotificationsRead 批量标记所有通知已读
+func MarkAllNotificationsRead(c *gin.Context) {
+	userID := "admin"
+	if v, exists := c.Get("wecom_userid"); exists {
+		if uid, ok := v.(string); ok {
+			userID = uid
+		}
+	}
+	var count int64
+	models.WriteTx(func(tx *gorm.DB) error {
+		r := tx.Model(&models.Notification{}).Where("user_id = ? AND is_read = ?", userID, false).Update("is_read", true)
+		count = r.RowsAffected
+		return r.Error
+	})
+	respondOK(c, gin.H{
+		"message": "ok",
+		"count":   count,
+	})
+}
+
 // MarkNotificationRead 标记通知已读
 func MarkNotificationRead(c *gin.Context) {
 	idStr := c.Param("id")
-
-	if idStr == "all" {
-		// 批量全部已读
-		userID := "admin"
-		if v, exists := c.Get("wecom_userid"); exists {
-			if uid, ok := v.(string); ok {
-				userID = uid
-			}
-		}
-		models.WriteTx(func(tx *gorm.DB) error {
-			return tx.Model(&models.Notification{}).Where("user_id = ? AND is_read = ?", userID, false).Update("is_read", true).Error
-		})
-		respondMessage(c, "全部已读")
-		return
-	}
 
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {

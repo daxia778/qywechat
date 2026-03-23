@@ -91,7 +91,8 @@
 - [ ] 企微回调 Token/EncodingAESKey 配置（需公网域名+企微后台操作）
 - [ ] 企微回调入站消息日志入库（incoming 方向）
 - [ ] 管理端企微数据查看 API（WecomMember / GroupChat / MessageLog）
-- [ ] 前端 Vue 遗留页面清理（views/ 目录下有旧 Vue 文件）
+- [x] 前端 Vue 遗留页面清理（已完成，无残留 .vue 文件）
+- [x] 收款流水管理页 PaymentsPage（汇总统计、筛选、流水列表、手动录入、关联订单）
 - [ ] 生产环境部署（服务器 + 域名 + HTTPS）
 - [ ] 企微 OAuth/JSSDK 登录流（可选）
 
