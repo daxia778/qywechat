@@ -30,8 +30,8 @@ func SetupTestDB(t *testing.T) *gorm.DB {
 		JWTExpireMinutes:       60,
 		AdminDefaultUsername:   "admin",
 		AdminDefaultPassword:   "Test123!",
-		PlatformFeeRate:        5,
-		DesignerCommissionRate: 40,
+		PlatformFeeRate:        30,
+		DesignerCommissionRate: 25,
 		SalesCommissionRate:    10,
 		FollowCommissionRate:   5,
 	}

@@ -89,6 +89,9 @@ func InitDB() {
 
 	// 种子数据: 自动创建默认管理员账户
 	seedDefaultAdmin()
+
+	// 一次性补录: 给缺少 GROUP_CREATED 时间线的订单补记录
+	backfillGroupCreatedTimeline()
 }
 
 // ensureIndexes 创建业务常用的复合索引
@@ -140,4 +143,48 @@ func seedDefaultAdmin() {
 		return
 	}
 	log.Printf("✅ 已创建默认管理员账户: %s (密码已设置，请通过环境变量 ADMIN_DEFAULT_PASSWORD 查看)", username)
+}
+
+// backfillGroupCreatedTimeline 补录缺少 GROUP_CREATED 时间线的历史订单
+func backfillGroupCreatedTimeline() {
+	var orders []Order
+	DB.Where("designer_id != '' AND status != ?", StatusPending).Find(&orders)
+
+	filled := 0
+	for _, o := range orders {
+		var exists int64
+		DB.Model(&OrderTimeline{}).Where(
+			"order_id = ? AND event_type = 'status_changed' AND to_status = ?",
+			o.ID, StatusGroupCreated,
+		).Count(&exists)
+		if exists > 0 {
+			continue
+		}
+
+		designerName := o.DesignerID
+		var emp Employee
+		if DB.Where("wecom_userid = ?", o.DesignerID).First(&emp).Error == nil {
+			designerName = emp.Name
+		}
+
+		ts := o.CreatedAt
+		if o.AssignedAt != nil {
+			ts = *o.AssignedAt
+		}
+
+		DB.Create(&OrderTimeline{
+			OrderID:      o.ID,
+			EventType:    "status_changed",
+			FromStatus:   StatusPending,
+			ToStatus:     StatusGroupCreated,
+			OperatorID:   o.DesignerID,
+			OperatorName: designerName,
+			Remark:       "系统自动指派",
+			CreatedAt:    ts,
+		})
+		filled++
+	}
+	if filled > 0 {
+		log.Printf("✅ 已补录 %d 条缺失的 GROUP_CREATED 时间线记录", filled)
+	}
 }

@@ -118,7 +118,7 @@ func uploadToLocal(fh *multipart.FileHeader, subDir string) (*UploadResult, erro
 	}
 
 	return &UploadResult{
-		URL:      "/" + savePath, // 本地模式返回相对路径
+		URL:      "/" + savePath, // 本地模式返回相对路径，匹配公开静态文件路由 /uploads/*
 		FilePath: savePath,
 	}, nil
 }

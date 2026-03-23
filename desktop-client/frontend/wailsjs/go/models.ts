@@ -44,6 +44,7 @@ export namespace main {
 	    raw_price: string;
 	    order_time: string;
 	    confidence: number;
+	    screenshot_url: string;
 	    error?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -57,6 +58,7 @@ export namespace main {
 	        this.raw_price = source["raw_price"];
 	        this.order_time = source["order_time"];
 	        this.confidence = source["confidence"];
+	        this.screenshot_url = source["screenshot_url"];
 	        this.error = source["error"];
 	    }
 	}

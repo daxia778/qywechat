@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
@@ -7,6 +8,33 @@ import { getCustomerDetail } from '../api/customers';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
+
+const EVENT_TYPE_MAP = {
+  status_changed: (e) => STATUS_MAP[e.to_status] || e.to_status,
+  amount_changed: () => '金额变更',
+  pages_changed: () => '页数变更',
+  designer_reassigned: () => '设计师转派',
+  customer_matched: () => '关联客户',
+};
+
+const EVENT_BADGE_MAP = {
+  amount_changed: 'warning',
+  pages_changed: 'warning',
+  designer_reassigned: 'secondary',
+  customer_matched: 'primary',
+};
+
+function getTimelineEventLabel(event) {
+  const fn = EVENT_TYPE_MAP[event.event_type];
+  if (fn) return fn(event);
+  if (event.to_status) return STATUS_MAP[event.to_status] || event.to_status;
+  return event.event_type || '未知事件';
+}
+
+function getTimelineEventBadge(event) {
+  if (EVENT_BADGE_MAP[event.event_type]) return EVENT_BADGE_MAP[event.event_type];
+  return STATUS_BADGE_MAP[event.to_status] || 'secondary';
+}
 
 export default function OrderDetailPage() {
   const { id } = useParams();
@@ -17,8 +45,9 @@ export default function OrderDetailPage() {
   const [order, setOrder] = useState({});
   const [timeline, setTimeline] = useState([]);
   const [profit, setProfit] = useState({
-    total_price: 0, platform_fee: 0, designer_commission: 0, net_profit: 0,
-    platform_fee_rate: 0, designer_rate: 0,
+    total_price: 0, platform_fee: 0, designer_commission: 0,
+    sales_commission: 0, follow_commission: 0, net_profit: 0,
+    platform_fee_rate: 0, designer_rate: 0, sales_rate: 0, follow_rate: 0,
   });
   const [people, setPeople] = useState({ operator_name: '', designer_name: '' });
   const [customer, setCustomer] = useState(null);
@@ -34,6 +63,69 @@ export default function OrderDetailPage() {
   const [editPages, setEditPages] = useState('');
   const [editRemark, setEditRemark] = useState('');
   const [amountSubmitting, setAmountSubmitting] = useState(false);
+
+  // Image lightbox state
+  const [previewImage, setPreviewImage] = useState(null);
+  const [zoomScale, setZoomScale] = useState(1);
+  const [zoomTranslate, setZoomTranslate] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [hasDragged, setHasDragged] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
+  const zoomImgRef = useRef(null);
+
+  const openPreview = useCallback((src) => {
+    setPreviewImage(src);
+    setZoomScale(1);
+    setZoomTranslate({ x: 0, y: 0 });
+    setIsDragging(false);
+    setHasDragged(false);
+  }, []);
+
+  const handleLightboxWheel = useCallback((e) => {
+    e.preventDefault();
+    const img = zoomImgRef.current;
+    if (!img) return;
+    const rect = img.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const delta = e.deltaY > 0 ? -1 : 1;
+    const factor = 1 + delta * 0.15;
+    setZoomScale((prev) => {
+      const next = Math.min(Math.max(prev * factor, 0.5), 8);
+      const imgX = mouseX / prev;
+      const imgY = mouseY / prev;
+      setZoomTranslate((t) => ({
+        x: e.clientX - imgX * next - (rect.left - t.x),
+        y: e.clientY - imgY * next - (rect.top - t.y),
+      }));
+      return next;
+    });
+  }, []);
+
+  const handleDragStart = useCallback((e) => {
+    e.preventDefault();
+    setIsDragging(true);
+    setHasDragged(false);
+    dragStartRef.current = { x: e.clientX, y: e.clientY, tx: 0, ty: 0 };
+    setZoomTranslate((t) => {
+      dragStartRef.current.tx = t.x;
+      dragStartRef.current.ty = t.y;
+      return t;
+    });
+    const onMove = (me) => {
+      const dx = me.clientX - dragStartRef.current.x;
+      const dy = me.clientY - dragStartRef.current.y;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) setHasDragged(true);
+      setZoomTranslate({ x: dragStartRef.current.tx + dx, y: dragStartRef.current.ty + dy });
+    };
+    const onUp = () => {
+      setIsDragging(false);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, []);
 
   const showModal = (opts, action) => {
     actionRef.current = action;
@@ -149,6 +241,7 @@ export default function OrderDetailPage() {
   };
 
   return (
+    <>
     <div className="flex flex-col gap-5 w-full max-w-[1400px] mx-auto">
       <ConfirmModal
         visible={modal.show} title={modal.title} message={modal.message} type={modal.type}
@@ -225,9 +318,9 @@ export default function OrderDetailPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Left */}
-        <div className="xl:col-span-2 flex flex-col gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+        {/* Left: Info + Profit */}
+        <div className="xl:col-span-3 flex flex-col gap-6">
           {/* Basic Info */}
           <div className="bg-surface-container-lowest ghost-border rounded-xl">
             <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
@@ -277,6 +370,10 @@ export default function OrderDetailPage() {
                 <p className="text-sm font-semibold text-slate-800 mt-1">{people.designer_name || order.designer_id || '待分配'}</p>
               </div>
               <div>
+                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">订单金额</span>
+                <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">&yen;{((order.price ?? 0) / 100).toFixed(2)}</p>
+              </div>
+              <div>
                 <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">创建时间</span>
                 <p className="text-sm text-slate-700 mt-1 tabular-nums">{formatTime(order.created_at)}</p>
               </div>
@@ -284,6 +381,12 @@ export default function OrderDetailPage() {
                 <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">截止时间</span>
                 <p className="text-sm text-slate-700 mt-1 tabular-nums">{order.deadline ? formatTime(order.deadline) : '无'}</p>
               </div>
+              {order.order_time && (
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">下单时间</span>
+                  <p className="text-sm text-slate-700 mt-1 tabular-nums">{order.order_time}</p>
+                </div>
+              )}
               {order.remark && (
                 <div className="col-span-2">
                   <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">备注</span>
@@ -406,8 +509,8 @@ export default function OrderDetailPage() {
             </div>
           )}
 
-          {/* Profit */}
-          <div className="bg-surface-container-lowest ghost-border rounded-xl">
+          {/* Profit (admin only) */}
+          {role === 'admin' && <div className="bg-surface-container-lowest ghost-border rounded-xl">
             <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-success-bg">
@@ -417,31 +520,39 @@ export default function OrderDetailPage() {
               </div>
             </div>
             <div className="p-6">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div className="bg-slate-50 rounded-xl p-4 text-center border border-slate-100 hover:border-slate-200 transition-colors">
-                  <p className="text-[11px] text-slate-500 mb-1.5 font-medium">总价</p>
-                  <p className="text-xl font-bold text-slate-800 font-[Outfit] tabular-nums">&yen;{(profit.total_price / 100).toFixed(2)}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100 hover:border-slate-200 transition-colors overflow-hidden">
+                  <p className="text-[11px] text-slate-500 mb-1 font-medium truncate">总价</p>
+                  <p className="text-lg font-bold text-slate-800 font-[Outfit] tabular-nums truncate">&yen;{(profit.total_price / 100).toFixed(2)}</p>
                 </div>
-                <div className="bg-red-50/60 rounded-xl p-4 text-center border border-red-100 hover:border-red-200 transition-colors">
-                  <p className="text-[11px] text-slate-500 mb-1.5 font-medium">平台费 ({profit.platform_fee_rate}%)</p>
-                  <p className="text-xl font-bold text-red-600 font-[Outfit] tabular-nums">&yen;{(profit.platform_fee / 100).toFixed(2)}</p>
+                <div className="bg-red-50/60 rounded-xl p-3 text-center border border-red-100 hover:border-red-200 transition-colors overflow-hidden">
+                  <p className="text-[11px] text-slate-500 mb-1 font-medium truncate">平台费 ({profit.platform_fee_rate}%)</p>
+                  <p className="text-lg font-bold text-red-600 font-[Outfit] tabular-nums truncate">&yen;{(profit.platform_fee / 100).toFixed(2)}</p>
                 </div>
-                <div className="bg-blue-50/60 rounded-xl p-4 text-center border border-blue-100 hover:border-blue-200 transition-colors">
-                  <p className="text-[11px] text-slate-500 mb-1.5 font-medium">设计师 ({profit.designer_rate}%)</p>
-                  <p className="text-xl font-bold text-blue-600 font-[Outfit] tabular-nums">&yen;{(profit.designer_commission / 100).toFixed(2)}</p>
+                <div className="bg-blue-50/60 rounded-xl p-3 text-center border border-blue-100 hover:border-blue-200 transition-colors overflow-hidden">
+                  <p className="text-[11px] text-slate-500 mb-1 font-medium truncate">设计师 ({profit.designer_rate}%)</p>
+                  <p className="text-lg font-bold text-blue-600 font-[Outfit] tabular-nums truncate">&yen;{(profit.designer_commission / 100).toFixed(2)}</p>
                 </div>
-                <div className="bg-green-50/60 rounded-xl p-4 text-center border border-green-100 hover:border-green-200 transition-colors">
-                  <p className="text-[11px] text-slate-500 mb-1.5 font-medium">净利润</p>
-                  <p className="text-xl font-bold text-green-600 font-[Outfit] tabular-nums">&yen;{(profit.net_profit / 100).toFixed(2)}</p>
+                <div className="bg-purple-50/60 rounded-xl p-3 text-center border border-purple-100 hover:border-purple-200 transition-colors overflow-hidden">
+                  <p className="text-[11px] text-slate-500 mb-1 font-medium truncate">谈单客服 ({profit.sales_rate}%)</p>
+                  <p className="text-lg font-bold text-purple-600 font-[Outfit] tabular-nums truncate">&yen;{(profit.sales_commission / 100).toFixed(2)}</p>
+                </div>
+                <div className="bg-amber-50/60 rounded-xl p-3 text-center border border-amber-100 hover:border-amber-200 transition-colors overflow-hidden">
+                  <p className="text-[11px] text-slate-500 mb-1 font-medium truncate">跟单客服 ({profit.follow_rate}%)</p>
+                  <p className="text-lg font-bold text-amber-600 font-[Outfit] tabular-nums truncate">&yen;{(profit.follow_commission / 100).toFixed(2)}</p>
+                </div>
+                <div className="bg-green-50/60 rounded-xl p-3 text-center border border-green-100 hover:border-green-200 transition-colors overflow-hidden">
+                  <p className="text-[11px] text-slate-500 mb-1 font-medium truncate">净利润</p>
+                  <p className="text-lg font-bold text-green-600 font-[Outfit] tabular-nums truncate">&yen;{(profit.net_profit / 100).toFixed(2)}</p>
                 </div>
               </div>
             </div>
-          </div>
+          </div>}
         </div>
 
-        {/* Right: Timeline */}
-        <div className="xl:col-span-1">
-          <div className="bg-surface-container-lowest ghost-border rounded-xl h-full">
+        {/* Right: Timeline + Images */}
+        <div className="xl:col-span-2 flex flex-col gap-6">
+          <div className="bg-surface-container-lowest ghost-border rounded-xl">
             <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-brand-50">
@@ -459,7 +570,10 @@ export default function OrderDetailPage() {
               ) : (
                 <div className="relative pl-6">
                   <div className="absolute left-[9px] top-2 bottom-2 w-0.5 bg-gradient-to-b from-brand-500/20 via-slate-200 to-slate-100" />
-                  {timeline.map((event, i) => (
+                  {timeline.map((event, i) => {
+                    const eventLabel = getTimelineEventLabel(event);
+                    const eventBadge = getTimelineEventBadge(event);
+                    return (
                     <div key={i} className="relative mb-6 last:mb-0">
                       <div className={`absolute -left-6 top-0.5 w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition-all ${
                         i === timeline.length - 1
@@ -470,20 +584,117 @@ export default function OrderDetailPage() {
                       </div>
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide text-[10px] ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[event.to_status]] || BADGE_VARIANT_CLASSES.secondary}`}>{STATUS_MAP[event.to_status] || event.to_status}</span>
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide text-[10px] ${BADGE_VARIANT_CLASSES[eventBadge] || BADGE_VARIANT_CLASSES.secondary}`}>{eventLabel}</span>
                           <span className="text-[11px] text-slate-400 tabular-nums">{formatTime(event.created_at)}</span>
                         </div>
                         {event.operator_name && <p className="text-xs text-slate-500 mt-1">操作人: {event.operator_name}</p>}
                         {event.remark && <p className="text-xs text-slate-500 mt-0.5 italic">{event.remark}</p>}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
           </div>
+
+          {/* Screenshots & Attachments */}
+          {(order.screenshot_path || order.attachment_urls) && (
+            <div className="bg-surface-container-lowest ghost-border rounded-xl">
+              <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-indigo-50">
+                  <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                </div>
+                <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">订单图片</h2>
+              </div>
+              <div className="p-6 space-y-5">
+                {order.screenshot_path && (
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 block">订单截图</span>
+                    <img
+                      src={order.screenshot_path}
+                      alt="订单截图"
+                      className="max-w-full max-h-[400px] rounded-xl border border-slate-200 object-contain bg-white cursor-pointer hover:opacity-90 transition-opacity shadow-sm"
+                      onClick={() => openPreview(order.screenshot_path)}
+                    />
+                  </div>
+                )}
+                {order.attachment_urls && (() => {
+                  try {
+                    const urls = JSON.parse(order.attachment_urls);
+                    if (urls && urls.length > 0) {
+                      return (
+                        <div>
+                          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 block">备注图片 ({urls.length})</span>
+                          <div className="grid grid-cols-2 gap-3">
+                            {urls.map((url, i) => (
+                              <img
+                                key={i}
+                                src={url}
+                                alt={`附件${i + 1}`}
+                                className="w-full aspect-square object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity bg-white shadow-sm"
+                                onClick={() => openPreview(url)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+                  } catch { /* ignore */ }
+                  return null;
+                })()}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
+
+      {/* Image Lightbox (Portal) */}
+      {previewImage && createPortal(
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/85 backdrop-blur-[5px]"
+          style={{ cursor: zoomScale > 1 ? 'grab' : 'zoom-out' }}
+          onClick={() => { if (!hasDragged) setPreviewImage(null); setHasDragged(false); }}
+          onWheel={handleLightboxWheel}
+          role="dialog" aria-modal="true" aria-label="图片预览"
+          onKeyDown={(e) => { if (e.key === 'Escape') setPreviewImage(null); }}
+        >
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <img
+              ref={zoomImgRef}
+              src={previewImage}
+              alt="图片预览"
+              className="max-h-[90vh] rounded-lg shadow-2xl object-contain select-none"
+              style={{
+                transform: `translate(${zoomTranslate.x}px, ${zoomTranslate.y}px) scale(${zoomScale})`,
+                transformOrigin: '0 0',
+                cursor: zoomScale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'zoom-in',
+                transition: isDragging ? 'none' : 'transform 0.15s ease-out',
+                WebkitUserDrag: 'none',
+              }}
+              draggable={false}
+              onMouseDown={handleDragStart}
+            />
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/60 text-white px-3.5 py-1 rounded-full text-[13px] font-medium pointer-events-none backdrop-blur-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {Math.round(zoomScale * 100)}%
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); setPreviewImage(null); }}
+              className="absolute -top-10 right-0 p-2 text-white/80 hover:text-white transition-colors cursor-pointer bg-transparent border-none"
+              aria-label="关闭"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            {zoomScale === 1 && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 text-white/80 px-4 py-1.5 rounded-full text-xs pointer-events-none whitespace-nowrap backdrop-blur-sm">
+                滚轮缩放 · 拖拽移动
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   );
 }

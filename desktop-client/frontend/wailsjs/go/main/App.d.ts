@@ -26,7 +26,7 @@ export function SelectScreenshotFile():Promise<string>;
 
 export function SetServerURL(arg1:string):Promise<void>;
 
-export function SubmitOrder(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:number,arg7:number,arg8:Array<string>):Promise<main.SubmitResult>;
+export function SubmitOrder(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:number,arg7:number,arg8:Array<string>,arg9:string):Promise<main.SubmitResult>;
 
 export function UploadAttachmentBase64(arg1:string):Promise<main.UploadAttachmentResult>;
 

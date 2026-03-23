@@ -329,7 +329,7 @@ func ListActivationCodes(c *gin.Context) {
 		}
 	}
 
-	// 组装响应，附加 last_order_at
+	// 组装响应，附加 last_order_at 和实时在线状态
 	result := make([]gin.H, 0, len(employees))
 	for _, emp := range employees {
 		item := gin.H{
@@ -347,6 +347,7 @@ func ListActivationCodes(c *gin.Context) {
 			"last_login_ip":     emp.LastLoginIP,
 			"created_at":        emp.CreatedAt,
 			"updated_at":        emp.UpdatedAt,
+			"is_online":         services.Hub.UserClientCount(emp.WecomUserID) > 0,
 		}
 		if t, ok := lastOrderMap[emp.WecomUserID]; ok {
 			item["last_order_at"] = t

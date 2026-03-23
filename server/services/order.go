@@ -134,10 +134,28 @@ func GrabOrder(orderID uint, designerUserID string) (*models.Order, error) {
 		}
 
 		// 更新设计师状态 (原子自增)
-		return tx.Exec(
+		if err := tx.Exec(
 			"UPDATE employees SET status = 'busy', active_order_count = active_order_count + 1 WHERE wecom_userid = ?",
 			designerUserID,
-		).Error
+		).Error; err != nil {
+			return err
+		}
+
+		// 写入时间线记录
+		designerName := designerUserID
+		var emp models.Employee
+		if tx.Where("wecom_userid = ?", designerUserID).First(&emp).Error == nil {
+			designerName = emp.Name
+		}
+		return tx.Create(&models.OrderTimeline{
+			OrderID:      order.ID,
+			EventType:    "status_changed",
+			FromStatus:   models.StatusPending,
+			ToStatus:     models.StatusGroupCreated,
+			OperatorID:   designerUserID,
+			OperatorName: designerName,
+			Remark:       "设计师抢单",
+		}).Error
 	})
 
 	if err != nil {
@@ -378,7 +396,18 @@ func AssignToIdleDesigner(orderID uint) (*models.Order, error) {
 		if err := tx.Save(&order).Error; err != nil {
 			return err
 		}
-		return tx.Save(&designer).Error
+		if err := tx.Save(&designer).Error; err != nil {
+			return err
+		}
+		return tx.Create(&models.OrderTimeline{
+			OrderID:      order.ID,
+			EventType:    "status_changed",
+			FromStatus:   models.StatusPending,
+			ToStatus:     models.StatusGroupCreated,
+			OperatorID:   designer.WecomUserID,
+			OperatorName: designer.Name,
+			Remark:       "系统自动指派(空闲设计师)",
+		}).Error
 	})
 
 	if err != nil {
@@ -416,7 +445,18 @@ func ForceAssignOrder(orderID uint) (*models.Order, error) {
 		if err := tx.Save(&order).Error; err != nil {
 			return err
 		}
-		return tx.Save(&designer).Error
+		if err := tx.Save(&designer).Error; err != nil {
+			return err
+		}
+		return tx.Create(&models.OrderTimeline{
+			OrderID:      order.ID,
+			EventType:    "status_changed",
+			FromStatus:   models.StatusPending,
+			ToStatus:     models.StatusGroupCreated,
+			OperatorID:   designer.WecomUserID,
+			OperatorName: designer.Name,
+			Remark:       "系统超时自动指派",
+		}).Error
 	})
 
 	if err != nil {

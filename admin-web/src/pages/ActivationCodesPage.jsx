@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useToast } from '../hooks/useToast';
 import { listActivationCodes, pauseActivationCode as apiPause, unbindDevice as apiUnbind, regenerateActivationCode as apiRegenerate } from '../api/admin';
 import { ROLE_MAP, ROLE_CLASS_MAP, ROLE_AVATAR_CLASS_MAP, BADGE_VARIANT_CLASSES } from '../utils/constants';
-import { formatDate } from '../utils/formatters';
+import { formatDate, formatRelativeTime } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/ui/PageHeader';
@@ -281,17 +281,10 @@ export default function ActivationCodesPage() {
                     {emp.last_login_at ? (
                       <div>
                         <div className="flex items-center gap-1.5">
-                          {(() => {
-                            const loginTime = new Date(emp.last_login_at);
-                            const diffMin = (Date.now() - loginTime.getTime()) / 60000;
-                            const isOnline = diffMin < 30;
-                            return (
-                              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${isOnline ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
-                                {isOnline ? '在线' : '离线'}
-                              </span>
-                            );
-                          })()}
+                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${emp.is_online ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${emp.is_online ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
+                            {emp.is_online ? '在线' : '离线'}
+                          </span>
                           <span className="text-[13px] text-slate-800">{formatDate(emp.last_login_at)}</span>
                         </div>
                         <div className="text-[12px] text-slate-500 mt-0.5">{emp.last_login_ip || '-'}</div>

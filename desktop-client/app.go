@@ -251,12 +251,13 @@ func (a *App) GetEmployeeName() string {
 // ─── OCR 截图上传 ──────────────────────────
 
 type OCRResult struct {
-	OrderSN    string  `json:"order_sn"`
-	Price      int     `json:"price"`
-	RawPrice   string  `json:"raw_price"`
-	OrderTime  string  `json:"order_time"`
-	Confidence float64 `json:"confidence"`
-	Error      string  `json:"error,omitempty"`
+	OrderSN       string  `json:"order_sn"`
+	Price         int     `json:"price"`
+	RawPrice      string  `json:"raw_price"`
+	OrderTime     string  `json:"order_time"`
+	Confidence    float64 `json:"confidence"`
+	ScreenshotURL string  `json:"screenshot_url"`
+	Error         string  `json:"error,omitempty"`
 }
 
 func (a *App) UploadScreenshot(filePath string) *OCRResult {
@@ -377,7 +378,7 @@ type SubmitResult struct {
 	OrderSN string `json:"order_sn"`
 }
 
-func (a *App) SubmitOrder(orderSN, customerContact, topic, remark, deadline string, price, pages int, attachmentURLs []string) *SubmitResult {
+func (a *App) SubmitOrder(orderSN, customerContact, topic, remark, deadline string, price, pages int, attachmentURLs []string, screenshotPath string) *SubmitResult {
 	payload := map[string]interface{}{
 		"order_sn":         orderSN,
 		"customer_contact": customerContact,
@@ -387,6 +388,7 @@ func (a *App) SubmitOrder(orderSN, customerContact, topic, remark, deadline stri
 		"deadline":         deadline,
 		"remark":           remark,
 		"attachment_urls":  attachmentURLs,
+		"screenshot_url":  screenshotPath,
 	}
 	body, _ := json.Marshal(payload)
 

@@ -138,12 +138,28 @@ func main() {
 	// CSRF 防护 (状态变更请求需携带 X-CSRF-Token)
 	r.Use(middleware.CSRFMiddleware())
 
-	// ── 静态资源与前端 (Vue SPA) ──────────────────
-	// 将 admin-web/dist 目录下的静态文件挂载到根路径
-	r.Static("/assets", "../admin-web/dist/assets")
-	r.StaticFile("/favicon.svg", "../admin-web/dist/favicon.svg")
-	r.StaticFile("/icons.svg", "../admin-web/dist/icons.svg")
-	// uploads 静态访问已移至 JWT 保护路由组内 (orderAuth)
+	// ── 静态资源与前端 (SPA) ──────────────────
+	// 开发环境: ../admin-web/dist, 生产环境: dist (WorkingDirectory=/opt/pdd-server)
+	distDir := "../admin-web/dist"
+	if _, err := os.Stat(distDir); os.IsNotExist(err) {
+		distDir = "dist"
+	}
+	r.Static("/assets", distDir+"/assets")
+	r.StaticFile("/favicon.svg", distDir+"/favicon.svg")
+	r.StaticFile("/icons.svg", distDir+"/icons.svg")
+	// uploads 静态访问 — 公开路由，允许 <img src="/uploads/..."> 直接加载
+	// 注：OCR 截图等文件通过 UUID 文件名防猜测，安全风险可控
+	r.GET("/uploads/*filepath", func(c *gin.Context) {
+		fp := c.Param("filepath")
+		cleaned := filepath.Clean(fp)
+		absUploads, _ := filepath.Abs("uploads")
+		target := filepath.Join(absUploads, cleaned)
+		if !strings.HasPrefix(target, absUploads+string(filepath.Separator)) && target != absUploads {
+			c.JSON(http.StatusForbidden, gin.H{"error": "非法路径"})
+			return
+		}
+		c.File(target)
+	})
 
 	// Vue SPA: 所有非 API/静态的请求由 NoRoute 兜底 (见下方)
 
@@ -310,7 +326,7 @@ func main() {
 			c.JSON(http.StatusNotFound, gin.H{"error": "接口不存在"})
 			return
 		}
-		c.File("../admin-web/dist/index.html")
+		c.File(distDir + "/index.html")
 	})
 
 	// 启动
