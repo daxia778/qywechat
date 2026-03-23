@@ -35,7 +35,7 @@ func TestCalculateProfit_Normal(t *testing.T) {
 		ExtraPrice: 2000,
 	})
 
-	// Default rates from testutil: platform=5%, designer=40%, sales=10%, follow=5%.
+	// Default rates from testutil: platform=30%, designer=25%, sales=10%, follow=5%.
 	result, err := CalculateProfit(db, 1)
 	if err != nil {
 		t.Fatalf("CalculateProfit returned error: %v", err)
@@ -49,14 +49,14 @@ func TestCalculateProfit_Normal(t *testing.T) {
 		t.Errorf("TotalAmount: expected 12000, got %d", result.TotalAmount)
 	}
 
-	// PlatformFee = round(12000 * 5 / 100) = 600
-	if result.PlatformFee != 600 {
-		t.Errorf("PlatformFee: expected 600, got %d", result.PlatformFee)
+	// PlatformFee = round(12000 * 30 / 100) = 3600
+	if result.PlatformFee != 3600 {
+		t.Errorf("PlatformFee: expected 3600, got %d", result.PlatformFee)
 	}
 
-	// DesignerCommission = round(12000 * 40 / 100) = 4800
-	if result.DesignerCommission != 4800 {
-		t.Errorf("DesignerCommission: expected 4800, got %d", result.DesignerCommission)
+	// DesignerCommission = round(12000 * 25 / 100) = 3000
+	if result.DesignerCommission != 3000 {
+		t.Errorf("DesignerCommission: expected 3000, got %d", result.DesignerCommission)
 	}
 
 	// SalesCommission = round(12000 * 10 / 100) = 1200
@@ -69,9 +69,9 @@ func TestCalculateProfit_Normal(t *testing.T) {
 		t.Errorf("FollowCommission: expected 600, got %d", result.FollowCommission)
 	}
 
-	// NetProfit = 12000 - 600 - 4800 - 1200 - 600 = 4800
-	if result.NetProfit != 4800 {
-		t.Errorf("NetProfit: expected 4800, got %d", result.NetProfit)
+	// NetProfit = 12000 - 3600 - 3000 - 1200 - 600 = 3600
+	if result.NetProfit != 3600 {
+		t.Errorf("NetProfit: expected 3600, got %d", result.NetProfit)
 	}
 }
 
@@ -99,19 +99,19 @@ func TestCalculateProfit_NoDesigner(t *testing.T) {
 		t.Errorf("TotalAmount: expected 5000, got %d", result.TotalAmount)
 	}
 
-	// PlatformFee = round(5000 * 5 / 100) = 250
-	if result.PlatformFee != 250 {
-		t.Errorf("PlatformFee: expected 250, got %d", result.PlatformFee)
+	// PlatformFee = round(5000 * 30 / 100) = 1500
+	if result.PlatformFee != 1500 {
+		t.Errorf("PlatformFee: expected 1500, got %d", result.PlatformFee)
 	}
 
-	// DesignerCommission = round(5000 * 40 / 100) = 2000
-	if result.DesignerCommission != 2000 {
-		t.Errorf("DesignerCommission: expected 2000, got %d", result.DesignerCommission)
+	// DesignerCommission = round(5000 * 25 / 100) = 1250
+	if result.DesignerCommission != 1250 {
+		t.Errorf("DesignerCommission: expected 1250, got %d", result.DesignerCommission)
 	}
 
-	// NetProfit = 5000 - 250 - 2000 - 500 - 250 = 2000
-	if result.NetProfit != 2000 {
-		t.Errorf("NetProfit: expected 2000, got %d", result.NetProfit)
+	// NetProfit = 5000 - 1500 - 1250 - 500 - 250 = 1500
+	if result.NetProfit != 1500 {
+		t.Errorf("NetProfit: expected 1500, got %d", result.NetProfit)
 	}
 }
 
