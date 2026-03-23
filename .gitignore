@@ -48,3 +48,4 @@ staff-web/dist/
 # Logs
 server/server.log
 *.log
+PHASE1-DEV-GUIDE.md
