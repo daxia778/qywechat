@@ -381,21 +381,28 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {/* ── Order Quick Preview Drawer ── */}
+      {/* ── Order Detail Modal ── */}
       {drawerOrder && (
-        <div className="fixed inset-0 z-[100]" onClick={() => setDrawerOrder(null)} role="dialog" aria-modal="true" aria-label="订单详情" onKeyDown={(e) => { if (e.key === 'Escape') setDrawerOrder(null); }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={() => setDrawerOrder(null)} role="dialog" aria-modal="true" aria-label="订单详情" onKeyDown={(e) => { if (e.key === 'Escape') setDrawerOrder(null); }}>
           {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
-          {/* Drawer Panel */}
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[6px]" aria-hidden="true" />
+          {/* Modal Panel */}
           <div
-            className="absolute right-0 top-0 h-full w-full max-w-[480px] bg-white shadow-2xl flex flex-col animate-slide-in-right"
+            className="relative w-full max-w-[680px] max-h-[85vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-fade-in-up"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/80 shrink-0">
-              <div>
-                <h3 className="text-base font-bold text-slate-800">订单详情</h3>
-                <p className="text-[13px] text-slate-500 mt-0.5 font-mono">{drawerOrder.order_sn}</p>
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white shrink-0">
+              <div className="flex items-center gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-800">订单详情</h3>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[drawerOrder.status]] || BADGE_VARIANT_CLASSES.secondary}`}>
+                      {STATUS_MAP[drawerOrder.status] || drawerOrder.status}
+                    </span>
+                  </div>
+                  <p className="text-[13px] text-slate-500 mt-0.5 font-mono">{drawerOrder.order_sn}</p>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <Link to={`/orders/${drawerOrder.id}`} className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg text-brand-600 bg-brand-50 hover:bg-brand-100 transition-colors border border-brand-200">
@@ -415,130 +422,150 @@ export default function OrdersPage() {
                   <div className="w-8 h-8 border-2 border-slate-200 border-t-brand-500 rounded-full animate-spin" />
                 </div>
               ) : (
-                <div className="p-6 space-y-6">
-                  {/* Status Badge */}
-                  <div className="flex items-center gap-3">
-                    <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[drawerData.order.status]] || BADGE_VARIANT_CLASSES.secondary}`}>
-                      {STATUS_MAP[drawerData.order.status] || drawerData.order.status}
-                    </span>
-                    <span className="text-[13px] text-slate-500 tabular-nums">{formatTime(drawerData.order.created_at)}</span>
-                  </div>
-
-                  {/* Screenshot */}
-                  {drawerData.order.screenshot_path && (
-                    <div>
-                      <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">订单截图</h4>
-                      <img
-                        src={drawerData.order.screenshot_path}
-                        alt="订单截图"
-                        className="w-full rounded-xl border border-slate-200 object-contain max-h-[200px] bg-slate-50 cursor-pointer hover:opacity-90 transition-opacity"
-                        onClick={() => setPreviewImage(drawerData.order.screenshot_path)}
-                      />
-                    </div>
-                  )}
-
-                  {/* Order Info Grid */}
-                  <div>
-                    <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">订单信息</h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      <InfoItem label="客户" value={drawerData.order.customer_contact || '-'} />
-                      <InfoItem label="金额" value={`¥${((drawerData.order.price || 0) / 100).toFixed(2)}`} bold />
-                      <InfoItem label="主题" value={drawerData.order.topic || '-'} span2 />
-                      <InfoItem label="页数" value={drawerData.order.pages || '-'} />
-                      <InfoItem label="截止时间" value={drawerData.order.deadline ? formatTime(drawerData.order.deadline) : '无'} />
-                      <InfoItem label="管家" value={drawerData.people.operator_name || drawerData.order.operator_id || '-'} />
-                      <InfoItem label="设计师" value={drawerData.people.designer_name || drawerData.order.designer_id || '待分配'} />
-                    </div>
-                  </div>
-
-                  {/* Remark */}
-                  {drawerData.order.remark && (
-                    <div>
-                      <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">特殊备注</h4>
-                      <p className="text-sm text-slate-700 whitespace-pre-wrap bg-slate-50 rounded-xl p-4 border border-slate-100">{drawerData.order.remark}</p>
-                    </div>
-                  )}
-
-                  {/* Attachment Images */}
-                  {drawerData.order.attachment_urls && (() => {
-                    try {
-                      const urls = JSON.parse(drawerData.order.attachment_urls);
-                      if (urls && urls.length > 0) {
-                        return (
-                          <div>
-                            <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">备注图片 ({urls.length})</h4>
-                            <div className="grid grid-cols-3 gap-2">
-                              {urls.map((url, i) => (
-                                <img
-                                  key={i}
-                                  src={url}
-                                  alt={`附件${i + 1}`}
-                                  className="w-full aspect-square object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity"
-                                  onClick={() => setPreviewImage(url)}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      }
-                    } catch { /* ignore parse error */ }
-                    return null;
-                  })()}
-
-                  {/* Refund Reason */}
-                  {drawerData.order.refund_reason && (
-                    <div>
-                      <h4 className="text-[11px] font-semibold text-red-400 uppercase tracking-wider mb-2">退款原因</h4>
-                      <p className="text-sm text-red-600 bg-red-50 rounded-xl p-4 border border-red-100">{drawerData.order.refund_reason}</p>
-                    </div>
-                  )}
-
-                  {/* Profit Summary */}
-                  {drawerData.profit.total_price > 0 && (
-                    <div>
-                      <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">利润明细</h4>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
-                          <p className="text-[10px] text-slate-500 mb-1">总价</p>
-                          <p className="text-base font-bold text-slate-800 font-[Outfit] tabular-nums">¥{(drawerData.profit.total_price / 100).toFixed(2)}</p>
+                <div className="p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+                    {/* Left Column - Main Info */}
+                    <div className="md:col-span-3 space-y-5">
+                      {/* Screenshot */}
+                      {drawerData.order.screenshot_path && (
+                        <div>
+                          <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">订单截图</h4>
+                          <img
+                            src={drawerData.order.screenshot_path}
+                            alt="订单截图"
+                            className="w-full rounded-xl border border-slate-200 object-contain max-h-[180px] bg-slate-50 cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={() => setPreviewImage(drawerData.order.screenshot_path)}
+                          />
                         </div>
-                        <div className="bg-green-50/60 rounded-xl p-3 text-center border border-green-100">
-                          <p className="text-[10px] text-slate-500 mb-1">净利润</p>
-                          <p className="text-base font-bold text-green-600 font-[Outfit] tabular-nums">¥{(drawerData.profit.net_profit / 100).toFixed(2)}</p>
+                      )}
+
+                      {/* Order Info Grid */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">订单信息</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          <InfoItem label="客户" value={drawerData.order.customer_contact || '-'} />
+                          <InfoItem label="金额" value={`¥${((drawerData.order.price || 0) / 100).toFixed(2)}`} bold />
+                          <InfoItem label="主题" value={drawerData.order.topic || '-'} span2 />
+                          <InfoItem label="页数" value={drawerData.order.pages || '-'} />
+                          <InfoItem label="截止时间" value={drawerData.order.deadline ? formatTime(drawerData.order.deadline) : '无'} />
+                          <InfoItem label="管家" value={drawerData.people.operator_name || drawerData.order.operator_id || '-'} />
+                          <InfoItem label="设计师" value={drawerData.people.designer_name || drawerData.order.designer_id || '待分配'} />
                         </div>
                       </div>
-                    </div>
-                  )}
 
-                  {/* Timeline */}
-                  {drawerData.timeline.length > 0 && (
-                    <div>
-                      <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">状态时间线</h4>
-                      <div className="relative pl-5">
-                        <div className="absolute left-[7px] top-1 bottom-1 w-0.5 bg-gradient-to-b from-brand-500/20 via-slate-200 to-slate-100" />
-                        {drawerData.timeline.map((event, i) => (
-                          <div key={i} className="relative mb-4 last:mb-0">
-                            <div className={`absolute -left-5 top-0.5 w-[14px] h-[14px] rounded-full border-2 flex items-center justify-center ${
-                              i === drawerData.timeline.length - 1
-                                ? 'border-brand-500 bg-brand-500'
-                                : 'border-slate-300 bg-white'
-                            }`}>
-                              {i === drawerData.timeline.length - 1 && <div className="w-1 h-1 rounded-full bg-white" />}
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[event.to_status]] || BADGE_VARIANT_CLASSES.secondary}`}>
-                                  {STATUS_MAP[event.to_status] || event.to_status}
-                                </span>
-                                <span className="text-[11px] text-slate-400 tabular-nums">{formatTime(event.created_at)}</span>
+                      {/* Remark */}
+                      {drawerData.order.remark && (
+                        <div>
+                          <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">特殊备注</h4>
+                          <p className="text-sm text-slate-700 whitespace-pre-wrap bg-slate-50 rounded-xl p-4 border border-slate-100">{drawerData.order.remark}</p>
+                        </div>
+                      )}
+
+                      {/* Attachment Images */}
+                      {drawerData.order.attachment_urls && (() => {
+                        try {
+                          const urls = JSON.parse(drawerData.order.attachment_urls);
+                          if (urls && urls.length > 0) {
+                            return (
+                              <div>
+                                <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">备注图片 ({urls.length})</h4>
+                                <div className="grid grid-cols-3 gap-2">
+                                  {urls.map((url, i) => (
+                                    <img
+                                      key={i}
+                                      src={url}
+                                      alt={`附件${i + 1}`}
+                                      className="w-full aspect-square object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity"
+                                      onClick={() => setPreviewImage(url)}
+                                    />
+                                  ))}
+                                </div>
                               </div>
-                              {event.operator_name && <p className="text-[11px] text-slate-500 mt-0.5">操作人: {event.operator_name}</p>}
+                            );
+                          }
+                        } catch { /* ignore parse error */ }
+                        return null;
+                      })()}
+
+                      {/* Refund Reason */}
+                      {drawerData.order.refund_reason && (
+                        <div>
+                          <h4 className="text-[11px] font-semibold text-red-400 uppercase tracking-wider mb-2">退款原因</h4>
+                          <p className="text-sm text-red-600 bg-red-50 rounded-xl p-4 border border-red-100">{drawerData.order.refund_reason}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right Column - Profit + Timeline */}
+                    <div className="md:col-span-2 space-y-5">
+                      {/* Profit Summary */}
+                      {drawerData.profit.total_price > 0 && (
+                        <div>
+                          <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">利润明细</h4>
+                          <div className="space-y-2">
+                            <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[12px] text-slate-500">实付金额</span>
+                                <span className="text-lg font-bold text-slate-800 font-[Outfit] tabular-nums">¥{(drawerData.profit.total_price / 100).toFixed(2)}</span>
+                              </div>
+                            </div>
+                            {drawerData.profit.platform_fee_rate > 0 && (
+                              <div className="bg-slate-50/60 rounded-lg px-3 py-2 border border-slate-100">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[11px] text-slate-400">平台费({drawerData.profit.platform_fee_rate}%)</span>
+                                  <span className="text-[13px] text-slate-600 tabular-nums">¥{(drawerData.profit.platform_fee / 100).toFixed(2)}</span>
+                                </div>
+                              </div>
+                            )}
+                            {drawerData.profit.designer_rate > 0 && (
+                              <div className="bg-slate-50/60 rounded-lg px-3 py-2 border border-slate-100">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[11px] text-slate-400">设计师({drawerData.profit.designer_rate}%)</span>
+                                  <span className="text-[13px] text-slate-600 tabular-nums">¥{(drawerData.profit.designer_commission / 100).toFixed(2)}</span>
+                                </div>
+                              </div>
+                            )}
+                            <div className="bg-green-50/60 rounded-xl p-3 border border-green-100">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[12px] text-green-600 font-medium">净利润</span>
+                                <span className="text-lg font-bold text-green-600 font-[Outfit] tabular-nums">¥{(drawerData.profit.net_profit / 100).toFixed(2)}</span>
+                              </div>
                             </div>
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      )}
+
+                      {/* Timeline */}
+                      {drawerData.timeline.length > 0 && (
+                        <div>
+                          <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">状态时间线</h4>
+                          <div className="relative pl-5">
+                            <div className="absolute left-[7px] top-1 bottom-1 w-0.5 bg-gradient-to-b from-brand-500/20 via-slate-200 to-slate-100" />
+                            {drawerData.timeline.map((event, i) => (
+                              <div key={i} className="relative mb-4 last:mb-0">
+                                <div className={`absolute -left-5 top-0.5 w-[14px] h-[14px] rounded-full border-2 flex items-center justify-center ${
+                                  i === drawerData.timeline.length - 1
+                                    ? 'border-brand-500 bg-brand-500'
+                                    : 'border-slate-300 bg-white'
+                                }`}>
+                                  {i === drawerData.timeline.length - 1 && <div className="w-1 h-1 rounded-full bg-white" />}
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[event.to_status]] || BADGE_VARIANT_CLASSES.secondary}`}>
+                                      {STATUS_MAP[event.to_status] || event.to_status}
+                                    </span>
+                                    <span className="text-[11px] text-slate-400 tabular-nums">{formatTime(event.created_at)}</span>
+                                  </div>
+                                  {event.operator_name && <p className="text-[11px] text-slate-500 mt-0.5">操作人: {event.operator_name}</p>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               )}
             </div>
