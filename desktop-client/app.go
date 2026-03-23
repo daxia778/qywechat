@@ -108,18 +108,30 @@ func (a *App) loadSession() {
 		if err == nil {
 			var data sessionData
 			if err := json.Unmarshal(plaintext, &data); err == nil && data.Token != "" {
-				a.token = data.Token
-				a.empName = data.EmpName
-				a.wecomUID = data.WecomUID
-				log.Printf("✅ 已恢复本地加密会话: %s", data.EmpName)
-				return
+				// 检查 token 是否过期（解析 JWT payload 的 exp 字段）
+				if a.isTokenExpired(data.Token) {
+					log.Printf("⚠️ 本地 token 已过期，尝试静默刷新")
+					_ = os.Remove(sessionFilePath())
+				} else {
+					a.token = data.Token
+					a.empName = data.EmpName
+					a.wecomUID = data.WecomUID
+					log.Printf("✅ 已恢复本地加密会话: %s", data.EmpName)
+					return
+				}
 			}
+		} else {
+			log.Printf("⚠️ 本地会话无效，尝试设备指纹静默登录")
+			_ = os.Remove(sessionFilePath())
 		}
-		log.Printf("⚠️ 本地会话无效，尝试设备指纹静默登录")
-		_ = os.Remove(sessionFilePath())
 	}
 
-	// 2. 本地会话不存在或无效，用设备指纹向服务端静默登录
+	// 2. 本地会话不存在、无效或已过期，用设备指纹向服务端静默登录
+	a.deviceLogin()
+}
+
+// deviceLogin 使用设备指纹静默登录获取新 token
+func (a *App) deviceLogin() {
 	if a.machineID == "" {
 		return
 	}
@@ -148,6 +160,37 @@ func (a *App) loadSession() {
 	a.wecomUID = result["wecom_userid"].(string)
 	a.saveSession()
 	log.Printf("✅ 设备指纹静默登录成功: %s", a.empName)
+}
+
+// isTokenExpired 解析 JWT payload 检查是否过期（提前5分钟判定为过期）
+func (a *App) isTokenExpired(tokenStr string) bool {
+	parts := strings.SplitN(tokenStr, ".", 3)
+	if len(parts) != 3 {
+		return true
+	}
+	// JWT payload 是 base64url 编码
+	payload := parts[1]
+	// 补齐 padding
+	switch len(payload) % 4 {
+	case 2:
+		payload += "=="
+	case 3:
+		payload += "="
+	}
+	decoded, err := base64.URLEncoding.DecodeString(payload)
+	if err != nil {
+		return true
+	}
+	var claims map[string]interface{}
+	if err := json.Unmarshal(decoded, &claims); err != nil {
+		return true
+	}
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		return true
+	}
+	// 提前5分钟判定为过期，留出刷新窗口
+	return time.Now().Unix() >= int64(exp)-300
 }
 
 func (a *App) ClearSession() {
@@ -261,6 +304,19 @@ type OCRResult struct {
 }
 
 func (a *App) UploadScreenshot(filePath string) *OCRResult {
+	result := a.doUploadScreenshotFile(filePath)
+	// 401 时自动刷新 token 重试一次
+	if result.Error != "" && strings.Contains(result.Error, "401") {
+		log.Println("⚠️ OCR 上传 401，尝试刷新 token 重试")
+		a.deviceLogin()
+		if a.token != "" {
+			return a.doUploadScreenshotFile(filePath)
+		}
+	}
+	return result
+}
+
+func (a *App) doUploadScreenshotFile(filePath string) *OCRResult {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return &OCRResult{Error: "文件打开失败: " + err.Error()}
@@ -293,19 +349,32 @@ func (a *App) UploadScreenshot(filePath string) *OCRResult {
 	json.NewDecoder(resp.Body).Decode(&result)
 
 	if resp.StatusCode != 200 {
-		result.Error = "OCR 解析失败: " + result.Error
+		result.Error = "OCR 解析失败: HTTP " + strconv.Itoa(resp.StatusCode)
 	}
 	return &result
 }
 
 // UploadScreenshotBase64 支持从剪贴板粘贴图片 (传入完整的 base64 data URI)
 func (a *App) UploadScreenshotBase64(b64DataURL string) *OCRResult {
+	result := a.doUploadScreenshotBase64(b64DataURL)
+	// 401 时自动刷新 token 重试一次
+	if result.Error != "" && strings.Contains(result.Error, "401") {
+		log.Println("⚠️ OCR 上传 401，尝试刷新 token 重试")
+		a.deviceLogin()
+		if a.token != "" {
+			return a.doUploadScreenshotBase64(b64DataURL)
+		}
+	}
+	return result
+}
+
+func (a *App) doUploadScreenshotBase64(b64DataURL string) *OCRResult {
 	// 去除前缀 data:image/png;base64,
 	parts := strings.SplitN(b64DataURL, ",", 2)
 	if len(parts) != 2 {
 		return &OCRResult{Error: "无效的图片数据"}
 	}
-	
+
 	b64Data := parts[1]
 	imgBytes, err := base64.StdEncoding.DecodeString(b64Data)
 	if err != nil {
@@ -318,7 +387,7 @@ func (a *App) UploadScreenshotBase64(b64DataURL string) *OCRResult {
 	if err != nil {
 		return &OCRResult{Error: "创建表单失败"}
 	}
-	
+
 	if _, err := io.Copy(part, bytes.NewReader(imgBytes)); err != nil {
 		return &OCRResult{Error: "复制文件失败"}
 	}
@@ -379,6 +448,19 @@ type SubmitResult struct {
 }
 
 func (a *App) SubmitOrder(orderSN, customerContact, topic, remark, deadline string, price, pages int, attachmentURLs []string, screenshotPath string) *SubmitResult {
+	result := a.doSubmitOrder(orderSN, customerContact, topic, remark, deadline, price, pages, attachmentURLs, screenshotPath)
+	// 401 时自动刷新 token 重试一次
+	if !result.Success && strings.Contains(result.Message, "401") {
+		log.Println("⚠️ 提交订单 401，尝试刷新 token 重试")
+		a.deviceLogin()
+		if a.token != "" {
+			return a.doSubmitOrder(orderSN, customerContact, topic, remark, deadline, price, pages, attachmentURLs, screenshotPath)
+		}
+	}
+	return result
+}
+
+func (a *App) doSubmitOrder(orderSN, customerContact, topic, remark, deadline string, price, pages int, attachmentURLs []string, screenshotPath string) *SubmitResult {
 	payload := map[string]interface{}{
 		"order_sn":         orderSN,
 		"customer_contact": customerContact,
@@ -410,7 +492,7 @@ func (a *App) SubmitOrder(orderSN, customerContact, topic, remark, deadline stri
 	json.NewDecoder(resp.Body).Decode(&result)
 
 	if resp.StatusCode != 200 {
-		msg := "提交失败"
+		msg := "提交失败: HTTP " + strconv.Itoa(resp.StatusCode)
 		if e, ok := result["error"]; ok {
 			if s, ok2 := e.(string); ok2 {
 				msg = s

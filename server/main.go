@@ -225,6 +225,7 @@ func main() {
 			orderAuth.GET("/pending-match", handlers.ListPendingMatchOrders)
 			orderAuth.POST("/:id/match", handlers.MatchOrderContact)
 			orderAuth.PUT("/:id/reassign", handlers.ReassignOrder)
+		orderAuth.GET("/my-stats", handlers.GetMyStats)
 
 			// 上传文件访问（需 JWT 鉴权，防止未授权访问 OCR 截图等敏感文件）
 			orderAuth.GET("/uploads/*filepath", func(c *gin.Context) {

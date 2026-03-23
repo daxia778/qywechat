@@ -483,14 +483,10 @@ func ListOrders(c *gin.Context) {
 
 	query := models.DB.Model(&models.Order{})
 
-	// 角色权限过滤: 非 admin 用户只能查看自己相关的订单
+	// 所有已认证用户均可查看全部订单（操作权限仍按角色控制）
 	role, _ := c.Get("role")
 	roleStr, _ := role.(string)
-	userID, _ := c.Get("wecom_userid")
-	uidStr, _ := userID.(string)
-
-	query, ok := filterByRole(query, roleStr, uidStr)
-	if !ok {
+	if roleStr == "" {
 		forbidden(c, "未知角色，无权访问")
 		return
 	}
@@ -545,21 +541,9 @@ func GetOrder(c *gin.Context) {
 		return
 	}
 
-	// 先鉴权再查库，统一返回 404 避免信息泄露
-	role, _ := c.Get("role")
-	roleStr, _ := role.(string)
-	userID, _ := c.Get("wecom_userid")
-	uidStr, _ := userID.(string)
-
-	query := models.DB.Model(&models.Order{}).Where("id = ?", uint(id))
-	query, ok := filterByRole(query, roleStr, uidStr)
-	if !ok {
-		notFound(c, "订单不存在")
-		return
-	}
-
+	// 所有已认证用户均可查看任意订单详情
 	var order models.Order
-	if err := query.First(&order).Error; err != nil {
+	if err := models.DB.First(&order, uint(id)).Error; err != nil {
 		notFound(c, "订单不存在")
 		return
 	}
@@ -966,5 +950,72 @@ func MatchOrderContact(c *gin.Context) {
 	services.Hub.Broadcast(services.WSEvent{
 		Type:    "order_updated",
 		Payload: order,
+	})
+}
+
+// ─── 个人统计 (所有角色可用) ──────────────────────────────────
+
+// GetMyStats 返回当前用户角色相关的订单统计数据（非管理员仪表盘）
+func GetMyStats(c *gin.Context) {
+	roleVal, _ := c.Get("role")
+	uidVal, _ := c.Get("wecom_userid")
+	role, _ := roleVal.(string)
+	uid, _ := uidVal.(string)
+
+	log.Printf("[GetMyStats] role=%q uid=%q roleVal=%v(%T) uidVal=%v(%T)", role, uid, roleVal, roleVal, uidVal, uidVal)
+
+	if uid == "" {
+		log.Printf("[GetMyStats] WARNING: uid is empty! JWT context keys dump:")
+		if claims, ok := c.Get("jwt_claims"); ok {
+			log.Printf("[GetMyStats] jwt_claims=%v", claims)
+		}
+	}
+
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	// 基础查询：按角色过滤
+	baseQ := func() *gorm.DB {
+		q := models.DB.Model(&models.Order{})
+		q, _ = filterByRole(q, role, uid)
+		return q
+	}
+
+	var totalOrders, pendingOrders, designingOrders, deliveredOrders, completedOrders, todayOrders int64
+	var totalRevenue, todayRevenue int64
+
+	baseQ().Count(&totalOrders)
+	baseQ().Where("status IN ?", []string{"PENDING", "GROUP_CREATED", "CONFIRMED"}).Count(&pendingOrders)
+	baseQ().Where("status = ?", "DESIGNING").Count(&designingOrders)
+	baseQ().Where("status = ?", "DELIVERED").Count(&deliveredOrders)
+	baseQ().Where("status = ?", "COMPLETED").Count(&completedOrders)
+	baseQ().Where("created_at >= ?", todayStart).Count(&todayOrders)
+
+	// 营收统计（已完成订单的 price 总和）
+	baseQ().Where("status IN ?", []string{"COMPLETED", "DELIVERED", "DESIGNING"}).
+		Select("COALESCE(SUM(price), 0)").Scan(&totalRevenue)
+	baseQ().Where("created_at >= ?", todayStart).
+		Select("COALESCE(SUM(price), 0)").Scan(&todayRevenue)
+
+	log.Printf("[GetMyStats] results: total=%d pending=%d designing=%d delivered=%d completed=%d today=%d revenue=%d",
+		totalOrders, pendingOrders, designingOrders, deliveredOrders, completedOrders, todayOrders, totalRevenue)
+
+	// 最近订单（最新5条）
+	var recentOrders []models.Order
+	q := models.DB.Model(&models.Order{}).Order("created_at DESC").Limit(5)
+	q, _ = filterByRole(q, role, uid)
+	q.Find(&recentOrders)
+
+	respondOK(c, gin.H{
+		"role":             role,
+		"total_orders":     totalOrders,
+		"pending_orders":   pendingOrders,
+		"designing_orders": designingOrders,
+		"delivered_orders": deliveredOrders,
+		"completed_orders": completedOrders,
+		"today_orders":     todayOrders,
+		"total_revenue":    totalRevenue,
+		"today_revenue":    todayRevenue,
+		"recent_orders":    recentOrders,
 	})
 }

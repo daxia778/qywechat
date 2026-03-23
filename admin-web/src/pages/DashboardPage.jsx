@@ -1,8 +1,13 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useToast } from '../hooks/useToast';
+import { useAuth } from '../hooks/useAuth';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { usePolling } from '../hooks/usePolling';
 import { getDashboard, getProfitSummary } from '../api/admin';
+import { getMyStats } from '../api/orders';
+import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ROLE_MAP } from '../utils/constants';
+import { formatTime } from '../utils/formatters';
 import MetricCard from '../components/MetricCard';
 import PageHeader from '../components/ui/PageHeader';
 import * as echarts from 'echarts/core';
@@ -20,10 +25,14 @@ const fmtYuan = (fen) => {
 
 export default function DashboardPage() {
   const { toast } = useToast();
+  const { role } = useAuth();
+  const isAdmin = role === 'admin';
   const { on, off, connected } = useWebSocket();
   const [loading, setLoading] = useState(false);
   const [rankingExpanded, setRankingExpanded] = useState(false);
   const [profitData, setProfitData] = useState({ net_profit: 0, total_revenue: 0, order_count: 0 });
+  // 非管理员个人统计
+  const [myStats, setMyStats] = useState(null);
   const [stats, setStats] = useState({
     total_orders: 0, pending_orders: 0, designing_orders: 0,
     today_revenue: 0, today_order_count: 0,
@@ -191,6 +200,13 @@ export default function DashboardPage() {
   const fetchDashboardData = useCallback(async (manual = false, signal) => {
     if (manual) setLoading(true);
     try {
+      if (!isAdmin) {
+        // 非管理员：调用个人统计 API
+        const res = await getMyStats({ signal });
+        setMyStats(res.data);
+        if (manual) toast('数据已刷新', 'success');
+        return;
+      }
       const [res, profitRes] = await Promise.all([
         getDashboard({ signal }),
         getProfitSummary(undefined, { signal }).catch(() => null),
@@ -214,7 +230,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [toast, initBarChart, updateBarChart, initPieChart, updatePieChart]);
+  }, [toast, isAdmin, initBarChart, updateBarChart, initPieChart, updatePieChart]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -258,273 +274,421 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col gap-8 w-full max-w-[1400px] mx-auto">
       {/* Page Header */}
-      <PageHeader title="数据总览" subtitle="实时运营数据看板" className="mb-1">
-        <button onClick={() => fetchDashboardData(true)} className="flex items-center gap-1.5 bg-[#f3f4f5] border border-[#e1e3e4] rounded-lg px-3.5 py-2 text-sm font-medium text-[#454654] cursor-pointer hover:bg-[#e7e8e9] transition-colors">
-          <span className="material-symbols-outlined" style={{fontSize:16}}>calendar_today</span> 本月
+      <PageHeader title={isAdmin ? "数据总览" : "我的工作台"} subtitle={isAdmin ? "实时运营数据看板" : `${ROLE_MAP[role] || role} · 个人数据概览`} className="mb-1">
+        <button onClick={() => fetchDashboardData(true)} disabled={loading} className="flex items-center gap-1.5 bg-[#f3f4f5] border border-[#e1e3e4] rounded-lg px-3.5 py-2 text-sm font-medium text-[#454654] cursor-pointer hover:bg-[#e7e8e9] transition-colors disabled:opacity-50">
+          <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+          <span>{loading ? '刷新中...' : '刷新数据'}</span>
         </button>
       </PageHeader>
 
-      {/* KPI Cards -- Row 1: 4 primary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 lg:gap-6">
-        <MetricCard
-          title="总订单"
-          value={stats.total_orders || 0}
-          currentRateVal={stats.today_order_count || 0}
-          prevValue={stats.yesterday_order_count || 0}
-          icon={
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-              <rect x="3" y="3" width="18" height="3.5" rx="1.75" strokeLinejoin="round"/>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 6.5l.9 11.1A2 2 0 007.4 19.5h9.2a2 2 0 001.99-1.9l.9-11.1"/>
-              <path strokeLinecap="round" d="M9.5 11h5"/>
-              <path strokeLinecap="round" d="M10.5 14.5h3"/>
-            </svg>
-          }
-          colorHex="#434FCF"
-        />
-        <MetricCard
-          title="待处理"
-          value={stats.pending_orders || 0}
-          icon={
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-              <circle cx="12" cy="12" r="9"/>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v5.25l3.5 2"/>
-            </svg>
-          }
-          colorHex="#F59E0B"
-        />
-        <MetricCard
-          title="今日营收"
-          value={(stats.today_revenue || 0) / 100}
-          currentRateVal={stats.today_revenue || 0}
-          prevValue={stats.yesterday_revenue || 0}
-          isCurrency={true}
-          icon={
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 17.5V15a1 1 0 011-1h2a1 1 0 011 1v2.5"/>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10 17.5V11a1 1 0 011-1h2a1 1 0 011 1v6.5"/>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16 17.5V7a1 1 0 011-1h2a1 1 0 011 1v10.5"/>
-              <path strokeLinecap="round" d="M3 17.5h18"/>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 11.5l3-3 3 2.5 4-5"/>
-            </svg>
-          }
-          colorHex="#10B981"
-        />
-        <MetricCard
-          title="异常事项"
-          value={stats.grab_alert_count || 0}
-          currentRateVal={stats.grab_alert_count || 0}
-          prevValue={stats.yesterday_grab_alerts || 0}
-          invertTrend={true}
-          icon={
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-              <path strokeLinecap="round" d="M12 9v4.5"/>
-              <circle cx="12" cy="16.5" r="0.5" fill="currentColor" stroke="none"/>
-            </svg>
-          }
-          colorHex="#EF4444"
-        />
-      </div>
-
-      {/* KPI Cards -- Row 2: Payment + Pending Work */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 lg:gap-6">
-        <MetricCard
-          title="总收款金额"
-          formattedValue={`¥${fmtYuan(stats.total_payment_amount)}`}
-          value={(stats.total_payment_amount || 0) / 100}
-          currentRateVal={stats.today_payment_amount || 0}
-          prevValue={stats.yesterday_payment_amount || 0}
-          isCurrency={true}
-          subtitle={`拼多多 ¥${fmtYuan(stats.pdd_payment_amount)} · 企微 ¥${fmtYuan(stats.wecom_payment_amount)} · 手动 ¥${fmtYuan(stats.manual_payment_amount)}`}
-          icon={
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-              <rect x="2" y="6" width="20" height="13" rx="2" strokeLinejoin="round"/>
-              <path strokeLinecap="round" d="M2 10h20"/>
-              <circle cx="12" cy="15" r="2.5"/>
-              <path strokeLinecap="round" d="M6 10V7a6 6 0 0112 0v3"/>
-            </svg>
-          }
-          colorHex="#059669"
-        />
-        <MetricCard
-          title="待处理订单"
-          value={pendingTotal}
-          subtitle={`确认 ${stats.confirmed_count || 0} · 售后 ${stats.after_sale_count || 0} · 修改 ${stats.revision_count || 0}`}
-          icon={
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-              <rect x="5" y="3" width="14" height="18" rx="2" strokeLinejoin="round"/>
-              <path strokeLinecap="round" d="M9 7h6"/>
-              <path strokeLinecap="round" d="M9 11h6"/>
-              <path strokeLinecap="round" d="M9 15h4"/>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.5 3.5v-1a.5.5 0 01.5-.5h4a.5.5 0 01.5.5v1"/>
-            </svg>
-          }
-          colorHex="#EA580C"
-        />
-      </div>
-
-      {/* Monthly Chart + Payment Source Pie */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">
-          <div className="xl:col-span-2 flex flex-col min-h-0 bg-white ghost-border rounded-2xl overflow-hidden shadow-[0_2px_16px_rgba(0,0,0,0.06)]">
-          <div className="px-7 lg:px-8 py-6 flex items-center justify-between">
-            <div>
-              <h2 style={{fontFamily:"'Outfit',sans-serif", fontSize:18, fontWeight:600, color:'#1d1d1f'}}>月度销量</h2>
-              <p className="text-[13px] text-[#6e6e73] mt-0.5">过去一年的订单趋势</p>
-            </div>
-            <button onClick={() => fetchDashboardData(true)} className="inline-flex items-center justify-center gap-1.5 font-semibold border cursor-pointer transition-all whitespace-nowrap leading-snug active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300 px-3 py-1.5 text-xs rounded-lg" disabled={loading}>
-              <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-              <span>{loading ? '刷新中...' : '刷新'}</span>
-            </button>
+      {/* ═══ Non-Admin Dashboard ═══ */}
+      {!isAdmin && myStats && (
+        <>
+          {/* Personal KPI Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
+            <MetricCard
+              title="我的订单"
+              value={myStats.total_orders || 0}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+                  <rect x="3" y="3" width="18" height="3.5" rx="1.75" strokeLinejoin="round"/>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 6.5l.9 11.1A2 2 0 007.4 19.5h9.2a2 2 0 001.99-1.9l.9-11.1"/>
+                  <path strokeLinecap="round" d="M9.5 11h5"/>
+                  <path strokeLinecap="round" d="M10.5 14.5h3"/>
+                </svg>
+              }
+              colorHex="#434FCF"
+            />
+            <MetricCard
+              title="待处理"
+              value={myStats.pending_orders || 0}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+                  <circle cx="12" cy="12" r="9"/>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v5.25l3.5 2"/>
+                </svg>
+              }
+              colorHex="#F59E0B"
+            />
+            <MetricCard
+              title="设计中"
+              value={myStats.designing_orders || 0}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                </svg>
+              }
+              colorHex="#3B82F6"
+            />
+            <MetricCard
+              title="已完成"
+              value={myStats.completed_orders || 0}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+              }
+              colorHex="#10B981"
+            />
           </div>
-          <div className="p-6 lg:p-8 flex-1 min-h-[360px] lg:min-h-[420px]" ref={barChartRef} />
-        </div>
 
-        {/* Payment Source Pie Chart */}
-        <div className="bg-surface-container-lowest ghost-border rounded-2xl xl:col-span-1 flex flex-col min-h-0 hover:border-[#434FCF]/25 transition-colors shadow-[0_2px_16px_rgba(0,0,0,0.06)]">
-          <div className="px-7 lg:px-8 py-6 flex items-center justify-between">
-            <div>
-              <h2 style={{fontFamily:"'Outfit',sans-serif", fontSize:18, fontWeight:600, color:'#1d1d1f'}}>收款来源</h2>
-              <p className="text-[13px] text-[#6e6e73] mt-0.5">各渠道收款分布</p>
-            </div>
-            <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md tabular-nums">
-              共 {stats.total_payment_count || 0} 笔
-            </span>
+          {/* Revenue + Today Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-5">
+            <MetricCard
+              title="今日新增"
+              value={myStats.today_orders || 0}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+              }
+              colorHex="#8B5CF6"
+            />
+            <MetricCard
+              title="已交付"
+              value={myStats.delivered_orders || 0}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/>
+                </svg>
+              }
+              colorHex="#059669"
+            />
+            <MetricCard
+              title="相关营收"
+              value={(myStats.total_revenue || 0) / 100}
+              isCurrency={true}
+              subtitle={`今日 ¥${fmtYuan(myStats.today_revenue)}`}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+              }
+              colorHex="#EA580C"
+            />
           </div>
-          <div className="p-6 lg:p-8 flex-1 min-h-[360px]" ref={pieChartRef} />
-        </div>
-      </div>
 
-      {/* Team Load + Order Status Distribution */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">
-        <div className="bg-surface-container-lowest ghost-border rounded-2xl xl:col-span-1 flex flex-col min-h-0 hover:border-[#434FCF]/25 transition-colors shadow-[0_1px_8px_rgba(0,0,0,0.05)]">
-          <div className="px-5 lg:px-7 py-5 border-b border-[#e1e3e4] flex items-center justify-between">
-            <div>
-              <h2 style={{fontFamily:"'Outfit',sans-serif", fontSize:18, fontWeight:600, color:'#1d1d1f'}}>团队负载</h2>
-              <p className="text-[13px] text-[#6e6e73] mt-0.5">实时运营容量</p>
+          {/* Recent Orders */}
+          {myStats.recent_orders?.length > 0 && (
+            <div className="bg-surface-container-lowest ghost-border rounded-2xl overflow-hidden shadow-[0_1px_8px_rgba(0,0,0,0.05)]">
+              <div className="px-5 lg:px-7 py-5 border-b border-[#e1e3e4] flex items-center justify-between">
+                <div>
+                  <h2 style={{fontFamily:"'Outfit',sans-serif", fontSize:18, fontWeight:600, color:'#1d1d1f'}}>最近订单</h2>
+                  <p className="text-[13px] text-[#6e6e73] mt-0.5">最新 5 条订单动态</p>
+                </div>
+                <Link to="/orders" className="text-xs text-brand-500 hover:underline font-semibold bg-brand-50 px-2.5 py-1 rounded-md transition-colors hover:bg-brand-100">
+                  查看全部
+                </Link>
+              </div>
+              <div className="w-full overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      <th className="text-left px-6 py-3 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">订单号</th>
+                      <th className="text-left px-6 py-3 text-[12px] font-semibold text-slate-400 uppercase tracking-wider hidden sm:table-cell">主题</th>
+                      <th className="text-right px-6 py-3 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">金额</th>
+                      <th className="text-left px-6 py-3 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">状态</th>
+                      <th className="text-right px-6 py-3 text-[12px] font-semibold text-slate-400 uppercase tracking-wider hidden md:table-cell">时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {myStats.recent_orders.map((order) => (
+                      <tr key={order.id} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors">
+                        <td className="px-6 py-3.5">
+                          <Link to={`/orders?keyword=${order.order_sn}`} className="text-[13px] font-bold text-brand-600 hover:underline font-mono">
+                            {order.order_sn || `#${order.id}`}
+                          </Link>
+                        </td>
+                        <td className="px-6 py-3.5 hidden sm:table-cell">
+                          <span className="text-[13px] text-slate-700 truncate block max-w-[200px]">{order.topic || '-'}</span>
+                        </td>
+                        <td className="px-6 py-3.5 text-right">
+                          <span className="text-[14px] font-bold text-slate-800 tabular-nums">¥{fmtYuan(order.price)}</span>
+                        </td>
+                        <td className="px-6 py-3.5">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[order.status]] || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                            {STATUS_MAP[order.status] || order.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3.5 text-right hidden md:table-cell">
+                          <span className="text-[12px] text-slate-500 tabular-nums">{formatTime(order.created_at)}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <span className="flex h-2.5 w-2.5 relative shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-            </span>
-          </div>
-          <div className="p-5 lg:p-6 flex flex-col gap-4 flex-1">
-            <div className="flex items-center p-4 rounded-2xl border border-slate-100 bg-gradient-to-r from-brand-25 to-white hover:border-[#434FCF]/25 transition-colors">
-              <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-sm mr-3.5">
-                <span className="text-lg font-bold text-brand-500 tabular-nums">{stats.active_designers}</span>
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-800">活跃成员</div>
-                <div className="text-xs text-slate-500 mt-0.5">正在处理订单中</div>
-              </div>
-            </div>
-            <div className="flex items-center p-4 rounded-2xl border border-slate-100 bg-gradient-to-r from-emerald-50/60 to-white hover:border-[#434FCF]/25 transition-colors">
-              <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-sm mr-3.5">
-                <span className="text-lg font-bold text-emerald-500 tabular-nums">{stats.idle_designers}</span>
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-800">空闲 / 可用</div>
-                <div className="text-xs text-slate-500 mt-0.5">可接受新任务分配</div>
-              </div>
-            </div>
-            <div className="mt-auto pt-2">
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium text-slate-600">总体利用率</span>
-                <span className="font-bold text-slate-800 tabular-nums">{utilizationRate}%</span>
-              </div>
-              <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                <div className="bg-gradient-to-r from-brand-500 to-indigo-400 h-2 rounded-full transition-all duration-700 ease-out" style={{ width: `${utilizationRate}%` }} />
-              </div>
-            </div>
-          </div>
-        </div>
+          )}
+        </>
+      )}
 
-        {/* Order Status Distribution */}
-        <div className="bg-surface-container-lowest ghost-border rounded-2xl xl:col-span-2 flex flex-col min-h-0 hover:border-[#434FCF]/25 transition-colors shadow-[0_1px_8px_rgba(0,0,0,0.05)]">
-          <div className="px-5 lg:px-7 py-5 border-b border-[#e1e3e4]">
-            <h2 style={{fontFamily:"'Outfit',sans-serif", fontSize:18, fontWeight:600, color:'#1d1d1f'}}>订单状态分布</h2>
-            <p className="text-[13px] text-[#6e6e73] mt-0.5">当前各状态订单数量概览</p>
+      {/* ═══ Admin Dashboard ═══ */}
+      {isAdmin && (
+        <>
+          {/* KPI Cards -- Row 1: 4 primary cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 lg:gap-6">
+            <MetricCard
+              title="总订单"
+              value={stats.total_orders || 0}
+              currentRateVal={stats.today_order_count || 0}
+              prevValue={stats.yesterday_order_count || 0}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+                  <rect x="3" y="3" width="18" height="3.5" rx="1.75" strokeLinejoin="round"/>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 6.5l.9 11.1A2 2 0 007.4 19.5h9.2a2 2 0 001.99-1.9l.9-11.1"/>
+                  <path strokeLinecap="round" d="M9.5 11h5"/>
+                  <path strokeLinecap="round" d="M10.5 14.5h3"/>
+                </svg>
+              }
+              colorHex="#434FCF"
+            />
+            <MetricCard
+              title="待处理"
+              value={stats.pending_orders || 0}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+                  <circle cx="12" cy="12" r="9"/>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v5.25l3.5 2"/>
+                </svg>
+              }
+              colorHex="#F59E0B"
+            />
+            <MetricCard
+              title="今日营收"
+              value={(stats.today_revenue || 0) / 100}
+              currentRateVal={stats.today_revenue || 0}
+              prevValue={stats.yesterday_revenue || 0}
+              isCurrency={true}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 17.5V15a1 1 0 011-1h2a1 1 0 011 1v2.5"/>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 17.5V11a1 1 0 011-1h2a1 1 0 011 1v6.5"/>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 17.5V7a1 1 0 011-1h2a1 1 0 011 1v10.5"/>
+                  <path strokeLinecap="round" d="M3 17.5h18"/>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 11.5l3-3 3 2.5 4-5"/>
+                </svg>
+              }
+              colorHex="#10B981"
+            />
+            <MetricCard
+              title="异常事项"
+              value={stats.grab_alert_count || 0}
+              currentRateVal={stats.grab_alert_count || 0}
+              prevValue={stats.yesterday_grab_alerts || 0}
+              invertTrend={true}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                  <path strokeLinecap="round" d="M12 9v4.5"/>
+                  <circle cx="12" cy="16.5" r="0.5" fill="currentColor" stroke="none"/>
+                </svg>
+              }
+              colorHex="#EF4444"
+            />
           </div>
-          <div className="p-5 lg:p-6 flex-1">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {[
-                { label: '待接单', key: 'pending_orders', color: '#F59E0B', bg: 'from-amber-50 to-white', border: 'border-amber-100 hover:border-[#434FCF]/25' },
-                { label: '已确认', key: 'confirmed_count', color: '#6366F1', bg: 'from-indigo-50/60 to-white', border: 'border-indigo-100 hover:border-[#434FCF]/25' },
-                { label: '设计中', key: 'designing_orders', color: '#3B82F6', bg: 'from-blue-50/60 to-white', border: 'border-blue-100 hover:border-[#434FCF]/25' },
-                { label: '已完成', key: 'completed_orders', color: '#10B981', bg: 'from-emerald-50/60 to-white', border: 'border-emerald-100 hover:border-[#434FCF]/25' },
-                { label: '修改中', key: 'revision_count', color: '#8B5CF6', bg: 'from-violet-50/60 to-white', border: 'border-violet-100 hover:border-[#434FCF]/25' },
-                { label: '售后中', key: 'after_sale_count', color: '#EF4444', bg: 'from-red-50/60 to-white', border: 'border-red-100 hover:border-[#434FCF]/25' },
-              ].map((item) => (
-                <div
-                  key={item.key}
-                  className={`flex items-center p-4 lg:p-5 rounded-xl border bg-gradient-to-r ${item.bg} ${item.border} transition-colors`}
-                >
-                  <div
-                    className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 mr-3"
-                    style={{ backgroundColor: item.color + '14' }}
-                  >
-                    <span className="text-base font-bold tabular-nums" style={{ color: item.color }}>
-                      {stats[item.key] || 0}
-                    </span>
+
+          {/* KPI Cards -- Row 2: Payment + Pending Work */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 lg:gap-6">
+            <MetricCard
+              title="总收款金额"
+              formattedValue={`¥${fmtYuan(stats.total_payment_amount)}`}
+              value={(stats.total_payment_amount || 0) / 100}
+              currentRateVal={stats.today_payment_amount || 0}
+              prevValue={stats.yesterday_payment_amount || 0}
+              isCurrency={true}
+              subtitle={`拼多多 ¥${fmtYuan(stats.pdd_payment_amount)} · 企微 ¥${fmtYuan(stats.wecom_payment_amount)} · 手动 ¥${fmtYuan(stats.manual_payment_amount)}`}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+                  <rect x="2" y="6" width="20" height="13" rx="2" strokeLinejoin="round"/>
+                  <path strokeLinecap="round" d="M2 10h20"/>
+                  <circle cx="12" cy="15" r="2.5"/>
+                  <path strokeLinecap="round" d="M6 10V7a6 6 0 0112 0v3"/>
+                </svg>
+              }
+              colorHex="#059669"
+            />
+            <MetricCard
+              title="待处理订单"
+              value={pendingTotal}
+              subtitle={`确认 ${stats.confirmed_count || 0} · 售后 ${stats.after_sale_count || 0} · 修改 ${stats.revision_count || 0}`}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
+                  <rect x="5" y="3" width="14" height="18" rx="2" strokeLinejoin="round"/>
+                  <path strokeLinecap="round" d="M9 7h6"/>
+                  <path strokeLinecap="round" d="M9 11h6"/>
+                  <path strokeLinecap="round" d="M9 15h4"/>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.5 3.5v-1a.5.5 0 01.5-.5h4a.5.5 0 01.5.5v1"/>
+                </svg>
+              }
+              colorHex="#EA580C"
+            />
+          </div>
+
+          {/* Monthly Chart + Payment Source Pie */}
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">
+              <div className="xl:col-span-2 flex flex-col min-h-0 bg-white ghost-border rounded-2xl overflow-hidden shadow-[0_2px_16px_rgba(0,0,0,0.06)]">
+              <div className="px-7 lg:px-8 py-6 flex items-center justify-between">
+                <div>
+                  <h2 style={{fontFamily:"'Outfit',sans-serif", fontSize:18, fontWeight:600, color:'#1d1d1f'}}>月度销量</h2>
+                  <p className="text-[13px] text-[#6e6e73] mt-0.5">过去一年的订单趋势</p>
+                </div>
+                <button onClick={() => fetchDashboardData(true)} className="inline-flex items-center justify-center gap-1.5 font-semibold border cursor-pointer transition-all whitespace-nowrap leading-snug active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300 px-3 py-1.5 text-xs rounded-lg" disabled={loading}>
+                  <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  <span>{loading ? '刷新中...' : '刷新'}</span>
+                </button>
+              </div>
+              <div className="p-6 lg:p-8 flex-1 min-h-[360px] lg:min-h-[420px]" ref={barChartRef} />
+            </div>
+
+            {/* Payment Source Pie Chart */}
+            <div className="bg-surface-container-lowest ghost-border rounded-2xl xl:col-span-1 flex flex-col min-h-0 hover:border-[#434FCF]/25 transition-colors shadow-[0_2px_16px_rgba(0,0,0,0.06)]">
+              <div className="px-7 lg:px-8 py-6 flex items-center justify-between">
+                <div>
+                  <h2 style={{fontFamily:"'Outfit',sans-serif", fontSize:18, fontWeight:600, color:'#1d1d1f'}}>收款来源</h2>
+                  <p className="text-[13px] text-[#6e6e73] mt-0.5">各渠道收款分布</p>
+                </div>
+                <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md tabular-nums">
+                  共 {stats.total_payment_count || 0} 笔
+                </span>
+              </div>
+              <div className="p-6 lg:p-8 flex-1 min-h-[360px]" ref={pieChartRef} />
+            </div>
+          </div>
+
+          {/* Team Load + Order Status Distribution */}
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">
+            <div className="bg-surface-container-lowest ghost-border rounded-2xl xl:col-span-1 flex flex-col min-h-0 hover:border-[#434FCF]/25 transition-colors shadow-[0_1px_8px_rgba(0,0,0,0.05)]">
+              <div className="px-5 lg:px-7 py-5 border-b border-[#e1e3e4] flex items-center justify-between">
+                <div>
+                  <h2 style={{fontFamily:"'Outfit',sans-serif", fontSize:18, fontWeight:600, color:'#1d1d1f'}}>团队负载</h2>
+                  <p className="text-[13px] text-[#6e6e73] mt-0.5">实时运营容量</p>
+                </div>
+                <span className="flex h-2.5 w-2.5 relative shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                </span>
+              </div>
+              <div className="p-5 lg:p-6 flex flex-col gap-4 flex-1">
+                <div className="flex items-center p-4 rounded-2xl border border-slate-100 bg-gradient-to-r from-brand-25 to-white hover:border-[#434FCF]/25 transition-colors">
+                  <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-sm mr-3.5">
+                    <span className="text-lg font-bold text-brand-500 tabular-nums">{stats.active_designers}</span>
                   </div>
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-700">{item.label}</div>
+                    <div className="text-sm font-semibold text-slate-800">活跃成员</div>
+                    <div className="text-xs text-slate-500 mt-0.5">正在处理订单中</div>
                   </div>
                 </div>
-              ))}
+                <div className="flex items-center p-4 rounded-2xl border border-slate-100 bg-gradient-to-r from-emerald-50/60 to-white hover:border-[#434FCF]/25 transition-colors">
+                  <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-sm mr-3.5">
+                    <span className="text-lg font-bold text-emerald-500 tabular-nums">{stats.idle_designers}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-slate-800">空闲 / 可用</div>
+                    <div className="text-xs text-slate-500 mt-0.5">可接受新任务分配</div>
+                  </div>
+                </div>
+                <div className="mt-auto pt-2">
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="font-medium text-slate-600">总体利用率</span>
+                    <span className="font-bold text-slate-800 tabular-nums">{utilizationRate}%</span>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                    <div className="bg-gradient-to-r from-brand-500 to-indigo-400 h-2 rounded-full transition-all duration-700 ease-out" style={{ width: `${utilizationRate}%` }} />
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Designer Rankings */}
-      {stats.designer_rankings?.length > 0 && (
-        <div className="bg-surface-container-lowest ghost-border rounded-xl hover:border-[#434FCF]/25 transition-colors overflow-hidden">
-          <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
-            <div>
-              <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">设计师排行</h2>
-              <p className="text-sm text-slate-500 mt-0.5">绩效排行榜</p>
-            </div>
-            <div className="flex items-center gap-3">
-              {stats.avg_completion_hours > 0 && (
-                <span className="text-sm text-slate-500 hidden sm:inline">
-                  平均完成: <span className="font-bold text-slate-700">{stats.avg_completion_hours.toFixed(1)}h</span>
-                </span>
-              )}
-              <button onClick={() => setRankingExpanded(!rankingExpanded)} className="text-xs text-brand-500 hover:underline font-semibold bg-brand-50 px-2.5 py-1 rounded-md transition-colors hover:bg-brand-100">
-                {rankingExpanded ? '收起' : '展开全部'}
-              </button>
+            {/* Order Status Distribution */}
+            <div className="bg-surface-container-lowest ghost-border rounded-2xl xl:col-span-2 flex flex-col min-h-0 hover:border-[#434FCF]/25 transition-colors shadow-[0_1px_8px_rgba(0,0,0,0.05)]">
+              <div className="px-5 lg:px-7 py-5 border-b border-[#e1e3e4]">
+                <h2 style={{fontFamily:"'Outfit',sans-serif", fontSize:18, fontWeight:600, color:'#1d1d1f'}}>订单状态分布</h2>
+                <p className="text-[13px] text-[#6e6e73] mt-0.5">当前各状态订单数量概览</p>
+              </div>
+              <div className="p-5 lg:p-6 flex-1">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {[
+                    { label: '待接单', key: 'pending_orders', color: '#F59E0B', bg: 'from-amber-50 to-white', border: 'border-amber-100 hover:border-[#434FCF]/25' },
+                    { label: '已确认', key: 'confirmed_count', color: '#6366F1', bg: 'from-indigo-50/60 to-white', border: 'border-indigo-100 hover:border-[#434FCF]/25' },
+                    { label: '设计中', key: 'designing_orders', color: '#3B82F6', bg: 'from-blue-50/60 to-white', border: 'border-blue-100 hover:border-[#434FCF]/25' },
+                    { label: '已完成', key: 'completed_orders', color: '#10B981', bg: 'from-emerald-50/60 to-white', border: 'border-emerald-100 hover:border-[#434FCF]/25' },
+                    { label: '修改中', key: 'revision_count', color: '#8B5CF6', bg: 'from-violet-50/60 to-white', border: 'border-violet-100 hover:border-[#434FCF]/25' },
+                    { label: '售后中', key: 'after_sale_count', color: '#EF4444', bg: 'from-red-50/60 to-white', border: 'border-red-100 hover:border-[#434FCF]/25' },
+                  ].map((item) => (
+                    <div
+                      key={item.key}
+                      className={`flex items-center p-4 lg:p-5 rounded-xl border bg-gradient-to-r ${item.bg} ${item.border} transition-colors`}
+                    >
+                      <div
+                        className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 mr-3"
+                        style={{ backgroundColor: item.color + '14' }}
+                      >
+                        <span className="text-base font-bold tabular-nums" style={{ color: item.color }}>
+                          {stats[item.key] || 0}
+                        </span>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-slate-700">{item.label}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
-          <div className="w-full overflow-x-auto">
-            <table className="w-full border-separate border-spacing-y-2 text-left px-2">
-              <thead>
-                <tr className="text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  <th className="pb-3 pl-8">排名</th>
-                  <th className="pb-3 px-4">姓名</th>
-                  <th className="pb-3 px-4">已完成</th>
-                  <th className="pb-3 px-4">进行中</th>
-                  <th className="pb-3 text-right pr-8">平均耗时</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayedRankings.map((d, i) => (
-                  <tr key={d.wecom_userid || i} className="bg-surface group hover:bg-surface-container-high transition-colors">
-                    <td className="py-4 pl-8 rounded-l-lg font-bold text-sm">
-                      {i === 0 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#434FCF]/10 text-[#434FCF] text-sm border-2 border-[#434FCF]/20">1</span>
-                        : i === 1 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#434FCF]/5 text-[#434FCF] text-sm border-2 border-[#434FCF]/10">2</span>
-                        : i === 2 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-50 text-slate-500 text-sm border-2 border-slate-100">3</span>
-                        : <span className="text-sm text-slate-400 pl-2">#{i + 1}</span>}
-                    </td>
-                    <td className="py-4 px-4 text-sm font-bold text-slate-800">{d.name}</td>
-                    <td className="py-4 px-4 text-sm"><span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700">{d.completed_count}</span></td>
-                    <td className="py-4 px-4 text-sm"><span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-amber-50 text-amber-600">{d.active_count}</span></td>
-                    <td className="py-4 pr-8 rounded-r-lg text-right font-bold text-sm tabular-nums">{d.avg_hours ? d.avg_hours.toFixed(1) + 'h' : '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+
+          {/* Designer Rankings */}
+          {stats.designer_rankings?.length > 0 && (
+            <div className="bg-surface-container-lowest ghost-border rounded-xl hover:border-[#434FCF]/25 transition-colors overflow-hidden">
+              <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
+                <div>
+                  <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">设计师排行</h2>
+                  <p className="text-sm text-slate-500 mt-0.5">绩效排行榜</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {stats.avg_completion_hours > 0 && (
+                    <span className="text-sm text-slate-500 hidden sm:inline">
+                      平均完成: <span className="font-bold text-slate-700">{stats.avg_completion_hours.toFixed(1)}h</span>
+                    </span>
+                  )}
+                  <button onClick={() => setRankingExpanded(!rankingExpanded)} className="text-xs text-brand-500 hover:underline font-semibold bg-brand-50 px-2.5 py-1 rounded-md transition-colors hover:bg-brand-100">
+                    {rankingExpanded ? '收起' : '展开全部'}
+                  </button>
+                </div>
+              </div>
+              <div className="w-full overflow-x-auto">
+                <table className="w-full border-separate border-spacing-y-2 text-left px-2">
+                  <thead>
+                    <tr className="text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      <th className="pb-3 pl-8">排名</th>
+                      <th className="pb-3 px-4">姓名</th>
+                      <th className="pb-3 px-4">已完成</th>
+                      <th className="pb-3 px-4">进行中</th>
+                      <th className="pb-3 text-right pr-8">平均耗时</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayedRankings.map((d, i) => (
+                      <tr key={d.wecom_userid || i} className="bg-surface group hover:bg-surface-container-high transition-colors">
+                        <td className="py-4 pl-8 rounded-l-lg font-bold text-sm">
+                          {i === 0 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#434FCF]/10 text-[#434FCF] text-sm border-2 border-[#434FCF]/20">1</span>
+                            : i === 1 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#434FCF]/5 text-[#434FCF] text-sm border-2 border-[#434FCF]/10">2</span>
+                            : i === 2 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-50 text-slate-500 text-sm border-2 border-slate-100">3</span>
+                            : <span className="text-sm text-slate-400 pl-2">#{i + 1}</span>}
+                        </td>
+                        <td className="py-4 px-4 text-sm font-bold text-slate-800">{d.name}</td>
+                        <td className="py-4 px-4 text-sm"><span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700">{d.completed_count}</span></td>
+                        <td className="py-4 px-4 text-sm"><span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-amber-50 text-amber-600">{d.active_count}</span></td>
+                        <td className="py-4 pr-8 rounded-r-lg text-right font-bold text-sm tabular-nums">{d.avg_hours ? d.avg_hours.toFixed(1) + 'h' : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

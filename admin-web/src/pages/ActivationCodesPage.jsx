@@ -148,7 +148,20 @@ export default function ActivationCodesPage() {
             </div>
             <div className="flex gap-3 w-full">
               <button
-                onClick={() => { navigator.clipboard.writeText(codeModal.code); toast('已复制到剪贴板', 'success'); }}
+                onClick={() => {
+                  const text = codeModal.code;
+                  if (navigator.clipboard?.writeText) {
+                    navigator.clipboard.writeText(text).then(() => toast('已复制到剪贴板', 'success')).catch(() => {
+                      const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px';
+                      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+                      toast('已复制到剪贴板', 'success');
+                    });
+                  } else {
+                    const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px';
+                    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+                    toast('已复制到剪贴板', 'success');
+                  }
+                }}
                 className="flex-1 h-10 bg-brand-500 text-white text-sm font-semibold rounded-xl hover:bg-brand-600 transition-colors cursor-pointer"
               >
                 复制激活码
@@ -219,11 +232,11 @@ export default function ActivationCodesPage() {
             <thead>
               <tr>
                 <th className="pl-6">员工</th>
-                <th>角色</th>
+                <th className="hidden md:table-cell">角色</th>
                 <th>绑定状态</th>
-                <th>设备指纹</th>
-                <th>MAC 地址</th>
-                <th>最后登录</th>
+                <th className="hidden lg:table-cell">设备指纹</th>
+                <th className="hidden xl:table-cell">MAC 地址</th>
+                <th className="hidden md:table-cell">最后登录</th>
                 <th>启用状态</th>
                 <th className="text-right pr-6">操作</th>
               </tr>
@@ -253,7 +266,7 @@ export default function ActivationCodesPage() {
                       </div>
                     </div>
                   </td>
-                  <td>
+                  <td className="hidden md:table-cell">
                     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide ${BADGE_VARIANT_CLASSES[ROLE_CLASS_MAP[emp.role]] || BADGE_VARIANT_CLASSES.secondary}`}>
                       {ROLE_MAP[emp.role] || emp.role}
                     </span>
@@ -271,13 +284,13 @@ export default function ActivationCodesPage() {
                       </span>
                     )}
                   </td>
-                  <td className="font-mono text-[13px] text-slate-600">
+                  <td className="hidden lg:table-cell font-mono text-[13px] text-slate-600">
                     <span title={emp.machine_id || ''}>{emp.machine_id ? emp.machine_id.substring(0, 16) + '...' : '-'}</span>
                   </td>
-                  <td className="font-mono text-[13px] text-slate-600">
+                  <td className="hidden xl:table-cell font-mono text-[13px] text-slate-600">
                     {emp.mac_address || '-'}
                   </td>
-                  <td>
+                  <td className="hidden md:table-cell">
                     {emp.last_login_at ? (
                       <div>
                         <div className="flex items-center gap-1.5">

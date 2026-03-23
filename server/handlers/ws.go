@@ -114,27 +114,9 @@ func GetOrderDetail(c *gin.Context) {
 		return
 	}
 
-	// 先鉴权再查库，角色条件合并到 WHERE，统一返回 404 避免信息泄露
-	role, _ := c.Get("role")
-	roleStr, _ := role.(string)
-	userID, _ := c.Get("wecom_userid")
-	uidStr, _ := userID.(string)
-
-	query := models.DB.Where("id = ?", uint(id))
-	switch roleStr {
-	case "admin", "follow":
-		// admin/follow 可查看所有订单
-	case "sales":
-		query = query.Where("operator_id = ?", uidStr)
-	case "designer":
-		query = query.Where("designer_id = ?", uidStr)
-	default:
-		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
-		return
-	}
-
+	// 所有已认证用户均可查看任意订单详情
 	var order models.Order
-	if err := query.First(&order).Error; err != nil {
+	if err := models.DB.First(&order, uint(id)).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
 		return
 	}
@@ -176,7 +158,8 @@ func GetOrderDetail(c *gin.Context) {
 	}
 
 	// 仅 admin 可查看分润明细，防止敏感数据泄露
-	if roleStr == "admin" {
+	role, _ := c.Get("role")
+	if role == "admin" {
 		platformRate := config.C.PlatformFeeRate
 		designerRate := config.C.DesignerCommissionRate
 		salesRate := config.C.SalesCommissionRate
@@ -214,21 +197,9 @@ func GetOrderTimeline(c *gin.Context) {
 		return
 	}
 
-	// 先鉴权再查库，角色条件合并到 WHERE，统一返回 404
-	role, _ := c.Get("role")
-	roleStr, _ := role.(string)
-	userID, _ := c.Get("wecom_userid")
-	uidStr, _ := userID.(string)
-
-	query := models.DB.Model(&models.Order{}).Where("id = ?", uint(id))
-	query, ok := filterByRole(query, roleStr, uidStr)
-	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
-		return
-	}
-
+	// 所有已认证用户均可查看任意订单时间线
 	var order models.Order
-	if err := query.First(&order).Error; err != nil {
+	if err := models.DB.First(&order, uint(id)).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
 		return
 	}

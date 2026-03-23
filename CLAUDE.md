@@ -1,122 +1,69 @@
-# PDD 派单管理系统 — 项目指南
+# PDD 派单管理系统
 
-## 项目概述
-企微对接 + 客服录单 + OCR 防篡改 + 管理看板的全流程自动化系统。
-面向 10-20 人的兼职客服+设计师团队，日单量 60-100 单，日营业额约 3000 元。
+企微对接 + 客服录单 + OCR 防篡改 + 管理看板，面向 10-20 人兼职团队，日单量 60-100。
+
+## 按需加载规则（必读）
+
+本项目采用分层 CLAUDE.md 架构，**严禁跳过 CLAUDE.md 直接读源码**。工作流程：
+
+1. **先读本文件**（根 CLAUDE.md）了解全局架构
+2. **根据任务涉及的模块**，读取对应子目录的 CLAUDE.md：
+   - 后端任务 → 先读 `server/CLAUDE.md`（路由、模型、服务一览）
+   - 前端任务 → 先读 `admin-web/CLAUDE.md`（组件、路由、API 调用模式）
+   - 全栈任务 → 两个都读
+3. **只有在 CLAUDE.md 信息不足时**，才去读具体源码文件，且只读相关文件的相关部分
+4. **新增/重大改动后**，同步更新对应 CLAUDE.md
+
+这样做的目的：避免每次对话重复读取 2 万行源码，CLAUDE.md 已包含模块职责、数据模型、API 路由、状态机等关键信息。
 
 ## 技术栈
-- **后端**: Go 1.22+ / Gin / GORM / SQLite
-- **前端管理端**: React 19 + Vite + TailwindCSS v4
-- **桌面客服端**: Go + Wails v2 + Vue3
+- **后端**: Go 1.22+ / Gin / GORM / SQLite → 详见 `server/CLAUDE.md`
+- **前端管理端**: React 19 + Vite + TailwindCSS v4 → 详见 `admin-web/CLAUDE.md`
+- **桌面客服端**: Go + Wails v2 + Vue3 (`desktop-client/`)
+- **员工前端**: React 19 + Vite (`staff-web/`，开发中)
 - **企业微信**: 自建应用 API（消息推送、建群、通讯录同步、回调）
 - **OCR**: 智谱 GLM-4V / 通义千问 VL
 
 ## 项目结构
 ```
-├── server/              # Go 后端 (Gin + GORM)
-│   ├── config/          # 配置管理（环境变量加载）
-│   ├── handlers/        # HTTP 处理器（API 路由处理）
-│   ├── middleware/       # 中间件（JWT、CSRF、限速、安全头、企微加解密）
-│   ├── models/          # 数据模型（GORM）
-│   ├── services/        # 业务服务（企微、OCR、订单、WebSocket、备份）
-│   └── main.go          # 入口 + 路由注册
-├── admin-web/           # 管理端前端 (React 19 + Vite)
-│   └── src/
-│       ├── pages/       # 页面组件（React, .jsx）
-│       ├── views/       # 旧 Vue 页面（待清理）
-│       ├── components/  # 通用组件
-│       └── contexts/    # React Context（Auth、WebSocket、Toast）
-├── desktop-client/      # 桌面客服端 (Wails + Vue)
-├── deploy/              # 部署配置 (Nginx)
-├── docker-compose.yml   # Docker 编排
-├── Dockerfile           # 多阶段构建
-└── build.sh             # 一键构建脚本
+├── server/          # Go 后端 (详见 server/CLAUDE.md)
+├── admin-web/       # 管理端前端 (详见 admin-web/CLAUDE.md)
+├── desktop-client/  # 桌面客服端 (Wails + Vue)
+├── staff-web/       # 员工前端 (React, 开发中)
+├── deploy/          # 部署配置 (Nginx)
+└── docs/            # 文档
 ```
 
-## 端口规范（重要 ⚠️）
-- **用户访问端口: 8200** — 开发、生产、演示看板一律使用 `http://localhost:8200`
-- Vite dev server 配置 `port: 8200` + `strictPort: true`（端口被占用时直接报错，**禁止自动切换**）
-- Go 后端监听 **8201**（内部端口，用户不直接访问）
-- 开发时 Vite 自动代理 `/api` → `localhost:8201`、`/ws` → `ws://localhost:8201`
-- 生产时 Go 后端自身在 8200 直接服务静态文件 + API（无需 Vite）
-- **⛔ 严禁使用其他端口** — 如果 8200 被占用，先 `kill` 占用进程再启动
+## 端口规范
+- **8200**: 用户访问端口（Vite dev / 生产静态服务）
+- **8201**: Go 后端内部端口
+- 开发时 Vite 代理 `/api` → 8201、`/ws` → ws://8201
+- **严禁使用其他端口**
 
-## 企业微信配置
-- CorpID: `wwdb2f088115fa0fff`
-- AgentID: `1000004`
-- Secret: 已配置在 `server/.env`
-- 回调地址: `https://{域名}/api/v1/wecom/callback`（需公网可达）
-- Token / EncodingAESKey: 待企微后台配置回调时生成
-
-## 已完成的功能模块
-
-### 后端 (server/)
-- [x] JWT 认证 + 设备绑定登录 + 暴力破解防护
-- [x] 订单 CRUD + 状态流转引擎 (PENDING → GROUP_CREATED → DESIGNING → DELIVERED → COMPLETED)
-- [x] OCR 识别（智谱 GLM-4V，截图提取订单号+金额）
-- [x] 企微 access_token 管理（带缓存，过期前5分钟刷新）
-- [x] 企微消息推送（文本/卡片）
-- [x] 企微建群 + 需求播报
-- [x] 企微回调验证 + 消息处理（"已交付"自动更新状态）
-- [x] 企微通讯录同步（每小时）+ 90天数据清理
-- [x] 企微消息加解密（wxbizmsgcrypt 完整移植）
-- [x] 抢单分发 + 超时兜底（10分钟无人抢单自动指派）
-- [x] 交付截止倒计时提醒（距交付3h自动催更）
-- [x] 分润计算（平台扣点/设计师抽成/客服提成可配置）
-- [x] SQLite 每日自动备份（保留7份）
-- [x] 上传文件定时清理（7天过期）
-- [x] WebSocket 实时推送
-- [x] CSV 数据导出（订单/利润）
-- [x] 安全中间件（CSRF、限速、安全头、请求体限制、可疑请求拦截）
-- [x] 桌面客户端 OTA 版本更新
-
-### 前端管理端 (admin-web/)
-- [x] 登录页
-- [x] Dashboard 数据看板
-- [x] 订单列表 + 详情 + 时间线
-- [x] 员工管理（增删改、设备解绑）
-- [x] 团队工作负载
-- [x] 营收图表
-- [x] 通知面板
-- [x] WebSocket 实时更新
-
-### 桌面客服端 (desktop-client/)
-- [x] 设备激活码验证 + MAC 绑定
-- [x] 录单表单（主题、页数、交付时间、备注）
-- [x] OCR 截图上传 + 金额锁定
-- [x] 图片预览/缩放
-- [x] 会话持久化
-
-## 待完成 / 可优化
-- [ ] 企微回调 Token/EncodingAESKey 配置（需公网域名+企微后台操作）
-- [ ] 企微回调入站消息日志入库（incoming 方向）
-- [ ] 管理端企微数据查看 API（WecomMember / GroupChat / MessageLog）
-- [x] 前端 Vue 遗留页面清理（已完成，无残留 .vue 文件）
-- [x] 收款流水管理页 PaymentsPage（汇总统计、筛选、流水列表、手动录入、关联订单）
-- [ ] 生产环境部署（服务器 + 域名 + HTTPS）
-- [ ] 企微 OAuth/JSSDK 登录流（可选）
+## 企业微信
+- CorpID: `wwdb2f088115fa0fff` / AgentID: `1000004`
+- 回调: `https://{域名}/api/v1/wecom/callback`
+- 配置在 `server/.env`
 
 ## 开发命令
 ```bash
-# 后端
-cd server && go run .
-
-# 前端
-cd admin-web && npm run dev
-
-# 构建
-./build.sh all
-
-# Docker 部署
-docker compose up -d
+cd server && go run .              # 后端
+cd admin-web && npm run dev        # 前端
+./build.sh all                     # 全量构建
+docker compose up -d               # Docker 部署
 ```
+
+## 部署
+- **生产服务器**: `118.31.56.141`
+- **前端部署路径**: `/opt/pdd-server/dist/`（注意：不是 `/opt/pdd-order-system/dist/`）
+- **前端部署命令**: `cd admin-web && npm run build && scp -r dist/* root@118.31.56.141:/opt/pdd-server/dist/`
+- **后端服务**: systemd 管理，路径 `/opt/pdd-server/`
 
 ## 默认账号
 - 管理员: `admin` / `admin888`
 
 ## 代码规范
-- Go 代码遵循标准 Go 项目布局
-- 前端使用 React + JSX（不是 TypeScript）
-- TailwindCSS v4 用于样式
-- API 路径统一 `/api/v1/` 前缀
-- 敏感配置通过 `.env` 环境变量注入，禁止硬编码
+- Go 标准布局，前端 React + JSX（不用 TypeScript）
+- API 路径 `/api/v1/` 前缀
+- 敏感配置通过 `.env` 注入，禁止硬编码
+- 金额单位统一用 **分**

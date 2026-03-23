@@ -443,10 +443,19 @@ export default function OrdersPage() {
         {/* Table */}
         <div className="w-full overflow-x-auto relative min-h-[450px]">
           {loading && orders.length === 0 && <LoadingSpinner />}
-          <table>
+          <table className="w-full" style={{ tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: '4%' }} />
+              <col style={{ width: '28%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '20%' }} />
+            </colgroup>
             <thead>
               <tr>
-                <th className="w-10 pl-4 pr-0">
+                <th className="pl-4 pr-0">
                   <input
                     type="checkbox"
                     checked={orders.length > 0 && selectedIds.size === orders.length}
@@ -455,12 +464,12 @@ export default function OrdersPage() {
                     title="全选/取消全选"
                   />
                 </th>
-                <th className="pl-2">订单信息</th>
-                <th>客户</th>
-                <th>金额</th>
-                <th>负责人</th>
-                <th>状态</th>
-                <th className="text-right pr-6">日期 / 操作</th>
+                <th className="text-left pl-2">订单信息</th>
+                <th className="text-center">客户</th>
+                <th className="text-center">金额</th>
+                <th className="text-center">负责人</th>
+                <th className="text-center">状态</th>
+                <th className="text-center">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -752,7 +761,7 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
           className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-brand-500/20 cursor-pointer accent-[#434FCF]"
         />
       </td>
-      <td className="pl-2">
+      <td className="pl-2 overflow-hidden">
         <div className="flex items-center gap-2.5">
           {order.screenshot_path ? (
             <button
@@ -767,36 +776,36 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
             </div>
           )}
-          <div>
-            <Link to={`/orders/${order.id}`} onClick={(e) => e.stopPropagation()} className="font-semibold text-brand-500 hover:underline text-[13px] cursor-pointer">{order.order_sn}</Link>
-            {order.topic && <div className="text-[12px] text-slate-500 mt-1 max-w-[160px] truncate" title={order.topic}>{order.topic}</div>}
+          <div className="min-w-0 flex-1">
+            <Link to={`/orders/${order.id}`} onClick={(e) => e.stopPropagation()} className="font-semibold text-brand-500 hover:underline text-[13px] cursor-pointer block truncate" title={order.order_sn}>{order.order_sn}</Link>
+            {order.topic && <div className="text-[12px] text-slate-500 mt-1 truncate" title={order.topic}>{order.topic}</div>}
           </div>
         </div>
       </td>
-      <td className="text-[13px] text-slate-700 font-medium" onClick={(e) => e.stopPropagation()}>
+      <td className="text-center text-[13px] text-slate-700 font-medium overflow-hidden text-ellipsis" onClick={(e) => e.stopPropagation()}>
         {order.customer_contact ? (
-          <Link to={`/customers?keyword=${encodeURIComponent(order.customer_contact)}`} className="text-brand-500 hover:underline cursor-pointer">{order.customer_contact}</Link>
+          <Link to={`/customers?keyword=${encodeURIComponent(order.customer_contact)}`} className="text-brand-500 hover:underline cursor-pointer block truncate">{order.customer_contact}</Link>
         ) : '-'}
       </td>
-      <td className="text-[14px] font-bold text-slate-800 tabular-nums">&yen;{order.price ? (order.price / 100).toFixed(2) : '0.00'}</td>
-      <td className="text-[12px]">
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2 text-slate-500">
-            <span className="w-12 text-slate-400">管家:</span>
-            <span className="text-slate-700 font-medium bg-slate-50 px-1.5 py-0.5 rounded text-[11px]">{order.operator_id || '待分配'}</span>
+      <td className="text-center text-[14px] font-bold text-slate-800 tabular-nums whitespace-nowrap">&yen;{order.price ? (order.price / 100).toFixed(2) : '0.00'}</td>
+      <td className="text-[12px] text-center overflow-hidden">
+        <div className="inline-flex flex-col gap-1 text-left">
+          <div className="flex items-center gap-1.5 text-slate-500">
+            <span className="text-slate-400 text-[11px]">管家</span>
+            <span className="text-slate-700 font-medium text-[11px] truncate">{order.operator_id || '待分配'}</span>
           </div>
-          <div className="flex items-center gap-2 text-slate-500">
-            <span className="w-12 text-slate-400">设计:</span>
-            <span className="text-slate-700 font-medium bg-slate-50 px-1.5 py-0.5 rounded text-[11px]">{order.designer_id || '待分配'}</span>
+          <div className="flex items-center gap-1.5 text-slate-500">
+            <span className="text-slate-400 text-[11px]">设计</span>
+            <span className="text-slate-700 font-medium text-[11px] truncate">{order.designer_id || '待分配'}</span>
           </div>
         </div>
       </td>
-      <td>
-        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[order.status]] || BADGE_VARIANT_CLASSES.secondary}`}>{STATUS_MAP[order.status] || order.status}</span>
+      <td className="text-center">
+        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide whitespace-nowrap ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[order.status]] || BADGE_VARIANT_CLASSES.secondary}`}>{STATUS_MAP[order.status] || order.status}</span>
       </td>
-      <td className="text-right pr-6" onClick={(e) => e.stopPropagation()}>
-        <div className="text-[12px] text-slate-500 mb-2.5 font-medium tabular-nums">{formatTime(order.created_at)}</div>
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
+      <td className="text-center" onClick={(e) => e.stopPropagation()}>
+        <div className="text-[11px] text-slate-400 font-medium tabular-nums mb-1">{formatTime(order.created_at)}</div>
+        <div className="flex flex-wrap items-center justify-center gap-1">
           {/* sales: 确认需求 (GROUP_CREATED -> CONFIRMED) */}
           {order.status === 'GROUP_CREATED' && (role === 'admin' || role === 'sales') && (
             <button onClick={() => onUpdateStatus(order, 'CONFIRMED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">确认需求</button>

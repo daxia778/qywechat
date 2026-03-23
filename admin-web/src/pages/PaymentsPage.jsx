@@ -299,7 +299,7 @@ export default function PaymentsPage() {
                 <th className="text-left px-6 py-3.5 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">来源</th>
                 <th className="text-right px-6 py-3.5 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">收款金额</th>
                 <th className="text-left px-6 py-3.5 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">关联订单</th>
-                <th className="text-left px-6 py-3.5 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">备注</th>
+                <th className="hidden lg:table-cell text-left px-6 py-3.5 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">备注</th>
                 <th className="text-right px-6 py-3.5 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">匹配时间 / 操作</th>
               </tr>
             </thead>
@@ -347,7 +347,7 @@ export default function PaymentsPage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-6 py-3.5 max-w-[200px] truncate" title={p.remark}>
+                  <td className="hidden lg:table-cell px-6 py-3.5 max-w-[200px] truncate" title={p.remark}>
                     <span className="text-[12px] text-slate-600">{p.remark || '-'}</span>
                   </td>
                   <td className="px-6 py-3.5 text-right">

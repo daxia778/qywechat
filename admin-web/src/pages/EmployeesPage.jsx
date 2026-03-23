@@ -155,8 +155,20 @@ export default function EmployeesPage() {
   };
 
   const copyCode = async (text) => {
-    try { await navigator.clipboard.writeText(text); toast('已复制到剪贴板', 'success'); }
-    catch (err) { toast('复制失败: ' + err.message, 'error'); }
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;left:-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      toast('已复制到剪贴板', 'success');
+    } catch (err) { toast('复制失败: ' + err.message, 'error'); }
   };
 
   const handleResetPassword = (emp) => {
@@ -411,9 +423,9 @@ export default function EmployeesPage() {
                     <SortIcon field="role" sortField={sortField} sortDir={sortDir} />
                   </button>
                 </th>
-                <th>账号</th>
-                <th>设备指纹</th>
-                <th>最后活跃</th>
+                <th className="hidden lg:table-cell">账号</th>
+                <th className="hidden xl:table-cell">设备指纹</th>
+                <th className="hidden md:table-cell">最后活跃</th>
                 <th>
                   <button onClick={() => handleSort('status')} className="inline-flex items-center gap-0.5 hover:text-brand-500 transition-colors font-semibold text-inherit cursor-pointer select-none bg-transparent border-none p-0">
                     状态
@@ -562,17 +574,17 @@ const EmployeeRow = memo(function EmployeeRow({ emp, isAdmin, isExpanded, isSele
           </div>
         </td>
         <td><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide ${ROW_BADGE_CLASSES[ROLE_CLASS_MAP[emp.role]] || ROW_BADGE_CLASSES.secondary}`}>{ROLE_MAP[emp.role] || emp.role}</span></td>
-        <td>
+        <td className="hidden lg:table-cell">
           {emp.username ? (
             <code className="text-[13px] bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-mono">{emp.username}</code>
           ) : (
             <span className="text-slate-400">-</span>
           )}
         </td>
-        <td className="font-mono text-[13px] text-slate-600">
+        <td className="hidden xl:table-cell font-mono text-[13px] text-slate-600">
           <span title={emp.machine_id}>{emp.machine_id ? emp.machine_id.substring(0, 16) + '...' : '未绑定'}</span>
         </td>
-        <td>
+        <td className="hidden md:table-cell">
           {emp.last_login_at ? (
             <div>
               <div className="text-slate-800">{formatDate(emp.last_login_at)}</div>

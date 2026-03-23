@@ -11,7 +11,7 @@ export function useOrderFilters({ toast, on, off, connected }) {
   const debouncedKeyword = useDebounce(searchKeyword, 400);
   const [totalOrders, setTotalOrders] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
-  const pageSize = 50;
+  const pageSize = 20;
 
   const totalPages = Math.max(1, Math.ceil(totalOrders / pageSize));
 

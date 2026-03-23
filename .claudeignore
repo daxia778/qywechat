@@ -1,0 +1,64 @@
+# 依赖和构建产物
+node_modules/
+dist/
+build/
+*.min.js
+*.min.css
+
+# 备份和历史
+admin-web-vue-backup/
+backups/
+releases/
+
+# 运行时数据
+server/data/
+server/uploads/
+uploads/
+data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# 环境和密钥
+.env
+server/.env
+
+# IDE 和系统
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Docker 和部署（按需读取即可）
+deploy/
+docker-compose*.yml
+Dockerfile
+.dockerignore
+
+# 审查报告（历史文档，不需要每次加载）
+ARCHITECTURE_REVIEW.md
+CODE_AUDIT_*.md
+DEEP_REVIEW_*.md
+FRONTEND_REVIEW.md
+SECURITY_REVIEW.md
+UI_REVIEW.md
+PRD_GAP_ANALYSIS.md
+review-report.md
+PROJECT_V2_BLUEPRINT.md
+PDD派单系统_V2改造总览与后续规划.md
+prd_pdd_wecom_system.md
+PHASE1-DEV-GUIDE.md
+
+# Git
+.git/
+.github/
+
+# 桌面客户端前端依赖
+desktop-client/frontend/node_modules/
+desktop-client/frontend/dist/
+desktop-client/build/
+
+# Lock 文件
+package-lock.json
+go.sum

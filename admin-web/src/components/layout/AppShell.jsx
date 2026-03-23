@@ -260,43 +260,24 @@ export default function AppShell() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {/* Header */}
-        <header className="h-[64px] flex items-center justify-between px-6 lg:px-8 bg-white border-b border-[#e1e3e4] border-l-2 border-l-[#434fcf]/20 shrink-0 sticky top-0 z-40">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setMobileOpen(!mobileOpen)} className="p-2 -ml-1 rounded-lg hover:bg-[#f3f4f5] text-[#454654] transition-colors lg:hidden" aria-label="打开导航菜单">
+        <header className="h-[64px] flex items-center justify-between px-3 sm:px-5 lg:px-6 bg-white border-b border-[#e1e3e4] border-l-2 border-l-[#434fcf]/20 shrink-0 sticky top-0 z-40">
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={() => setMobileOpen(!mobileOpen)} className="p-2 -ml-1 rounded-lg hover:bg-[#f3f4f5] text-[#454654] transition-colors lg:hidden shrink-0" aria-label="打开导航菜单">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
             </button>
 
-            <div className="hidden lg:flex items-center relative ml-4">
-              <svg className="absolute left-[14px] top-1/2 -translate-y-1/2 w-4 h-4 text-[#9a9bab] pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" /></svg>
-              <input
-                className="pl-10 pr-4 py-2 bg-[#f5f5f7] border border-black/[0.08] rounded-[0.5rem] text-[13px] text-[#191c1d] placeholder-[#9a9bab] w-72 focus:ring-2 focus:ring-[#2834b7]/15 focus:border-[#2834b7]/40 outline-none transition-all"
-                placeholder="搜索订单、客户..."
-                type="text"
-                aria-label="全局搜索订单和客户"
-              />
+            <div className="flex flex-col justify-center min-w-0">
+              <h2 className="text-[15px] font-bold text-[#191c1d] truncate leading-tight">{currentRouteName || '首页'}</h2>
+              <span className="text-[11px] text-[#9a9bab] font-medium tabular-nums leading-tight">{currentTime}</span>
             </div>
-
-            <nav className="hidden sm:flex items-center gap-1.5 text-sm ml-2" aria-label="面包屑导航">
-              <Link to="/" className="text-[#9a9bab] hover:text-[#454654] transition-colors" aria-label="首页">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
-              </Link>
-              <svg className="w-3 h-3 text-[#c8cad0]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
-              <span className="font-semibold text-[#191c1d] text-[13px]">{currentRouteName}</span>
-            </nav>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              className="hidden sm:block text-white text-[14px] font-semibold rounded-[0.5rem] px-[18px] py-[9px] transition-opacity hover:opacity-90 active:opacity-80"
-              style={{ background: 'linear-gradient(135deg, #2834b7 0%, #434fcf 100%)' }}
-            >
-              导出报表
-            </button>
+          <div className="flex items-center gap-2 shrink-0">
 
             {/* WebSocket Connection Indicator */}
             <div
-              className={`flex items-center gap-1.5 text-[12px] font-medium select-none ${
-                connectionState === WS_STATE.OFFLINE ? 'cursor-pointer' : 'cursor-default'
+              className={`shrink-0 flex items-center gap-1.5 px-1.5 py-1 rounded-md ${
+                connectionState === WS_STATE.OFFLINE ? 'cursor-pointer hover:bg-slate-100' : 'cursor-default'
               }`}
               title={
                 connectionState === WS_STATE.CONNECTED
@@ -310,7 +291,7 @@ export default function AppShell() {
               onClick={connectionState === WS_STATE.OFFLINE ? retry : undefined}
             >
               <span
-                className={`inline-block w-2 h-2 rounded-full shrink-0 ${
+                className={`inline-block w-2 h-2 rounded-full ${
                   connectionState === WS_STATE.CONNECTED
                     ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]'
                     : connectionState === WS_STATE.RECONNECTING
@@ -320,37 +301,24 @@ export default function AppShell() {
                     : 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
                 }`}
               />
-              <span
-                className={`hidden sm:inline ${
-                  connectionState === WS_STATE.CONNECTED
-                    ? 'text-emerald-600'
-                    : connectionState === WS_STATE.RECONNECTING
-                    ? 'text-amber-500'
-                    : connectionState === WS_STATE.OFFLINE
-                    ? 'text-[#9a9bab]'
-                    : 'text-red-500'
-                }`}
-              >
-                {connectionState === WS_STATE.CONNECTED
-                  ? '已连接'
+              <span className={`hidden lg:inline text-[12px] font-medium whitespace-nowrap ${
+                connectionState === WS_STATE.CONNECTED
+                  ? 'text-emerald-600'
                   : connectionState === WS_STATE.RECONNECTING
-                  ? '重连中'
+                  ? 'text-amber-500'
                   : connectionState === WS_STATE.OFFLINE
-                  ? '离线'
-                  : '已断开'}
+                  ? 'text-[#9a9bab]'
+                  : 'text-red-500'
+              }`}>
+                {connectionState === WS_STATE.CONNECTED ? '已连接' : connectionState === WS_STATE.RECONNECTING ? '重连中' : connectionState === WS_STATE.OFFLINE ? '离线' : '已断开'}
               </span>
             </div>
 
-            <div className="hidden md:flex items-center gap-1.5 text-[13px] text-[#454654] font-medium bg-[#f3f4f5] px-3 py-1.5 rounded-[0.5rem]">
-              <svg className="w-3.5 h-3.5 text-[#9a9bab]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              {currentTime}
-            </div>
-
             {/* Notification Bell */}
-            <div className="relative">
+            <div className="relative shrink-0">
               <button
                 onClick={(e) => { e.stopPropagation(); setShowNotifPanel(!showNotifPanel); }}
-                className="w-[38px] h-[38px] flex items-center justify-center rounded-[0.5rem] bg-[#f3f4f5] hover:bg-[#e7e8e9] text-[#454654] transition-colors relative"
+                className="w-[36px] h-[36px] flex items-center justify-center rounded-lg bg-[#f3f4f5] hover:bg-[#e7e8e9] text-[#454654] transition-colors relative"
                 aria-label={`通知${unreadCount > 0 ? `，${unreadCount}条未读` : ''}`}
               >
                 <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
@@ -370,21 +338,20 @@ export default function AppShell() {
               )}
             </div>
 
-            <div className="hidden sm:block w-px h-6 bg-[#e1e3e4]" />
-
-            {/* User */}
-            <div className="flex items-center gap-2 hover:bg-[#f3f4f5] p-1.5 pr-2.5 rounded-[0.75rem] cursor-pointer transition-colors">
+            {/* User Avatar + Name + Logout */}
+            <div className="flex items-center gap-1.5 hover:bg-[#f3f4f5] p-1 pr-1.5 rounded-xl cursor-pointer transition-colors shrink-0">
               <div
-                className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[13px] font-bold shrink-0"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[12px] font-bold shrink-0"
                 style={{ background: 'linear-gradient(135deg, #2834b7, #434fcf)' }}
+                title={`${userName} · ${currentRoleName}`}
               >
                 {userInitials}
               </div>
-              <div className="hidden md:block">
-                <div className="text-[14px] font-semibold text-[#191c1d] leading-tight">{userName}</div>
-                <div className="text-[11px] text-[#767685]">{currentRoleName}</div>
+              <div className="hidden lg:flex flex-col justify-center mr-1">
+                <span className="text-[13px] font-semibold text-[#191c1d] leading-tight whitespace-nowrap">{userName}</span>
+                <span className="text-[11px] text-[#9a9bab] leading-tight whitespace-nowrap">{currentRoleName}</span>
               </div>
-              <button onClick={(e) => { e.stopPropagation(); setShowLogoutConfirm(true); }} className="ml-0.5 text-[#9a9bab] hover:text-red-500 p-1.5 rounded-[0.5rem] hover:bg-red-50 transition-colors" title="退出登录" aria-label="退出登录">
+              <button onClick={(e) => { e.stopPropagation(); setShowLogoutConfirm(true); }} className="text-[#9a9bab] hover:text-red-500 p-1 rounded-lg hover:bg-red-50 transition-colors shrink-0" title="退出登录" aria-label="退出登录">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H8a3 3 0 01-3-3V7a3 3 0 013-3h2a3 3 0 013 3v1" /></svg>
               </button>
             </div>
@@ -392,7 +359,7 @@ export default function AppShell() {
         </header>
 
         {/* Page */}
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-8 lg:p-10 scroll-smooth bg-surface">
+        <main className="flex-1 overflow-y-auto overflow-x-auto p-4 sm:p-6 lg:p-10 scroll-smooth bg-surface">
           <Suspense fallback={
             <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '60vh', gap: '12px' }}>
               <div style={{
