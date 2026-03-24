@@ -54,6 +54,11 @@ func isTokenRevoked(jti string) bool {
 	return ok
 }
 
+// IsTokenRevoked 导出版本，供 WebSocket 等非中间件模块使用
+func IsTokenRevoked(jti string) bool {
+	return isTokenRevoked(jti)
+}
+
 // isIssuedBeforeMinValid 检查 token 签发时间是否早于用户的最小有效签发时间
 func isIssuedBeforeMinValid(userID string, iat time.Time) bool {
 	val, ok := userMinIssuedAt.Load(userID)
@@ -62,6 +67,11 @@ func isIssuedBeforeMinValid(userID string, iat time.Time) bool {
 	}
 	minTime := val.(time.Time)
 	return iat.Before(minTime)
+}
+
+// IsIssuedBeforeMinValid 导出版本，供 WebSocket 等非中间件模块使用
+func IsIssuedBeforeMinValid(userID string, iat time.Time) bool {
+	return isIssuedBeforeMinValid(userID, iat)
 }
 
 // LoadTokenBlacklistFromDB 启动时从数据库恢复黑名单到内存

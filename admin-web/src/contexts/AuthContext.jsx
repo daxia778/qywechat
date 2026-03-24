@@ -1,5 +1,5 @@
 import { createContext, useState, useCallback, useEffect, useMemo } from 'react';
-import { validateToken, login as apiLogin } from '../api/auth';
+import { validateToken, login as apiLogin, logoutApi } from '../api/auth';
 import { getToken, getUserName, getUserId, getRole, setAuth, clearAuth, setRole as setStoredRole, setStoredUserId } from '../utils/storage';
 
 export const AuthContext = createContext(null);
@@ -31,7 +31,10 @@ export function AuthProvider({ children }) {
     return data;
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try {
+      if (getToken()) await logoutApi();
+    } catch { /* token 可能已过期，忽略错误 */ }
     clearAuth();
     setToken(null);
     setUserName('Admin');

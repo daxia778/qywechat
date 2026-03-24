@@ -3,12 +3,14 @@ package handlers
 import (
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"slices"
 	"strconv"
 	"time"
 
 	"pdd-order-system/config"
+	"pdd-order-system/middleware"
 	"pdd-order-system/models"
 	"pdd-order-system/services"
 
@@ -85,6 +87,7 @@ func WebSocketHandler(c *gin.Context) {
 }
 
 // validateJWT 解析并验证 JWT token，返回用户 ID
+// 与 HTTP 中间件 JWTAuth 保持一致的安全校验：签名 + jti 黑名单 + iat 最小有效期
 func validateJWT(tokenStr string) (string, error) {
 	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -101,7 +104,21 @@ func validateJWT(tokenStr string) (string, error) {
 		return "", fmt.Errorf("invalid claims")
 	}
 
+	// jti 黑名单检查（已登出的 token 不允许连接 WebSocket）
+	jti, _ := claims["jti"].(string)
+	if jti != "" && middleware.IsTokenRevoked(jti) {
+		return "", fmt.Errorf("token revoked")
+	}
+
+	// iat 最小有效签发时间检查（密码重置/账号禁用后的旧 token 全部失效）
 	userID, _ := claims["sub"].(string)
+	if iatFloat, ok := claims["iat"].(float64); ok && userID != "" {
+		iat := time.Unix(int64(iatFloat), 0)
+		if middleware.IsIssuedBeforeMinValid(userID, iat) {
+			return "", fmt.Errorf("token invalidated")
+		}
+	}
+
 	return userID, nil
 }
 
@@ -110,14 +127,14 @@ func GetOrderDetail(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的订单ID"})
+		badRequest(c, "无效的订单ID")
 		return
 	}
 
 	// 所有已认证用户均可查看任意订单详情
 	var order models.Order
 	if err := models.DB.First(&order, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
+		notFound(c, "订单不存在")
 		return
 	}
 
@@ -160,32 +177,42 @@ func GetOrderDetail(c *gin.Context) {
 	// 仅 admin 可查看分润明细，防止敏感数据泄露
 	role, _ := c.Get("role")
 	if role == "admin" {
-		platformRate := config.C.PlatformFeeRate
-		designerRate := config.C.DesignerCommissionRate
-		salesRate := config.C.SalesCommissionRate
-		followRate := config.C.FollowCommissionRate
+		// 优先使用已落库的分润数据（订单完成时已计算并保存）
+		// 若尚未落库（分润字段全为 0 且订单未退款），则用当前 config 费率实时计算
+		pf := order.PlatformFee
+		dc := order.DesignerCommission
+		sc := order.SalesCommission
+		fc := order.FollowCommission
+		np := order.NetProfit
 
-		pf := order.Price * platformRate / 100
-		dc := order.Price * designerRate / 100
-		sc := order.Price * salesRate / 100
-		fc := order.Price * followRate / 100
-		np := order.Price - pf - dc - sc - fc
+		if pf == 0 && dc == 0 && sc == 0 && order.Status != models.StatusRefunded && order.Price > 0 {
+			platformRate := config.C.PlatformFeeRate
+			designerRate := config.C.DesignerCommissionRate
+			salesRate := config.C.SalesCommissionRate
+			followRate := config.C.FollowCommissionRate
+			totalAmount := order.Price + order.ExtraPrice
+			pf = int(math.Round(float64(totalAmount) * float64(platformRate) / 100.0))
+			dc = int(math.Round(float64(totalAmount) * float64(designerRate) / 100.0))
+			sc = int(math.Round(float64(totalAmount) * float64(salesRate) / 100.0))
+			fc = int(math.Round(float64(totalAmount) * float64(followRate) / 100.0))
+			np = totalAmount - pf - dc - sc - fc
+		}
 
 		result["profit"] = gin.H{
-			"total_price":         order.Price,
+			"total_price":         order.Price + order.ExtraPrice,
 			"platform_fee":        pf,
 			"designer_commission": dc,
 			"sales_commission":    sc,
 			"follow_commission":   fc,
 			"net_profit":          np,
-			"platform_fee_rate":   platformRate,
-			"designer_rate":       designerRate,
-			"sales_rate":          salesRate,
-			"follow_rate":         followRate,
+			"platform_fee_rate":   config.C.PlatformFeeRate,
+			"designer_rate":       config.C.DesignerCommissionRate,
+			"sales_rate":          config.C.SalesCommissionRate,
+			"follow_rate":         config.C.FollowCommissionRate,
 		}
 	}
 
-	c.JSON(http.StatusOK, result)
+	respondOK(c, result)
 }
 
 // GetOrderTimeline 仅获取订单的时间线
@@ -193,14 +220,14 @@ func GetOrderTimeline(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的订单ID"})
+		badRequest(c, "无效的订单ID")
 		return
 	}
 
 	// 所有已认证用户均可查看任意订单时间线
 	var order models.Order
 	if err := models.DB.First(&order, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
+		notFound(c, "订单不存在")
 		return
 	}
 
@@ -224,5 +251,5 @@ func GetOrderTimeline(c *gin.Context) {
 	}
 	timeline = append([]models.OrderTimeline{createEvent}, timeline...)
 
-	c.JSON(http.StatusOK, gin.H{"data": timeline})
+	respondOK(c, gin.H{"data": timeline})
 }

@@ -749,7 +749,8 @@ type DesignerRank struct {
 // GetDashboardStats 获取看板统计
 func GetDashboardStats() *DashboardStats {
 	stats := &DashboardStats{}
-	todayStart := time.Now().Truncate(24 * time.Hour)
+	now0 := time.Now()
+	todayStart := time.Date(now0.Year(), now0.Month(), now0.Day(), 0, 0, 0, 0, now0.Location())
 
 	// ── 订单状态分布 (单次 GROUP BY 替代 4+3=7 次独立 COUNT) ──
 	type StatusCount struct {

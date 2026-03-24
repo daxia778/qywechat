@@ -7,3 +7,5 @@ export const login = (username, password) =>
 export const adminLogin = login;
 
 export const validateToken = () => client.get('/auth/validate_token');
+
+export const logoutApi = () => client.post('/auth/logout');

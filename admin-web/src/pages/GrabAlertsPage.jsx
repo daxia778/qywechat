@@ -103,19 +103,19 @@ function EmptyState() {
 export default function GrabAlertsPage() {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const { addToast } = useToast();
-  const { lastMessage } = useWebSocket();
+  const { toast } = useToast();
+  const { on, off } = useWebSocket();
 
   const fetchAlerts = useCallback(async () => {
     try {
       const res = await getGrabAlerts();
       setAlerts(res.data?.alerts || []);
     } catch (err) {
-      addToast('加载告警数据失败', 'error');
+      toast('加载告警数据失败', 'error');
     } finally {
       setLoading(false);
     }
-  }, [addToast]);
+  }, [toast]);
 
   // initial load
   useEffect(() => {
@@ -127,10 +127,10 @@ export default function GrabAlertsPage() {
 
   // websocket realtime
   useEffect(() => {
-    if (lastMessage?.type === 'grab_alert') {
-      fetchAlerts();
-    }
-  }, [lastMessage, fetchAlerts]);
+    const handler = () => fetchAlerts();
+    on('grab_alert', handler);
+    return () => off('grab_alert', handler);
+  }, [on, off, fetchAlerts]);
 
   const avgOverdue = alerts.length
     ? Math.round(alerts.reduce((sum, a) => sum + (a.overdue_minutes || 0), 0) / alerts.length)

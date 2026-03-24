@@ -287,37 +287,49 @@ func UpdateOrderStatus(c *gin.Context) {
 		return
 	}
 
-	// 4. 执行状态流转
-	updatedOrder, err := services.UpdateOrderStatus(uint(id), body.Status)
-	if err != nil {
-		badRequest(c, err.Error())
-		return
-	}
-
-	// 5. 如果是退款，记录原因
-	if body.Status == models.StatusRefunded && body.RefundReason != "" {
-		models.WriteTx(func(tx *gorm.DB) error {
-			return tx.Model(updatedOrder).Update("refund_reason", body.RefundReason).Error
-		})
-		updatedOrder.RefundReason = body.RefundReason
-	}
-
-	// 6. 记录状态流转时间线（响应前写入，确保数据一致性）
+	// 4. 获取操作人姓名
 	operatorName := ""
 	if name, exists := c.Get("name"); exists {
 		operatorName, _ = name.(string)
 	}
-	models.WriteTx(func(tx *gorm.DB) error {
+
+	// 5. 在单事务中执行: 状态流转 + 退款原因 + 时间线记录
+	oldStatus := order.Status
+	var updatedOrder *models.Order
+	txErr := models.WriteTx(func(tx *gorm.DB) error {
+		var err error
+		updatedOrder, err = services.UpdateOrderStatusInTx(tx, uint(id), body.Status)
+		if err != nil {
+			return err
+		}
+
+		// 退款原因
+		if body.Status == models.StatusRefunded && body.RefundReason != "" {
+			if err := tx.Model(updatedOrder).Update("refund_reason", body.RefundReason).Error; err != nil {
+				return err
+			}
+			updatedOrder.RefundReason = body.RefundReason
+		}
+
+		// 时间线记录
 		return tx.Create(&models.OrderTimeline{
 			OrderID:      updatedOrder.ID,
 			EventType:    "status_changed",
-			FromStatus:   order.Status,
+			FromStatus:   oldStatus,
 			ToStatus:     body.Status,
 			OperatorID:   uidStr,
 			OperatorName: operatorName,
 			Remark:       body.RefundReason,
 		}).Error
 	})
+
+	if txErr != nil {
+		badRequest(c, txErr.Error())
+		return
+	}
+
+	// 6. 事务提交后触发副作用（分润等）
+	services.PostStatusChangeEffects(updatedOrder, body.Status)
 
 	respondOK(c, gin.H{"message": "状态更新成功", "order": updatedOrder})
 

@@ -107,10 +107,11 @@ func Login(c *gin.Context) {
 	respondOK(c, gin.H{
 		"token": token,
 		"user": gin.H{
-			"id":       emp.ID,
-			"name":     emp.Name,
-			"role":     emp.Role,
-			"username": emp.Username,
+			"id":           emp.ID,
+			"name":         emp.Name,
+			"role":         emp.Role,
+			"username":     emp.Username,
+			"wecom_userid": emp.WecomUserID,
 		},
 	})
 }
