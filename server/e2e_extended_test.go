@@ -329,6 +329,7 @@ func TestE2E_Notifications(t *testing.T) {
 
 	// Verify unread count decreased
 	listResp2 := doRequest(t, client, "GET", server.URL+"/api/v1/admin/notifications?unread=true", adminToken, "", nil)
+	defer listResp2.Body.Close()
 	listData2 := readJSON(t, listResp2)
 	unreadCount2 := int(listData2["unread_count"].(float64))
 	if unreadCount2 >= unreadCount {
@@ -368,6 +369,7 @@ func TestE2E_AuditLogs(t *testing.T) {
 
 	// Get audit logs
 	logResp := doRequest(t, client, "GET", server.URL+"/api/v1/admin/audit_logs?action="+models.AuditEmployeeAdd, adminToken, "", nil)
+	defer logResp.Body.Close()
 	logData := readJSON(t, logResp)
 	
 	total := int(logData["total"].(float64))
@@ -391,11 +393,13 @@ func TestE2E_BatchOrderStatus(t *testing.T) {
 	// Create order 1
 	csrf := getCSRFToken(t, client, server.URL)
 	o1Resp := doRequest(t, client, "POST", server.URL+"/api/v1/orders/create", adminToken, csrf, map[string]interface{}{"price": 100})
+	defer o1Resp.Body.Close()
 	o1ID := uint(readJSON(t, o1Resp)["id"].(float64))
 
 	// Create order 2
 	csrf = getCSRFToken(t, client, server.URL)
 	o2Resp := doRequest(t, client, "POST", server.URL+"/api/v1/orders/create", adminToken, csrf, map[string]interface{}{"price": 200})
+	defer o2Resp.Body.Close()
 	o2ID := uint(readJSON(t, o2Resp)["id"].(float64))
 
 	// Batch update status to GROUP_CREATED
@@ -411,6 +415,7 @@ func TestE2E_BatchOrderStatus(t *testing.T) {
 
 	// Verify status
 	listResp := doRequest(t, client, "GET", server.URL+"/api/v1/orders/list?status=GROUP_CREATED", adminToken, "", nil)
+	defer listResp.Body.Close()
 	listData := readJSON(t, listResp)
 	if int(listData["total"].(float64)) < 2 {
 		t.Errorf("expected at least 2 GROUP_CREATED orders")

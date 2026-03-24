@@ -334,6 +334,7 @@ func doRequest(t *testing.T, client *http.Client, method, url, token, csrfToken 
 	if err != nil {
 		t.Fatalf("doRequest: %s %s failed: %v", method, url, err)
 	}
+	t.Cleanup(func() { resp.Body.Close() })
 	return resp
 }
 
