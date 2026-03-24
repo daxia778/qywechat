@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,6 +24,29 @@ func UploadOCR(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
 		badRequest(c, "请上传图片文件")
+		return
+	}
+
+	// 读取文件头判断真实类型
+	src, err := file.Open()
+	if err != nil {
+		badRequest(c, "无法读取文件")
+		return
+	}
+	defer src.Close()
+
+	buf := make([]byte, 512)
+	n, _ := src.Read(buf)
+	contentType := http.DetectContentType(buf[:n])
+
+	allowedTypes := map[string]bool{
+		"image/jpeg": true,
+		"image/png":  true,
+		"image/webp": true,
+		"image/gif":  true,
+	}
+	if !allowedTypes[contentType] {
+		badRequest(c, "仅支持 JPG/PNG/WebP/GIF 图片格式")
 		return
 	}
 
@@ -65,6 +89,29 @@ func UploadAttachment(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
 		badRequest(c, "请上传图片文件")
+		return
+	}
+
+	// 读取文件头判断真实类型
+	src, err := file.Open()
+	if err != nil {
+		badRequest(c, "无法读取文件")
+		return
+	}
+	defer src.Close()
+
+	buf := make([]byte, 512)
+	n, _ := src.Read(buf)
+	contentType := http.DetectContentType(buf[:n])
+
+	allowedTypes := map[string]bool{
+		"image/jpeg": true,
+		"image/png":  true,
+		"image/webp": true,
+		"image/gif":  true,
+	}
+	if !allowedTypes[contentType] {
+		badRequest(c, "仅支持 JPG/PNG/WebP/GIF 图片格式")
 		return
 	}
 
@@ -286,6 +333,10 @@ func UpdateOrderStatus(c *gin.Context) {
 		forbidden(c, "只能操作自己录入的订单")
 		return
 	}
+	if roleStr == "follow" && order.FollowOperatorID != uidStr && order.OperatorID != uidStr {
+		forbidden(c, "只能操作自己负责的订单")
+		return
+	}
 
 	// 4. 获取操作人姓名
 	operatorName := ""
@@ -495,11 +546,27 @@ func ListOrders(c *gin.Context) {
 
 	query := models.DB.Model(&models.Order{})
 
-	// 所有已认证用户均可查看全部订单（操作权限仍按角色控制）
+	// 角色权限过滤：非 admin 只能查看自己相关的订单
 	role, _ := c.Get("role")
 	roleStr, _ := role.(string)
+	uid, _ := c.Get("wecom_userid")
+	uidStr, _ := uid.(string)
 	if roleStr == "" {
 		forbidden(c, "未知角色，无权访问")
+		return
+	}
+
+	switch roleStr {
+	case "admin":
+		// admin 可查看全部订单
+	case "sales":
+		query = query.Where("operator_id = ?", uidStr)
+	case "designer":
+		query = query.Where("designer_id = ?", uidStr)
+	case "follow":
+		query = query.Where("follow_operator_id = ? OR operator_id = ?", uidStr, uidStr)
+	default:
+		forbidden(c, "当前角色无权查看订单")
 		return
 	}
 
@@ -553,10 +620,38 @@ func GetOrder(c *gin.Context) {
 		return
 	}
 
-	// 所有已认证用户均可查看任意订单详情
+	// 角色权限校验：非 admin 只能查看自己相关的订单
 	var order models.Order
 	if err := models.DB.First(&order, uint(id)).Error; err != nil {
 		notFound(c, "订单不存在")
+		return
+	}
+
+	role, _ := c.Get("role")
+	roleStr, _ := role.(string)
+	uid, _ := c.Get("wecom_userid")
+	uidStr, _ := uid.(string)
+
+	switch roleStr {
+	case "admin":
+		// admin 可查看任意订单
+	case "sales":
+		if order.OperatorID != uidStr {
+			forbidden(c, "无权限查看此订单")
+			return
+		}
+	case "designer":
+		if order.DesignerID != uidStr {
+			forbidden(c, "无权限查看此订单")
+			return
+		}
+	case "follow":
+		if order.FollowOperatorID != uidStr && order.OperatorID != uidStr {
+			forbidden(c, "无权限查看此订单")
+			return
+		}
+	default:
+		forbidden(c, "无权限")
 		return
 	}
 

@@ -147,20 +147,6 @@ func main() {
 	r.Static("/assets", distDir+"/assets")
 	r.StaticFile("/favicon.svg", distDir+"/favicon.svg")
 	r.StaticFile("/icons.svg", distDir+"/icons.svg")
-	// uploads 静态访问 — 公开路由，允许 <img src="/uploads/..."> 直接加载
-	// 注：OCR 截图等文件通过 UUID 文件名防猜测，安全风险可控
-	r.GET("/uploads/*filepath", func(c *gin.Context) {
-		fp := c.Param("filepath")
-		cleaned := filepath.Clean(fp)
-		absUploads, _ := filepath.Abs("uploads")
-		target := filepath.Join(absUploads, cleaned)
-		if !strings.HasPrefix(target, absUploads+string(filepath.Separator)) && target != absUploads {
-			c.JSON(http.StatusForbidden, gin.H{"error": "非法路径"})
-			return
-		}
-		c.File(target)
-	})
-
 	// Vue SPA: 所有非 API/静态的请求由 NoRoute 兜底 (见下方)
 
 	// P2-18: health 端点只返回 status，不暴露 uptime 等信息
@@ -233,7 +219,11 @@ func main() {
 				// 清洗路径防止路径穿越攻击 (e.g. ../../etc/passwd)
 				cleaned := filepath.Clean(fp)
 				// filepath.Clean 后可能以 "/" 开头，Join 会正确处理
-				absUploads, _ := filepath.Abs("uploads")
+				absUploads, err := filepath.Abs("uploads")
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL_ERROR", "message": "内部错误"})
+				return
+			}
 				target := filepath.Join(absUploads, cleaned)
 				// 确保最终路径仍在 uploads/ 目录下
 				if !strings.HasPrefix(target, absUploads+string(filepath.Separator)) && target != absUploads {

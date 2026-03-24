@@ -93,12 +93,13 @@ export function useOrderActions({ toast, fetchOrders, showModal }) {
   }, []);
 
   const toggleSelectAll = useCallback((orders) => {
-    if (selectedIds.size === orders.length && orders.length > 0) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(orders.map((o) => o.id)));
-    }
-  }, [selectedIds.size]);
+    setSelectedIds((prev) => {
+      if (prev.size === orders.length && orders.length > 0) {
+        return new Set();
+      }
+      return new Set(orders.map((o) => o.id));
+    });
+  }, []);
 
   const doBatchUpdate = useCallback((targetStatus, label, selectedOrders) => {
     showModal({
@@ -111,7 +112,7 @@ export function useOrderActions({ toast, fetchOrders, showModal }) {
       setBatchLoading(true);
       try {
         const res = await batchUpdateOrderStatus({
-          order_ids: Array.from(selectedIds),
+          order_ids: selectedOrders.map((o) => o.id),
           status: targetStatus,
         });
         const data = res.data;
@@ -130,7 +131,7 @@ export function useOrderActions({ toast, fetchOrders, showModal }) {
         setBatchLoading(false);
       }
     });
-  }, [showModal, selectedIds, toast, fetchOrders]);
+  }, [showModal, toast, fetchOrders]);
 
   return {
     selectedIds,
