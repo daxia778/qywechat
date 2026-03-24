@@ -31,6 +31,7 @@ func TestE2E_PaymentCRUD(t *testing.T) {
 		"price": 1000,
 		"topic": "Payment Test PPT",
 	})
+	defer orderResp.Body.Close()
 	orderData := readJSON(t, orderResp)
 	orderID := uint(orderData["id"].(float64))
 
@@ -51,6 +52,7 @@ func TestE2E_PaymentCRUD(t *testing.T) {
 
 	// List payments
 	listResp := doRequest(t, client, "GET", server.URL+"/api/v1/payments", token, "", nil)
+	defer listResp.Body.Close()
 	listData := readJSON(t, listResp)
 	total := listData["total"].(float64)
 	if total < 1 {
@@ -59,6 +61,7 @@ func TestE2E_PaymentCRUD(t *testing.T) {
 
 	// Summary
 	summResp := doRequest(t, client, "GET", server.URL+"/api/v1/payments/summary", token, "", nil)
+	defer summResp.Body.Close()
 	summData := readJSON(t, summResp)
 	if summData["total_amount"] == nil {
 		t.Errorf("expected total_amount in summary")
@@ -226,6 +229,7 @@ func TestE2E_OrderAmountAndReassign(t *testing.T) {
 		"price": 3000,
 		"topic": "Reassign PPT",
 	})
+	defer orderResp.Body.Close()
 	orderData := readJSON(t, orderResp)
 	orderID := uint(orderData["id"].(float64))
 
@@ -287,7 +291,6 @@ func TestE2E_Notifications(t *testing.T) {
 
 	seedTestEmployee(t, "admin_notif", "Admin@123", "admin", "admin_notif", "AdminNotif")
 	adminToken := loginAndGetToken(t, client, server.URL, "admin_notif", "Admin@123")
-	csrf := getCSRFToken(t, client, server.URL)
 
 	// Create test notification directly via GORM
 	models.DB.Create(&models.Notification{
@@ -300,6 +303,7 @@ func TestE2E_Notifications(t *testing.T) {
 
 	// List notifications
 	listResp := doRequest(t, client, "GET", server.URL+"/api/v1/admin/notifications?unread=true", adminToken, "", nil)
+	defer listResp.Body.Close()
 	listData := readJSON(t, listResp)
 	
 	if listData["unread_count"] == nil {
@@ -316,7 +320,7 @@ func TestE2E_Notifications(t *testing.T) {
 	notifID := uint(firstNotif["id"].(float64))
 
 	// Mark read
-	csrf = getCSRFToken(t, client, server.URL)
+	csrf := getCSRFToken(t, client, server.URL)
 	readResp := doRequest(t, client, "PUT", fmt.Sprintf("%s/api/v1/admin/notifications/%d/read", server.URL, notifID), adminToken, csrf, nil)
 	if readResp.StatusCode != http.StatusOK {
 		t.Fatalf("mark read failed")
