@@ -1069,17 +1069,13 @@ func GetMyStats(c *gin.Context) {
 	role, _ := roleVal.(string)
 	uid, _ := uidVal.(string)
 
-	log.Printf("[GetMyStats] role=%q uid=%q roleVal=%v(%T) uidVal=%v(%T)", role, uid, roleVal, roleVal, uidVal, uidVal)
-
 	if uid == "" {
-		log.Printf("[GetMyStats] WARNING: uid is empty! JWT context keys dump:")
-		if claims, ok := c.Get("jwt_claims"); ok {
-			log.Printf("[GetMyStats] jwt_claims=%v", claims)
-		}
+		log.Printf("[GetMyStats] WARNING: uid is empty!")
 	}
 
 	now := time.Now()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 
 	// 基础查询：按角色过滤
 	baseQ := func() *gorm.DB {
@@ -1090,22 +1086,41 @@ func GetMyStats(c *gin.Context) {
 
 	var totalOrders, pendingOrders, designingOrders, deliveredOrders, completedOrders, todayOrders int64
 	var totalRevenue, todayRevenue int64
+	var afterSaleOrders, revisionOrders int64
 
 	baseQ().Count(&totalOrders)
 	baseQ().Where("status IN ?", []string{"PENDING", "GROUP_CREATED", "CONFIRMED"}).Count(&pendingOrders)
 	baseQ().Where("status = ?", "DESIGNING").Count(&designingOrders)
 	baseQ().Where("status = ?", "DELIVERED").Count(&deliveredOrders)
 	baseQ().Where("status = ?", "COMPLETED").Count(&completedOrders)
+	baseQ().Where("status = ?", "AFTER_SALE").Count(&afterSaleOrders)
+	baseQ().Where("status = ?", "REVISION").Count(&revisionOrders)
 	baseQ().Where("created_at >= ?", todayStart).Count(&todayOrders)
 
-	// 营收统计（已完成订单的 price 总和）
+	// 营收统计
 	baseQ().Where("status IN ?", []string{"COMPLETED", "DELIVERED", "DESIGNING"}).
 		Select("COALESCE(SUM(price), 0)").Scan(&totalRevenue)
 	baseQ().Where("created_at >= ?", todayStart).
 		Select("COALESCE(SUM(price), 0)").Scan(&todayRevenue)
 
-	log.Printf("[GetMyStats] results: total=%d pending=%d designing=%d delivered=%d completed=%d today=%d revenue=%d",
-		totalOrders, pendingOrders, designingOrders, deliveredOrders, completedOrders, todayOrders, totalRevenue)
+	// ── 佣金统计 ──────────────────────────────────
+	var commissionField string
+	switch role {
+	case "designer":
+		commissionField = "designer_commission"
+	case "sales":
+		commissionField = "sales_commission"
+	case "follow":
+		commissionField = "follow_commission"
+	}
+
+	var totalCommission, monthCommission int64
+	if commissionField != "" {
+		baseQ().Where("status = ?", "COMPLETED").
+			Select("COALESCE(SUM(" + commissionField + "), 0)").Scan(&totalCommission)
+		baseQ().Where("status = ? AND updated_at >= ?", "COMPLETED", monthStart).
+			Select("COALESCE(SUM(" + commissionField + "), 0)").Scan(&monthCommission)
+	}
 
 	// 最近订单（最新5条）
 	var recentOrders []models.Order
@@ -1113,16 +1128,30 @@ func GetMyStats(c *gin.Context) {
 	q, _ = filterByRole(q, role, uid)
 	q.Find(&recentOrders)
 
-	respondOK(c, gin.H{
-		"role":             role,
-		"total_orders":     totalOrders,
-		"pending_orders":   pendingOrders,
-		"designing_orders": designingOrders,
-		"delivered_orders": deliveredOrders,
-		"completed_orders": completedOrders,
-		"today_orders":     todayOrders,
-		"total_revenue":    totalRevenue,
-		"today_revenue":    todayRevenue,
-		"recent_orders":    recentOrders,
-	})
+	result := gin.H{
+		"role":              role,
+		"total_orders":      totalOrders,
+		"pending_orders":    pendingOrders,
+		"designing_orders":  designingOrders,
+		"delivered_orders":  deliveredOrders,
+		"completed_orders":  completedOrders,
+		"after_sale_orders": afterSaleOrders,
+		"revision_orders":   revisionOrders,
+		"today_orders":      todayOrders,
+		"total_revenue":     totalRevenue,
+		"today_revenue":     todayRevenue,
+		"total_commission":  totalCommission,
+		"month_commission":  monthCommission,
+		"recent_orders":     recentOrders,
+	}
+
+	// ── 设计师专属: 可抢单队列 ──────────────────────────────────
+	if role == "designer" {
+		var grabQueue []models.Order
+		models.DB.Where("status = ? AND designer_id = ''", "CONFIRMED").
+			Order("created_at ASC").Limit(10).Find(&grabQueue)
+		result["grab_queue"] = grabQueue
+	}
+
+	respondOK(c, result)
 }

@@ -132,8 +132,8 @@ func main() {
 	// 可疑请求拦截 (阻断扫描器探测 .php/.env/wp-admin 等)
 	r.Use(middleware.SuspiciousRequestFilter())
 
-	// 请求体大小限制 (2MB，防 DoS 大包攻击，文件上传另设)
-	r.Use(middleware.MaxBodySize(2 << 20))
+	// 请求体大小限制 (10MB，与 MaxMultipartMemory 一致，兼容文件上传)
+	r.Use(middleware.MaxBodySize(10 << 20))
 
 	// CSRF 防护 (状态变更请求需携带 X-CSRF-Token)
 	r.Use(middleware.CSRFMiddleware())

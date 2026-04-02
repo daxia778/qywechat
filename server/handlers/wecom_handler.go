@@ -89,6 +89,30 @@ func WecomCallback(c *gin.Context) {
 		return
 	}
 
+	// ─── 入站消息日志采集（AI 客服语料积累） ──────────
+	// 记录所有群聊文本消息（direction=in），关联订单号
+	// 订单状态机天然充当标注标签：PENDING/DESIGNING/DELIVERED 等阶段的消息
+	// 可直接用于后续 AI 客服知识库构建，无需额外人工标注
+	if msg.MsgType == "text" && msg.ChatID != "" {
+		orderSN := ""
+		var matchedOrder models.Order
+		if err := models.DB.Where("wecom_chat_id = ?", msg.ChatID).First(&matchedOrder).Error; err == nil {
+			orderSN = matchedOrder.OrderSN
+		}
+		inboundLog := models.WecomMessageLog{
+			ChatID:    msg.ChatID,
+			SenderID:  msg.FromUserName,
+			MsgType:   msg.MsgType,
+			Content:   msg.Content,
+			OrderSN:   orderSN,
+			Direction: "in",
+			CreatedAt: time.Unix(msg.CreateTime, 0),
+		}
+		if err := models.DB.Create(&inboundLog).Error; err != nil {
+			log.Printf("⚠️ 入站消息日志写入失败: %v", err)
+		}
+	}
+
 	// 事件回调: 外部联系人添加
 	if msg.MsgType == "event" && msg.Event == "change_external_contact" && msg.ChangeType == "add_external_contact" {
 		handleAddExternalContact(msg)

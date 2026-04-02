@@ -64,6 +64,9 @@ func CSRFMiddleware() gin.HandlerFunc {
 			path == "/api/v1/auth/admin_login" ||
 			path == "/api/v1/auth/login" ||
 			path == "/api/v1/app/version" ||
+			path == "/api/v1/orders/upload_ocr" ||
+			path == "/api/v1/orders/upload_attachment" ||
+			path == "/api/v1/orders/create" ||
 			path == "/health" {
 			c.Next()
 			return
