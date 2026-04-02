@@ -20,6 +20,28 @@ export namespace main {
 	        this.has_update = source["has_update"];
 	    }
 	}
+	export class FollowStaffItem {
+	    id: number;
+	    name: string;
+	    wecom_userid: string;
+	    status: string;
+	    is_online: boolean;
+	    active_orders: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new FollowStaffItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.wecom_userid = source["wecom_userid"];
+	        this.status = source["status"];
+	        this.is_online = source["is_online"];
+	        this.active_orders = source["active_orders"];
+	    }
+	}
 	export class LoginResult {
 	    success: boolean;
 	    message: string;

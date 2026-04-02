@@ -18,6 +18,10 @@ export function GetEmployeeName() {
   return window['go']['main']['App']['GetEmployeeName']();
 }
 
+export function GetFollowStaffList() {
+  return window['go']['main']['App']['GetFollowStaffList']();
+}
+
 export function GetMacAddress() {
   return window['go']['main']['App']['GetMacAddress']();
 }
@@ -50,8 +54,8 @@ export function SetServerURL(arg1) {
   return window['go']['main']['App']['SetServerURL'](arg1);
 }
 
-export function SubmitOrder(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
-  return window['go']['main']['App']['SubmitOrder'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+export function SubmitOrder(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['SubmitOrder'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function UploadAttachmentBase64(arg1) {

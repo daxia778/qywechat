@@ -80,14 +80,8 @@ func main() {
 	// 启动 SQLite 定时备份调度器
 	services.StartBackupScheduler(ctx)
 
-	// 启动订单超时自动触发派单调度器
-	services.StartOrderTimeoutWatcher(ctx)
-
 	// 启动交付截止倒计时提醒调度器
 	services.StartDeadlineReminderWatcher(ctx)
-
-	// 启动恶意抢单检测调度器
-	services.Monitor.Start(ctx)
 
 	// 启动上传文件定时清理 (7天过期)
 	services.StartUploadCleanupScheduler(ctx)
@@ -201,7 +195,14 @@ func main() {
 			orderAuth.GET("/list", handlers.ListOrders)
 			orderAuth.GET("/:id", handlers.GetOrder)
 			orderAuth.POST("/create", handlers.CreateOrder)
-			orderAuth.POST("/grab", handlers.GrabOrder)
+			// 跟单客服列表（桌面端建群选择）
+			orderAuth.GET("/follow-staff", handlers.ListFollowStaff)
+			// 花名册
+			orderAuth.GET("/designers", handlers.SearchDesigners)
+			orderAuth.POST("/designers", handlers.CreateDesigner)
+			// 跟单操作
+			orderAuth.PUT("/:id/assign-designer", handlers.AssignDesigner)
+			orderAuth.PUT("/:id/adjust-commission", handlers.AdjustCommission)
 			orderAuth.PUT("/batch-status", handlers.BatchUpdateOrderStatus)
 			orderAuth.PUT("/:id/status", handlers.UpdateOrderStatus)
 			orderAuth.PUT("/:id/amount", handlers.UpdateOrderAmount)

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"pdd-order-system/config"
 	"pdd-order-system/models"
 
 	"github.com/google/uuid"
@@ -22,7 +21,7 @@ func GenerateOrderSN() string {
 }
 
 // CreateOrder 创建订单
-func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshotPath, attachmentURLs string, price, pages int, deadline *time.Time) (*models.Order, error) {
+func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshotPath, attachmentURLs, followUID string, price, pages int, deadline *time.Time) (*models.Order, error) {
 	if orderSN == "" {
 		orderSN = GenerateOrderSN()
 	}
@@ -39,18 +38,19 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 	}
 
 	order := &models.Order{
-		OrderSN:         orderSN,
-		CustomerContact: customerContact,
-		CustomerID:      customerID,
-		Price:           price,
-		OperatorID:      operatorID,
-		Topic:           topic,
-		Pages:           pages,
-		Deadline:        deadline,
-		Remark:          remark,
-		ScreenshotPath:  screenshotPath,
-		AttachmentURLs:  attachmentURLs,
-		Status:          models.StatusPending,
+		OrderSN:          orderSN,
+		CustomerContact:  customerContact,
+		CustomerID:       customerID,
+		Price:            price,
+		OperatorID:       operatorID,
+		FollowOperatorID: followUID,
+		Topic:            topic,
+		Pages:            pages,
+		Deadline:         deadline,
+		Remark:           remark,
+		ScreenshotPath:   screenshotPath,
+		AttachmentURLs:   attachmentURLs,
+		Status:           models.StatusPending,
 	}
 
 	err := models.WriteTx(func(tx *gorm.DB) error {
@@ -467,154 +467,16 @@ func ForceAssignOrder(orderID uint) (*models.Order, error) {
 	return &order, nil
 }
 
-// MaxAssignRetries 超时派单最大重试次数
-const MaxAssignRetries = 5
-
-// StartOrderTimeoutWatcher 启动超时未接单自动派发机制
+// Deprecated: v2.0 已移除自动抢单派单机制
+// StartOrderTimeoutWatcher 原用于超时未接单自动派发，现已废弃
 func StartOrderTimeoutWatcher(ctx context.Context) {
-	timeoutDuration := time.Duration(config.C.GrabOrderTimeoutSeconds) * time.Second
-	log.Printf("✅ 订单超时防漏兜底定时器已启动 (超时阈值: %v, 最大重试: %d)", timeoutDuration, MaxAssignRetries)
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("[TimeoutWatcher] panic recovered: %v", r)
-			}
-		}()
-		ticker := time.NewTicker(30 * time.Second) // 每 30 秒轮询一次
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				log.Println("订单超时防漏定时器已停止")
-				return
-			case <-ticker.C:
-			}
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						log.Printf("[TimeoutWatcher] tick panic recovered: %v", r)
-					}
-				}()
-				thresholdTime := time.Now().Add(-timeoutDuration)
-				var timeoutOrders []models.Order
-
-				// 查找状态为 PENDING 且创建时间早于阈值、重试次数未超限的订单
-				models.DB.Where("status = ? AND created_at < ? AND assign_retry_count < ?",
-					models.StatusPending, thresholdTime, MaxAssignRetries).Find(&timeoutOrders)
-
-				for _, o := range timeoutOrders {
-					// 递增重试计数
-					if err := models.WriteTx(func(tx *gorm.DB) error {
-						return tx.Model(&o).Update("assign_retry_count", o.AssignRetryCount+1).Error
-					}); err != nil {
-						log.Printf("❌ 更新重试计数失败: sn=%s err=%v", o.OrderSN, err)
-					}
-
-					if o.AssignRetryCount+1 >= MaxAssignRetries {
-						log.Printf("🚨 订单超时派单已达上限，跳过后续重试 | sn=%s | retries=%d", o.OrderSN, o.AssignRetryCount+1)
-
-						// 向所有 admin 发送告警：派单重试已耗尽
-						go func(orderSN string, orderID uint, retries int) {
-							var admins []models.Employee
-							models.DB.Where("role = ? AND is_active = ?", "admin", true).Find(&admins)
-							if len(admins) == 0 {
-								return
-							}
-
-							// 企微消息通知
-							adminIDs := make([]string, len(admins))
-							for i, a := range admins {
-								adminIDs[i] = a.WecomUserID
-							}
-							msg := fmt.Sprintf("🚨 派单失败告警\n订单号：%s\n自动派单已重试 %d 次均失败\n━━━━━━━━━━━\n请立即手动处理此订单！",
-								orderSN, retries)
-							if err := Wecom.SendTextMessage(adminIDs, msg); err != nil {
-								log.Printf("⚠️ 发送派单上限企微通知失败: sn=%s err=%v", orderSN, err)
-							}
-
-							// 站内通知
-							for _, admin := range admins {
-								if err := models.WriteTx(func(tx *gorm.DB) error {
-									return tx.Create(&models.Notification{
-										UserID:   admin.WecomUserID,
-										Title:    "派单失败告警",
-										Content:  fmt.Sprintf("订单 %s 自动派单已重试 %d 次均失败，请手动处理", orderSN, retries),
-										Category: "alert",
-										RefID:    fmt.Sprintf("%d", orderID),
-									}).Error
-								}); err != nil {
-									log.Printf("❌ 创建派单上限告警通知失败: sn=%s admin=%s err=%v", orderSN, admin.WecomUserID, err)
-								}
-							}
-
-							// WebSocket 广播
-							Hub.Broadcast(WSEvent{
-								Type: "assign_exhausted_alert",
-								Payload: map[string]any{
-									"order_id": orderID,
-									"order_sn": orderSN,
-									"retries":  retries,
-								},
-							})
-						}(o.OrderSN, o.ID, o.AssignRetryCount+1)
-
-						continue
-					}
-
-					retryCount := o.AssignRetryCount + 1
-					log.Printf("⚠️  发现超时未接单: sn=%s (重试 %d/%d), 开始自动指派...", o.OrderSN, retryCount, MaxAssignRetries)
-
-					// 两阶段派单: 前2次优先分配给空闲设计师，之后强制分配给负载最低的任意设计师
-					var order *models.Order
-					var err error
-					if retryCount < 2 {
-						order, err = AssignToIdleDesigner(o.ID)
-					} else {
-						log.Printf("⚠️  订单超过10分钟未接，强制指派 | sn=%s", o.OrderSN)
-						order, err = ForceAssignOrder(o.ID)
-					}
-					if err != nil {
-						log.Printf("❌ 自动指派失败 sn=%s: %v", o.OrderSN, err)
-						continue
-					}
-
-					// 自动指派成功，异步建群和通知
-					go func(ord *models.Order) {
-					deadlineStr := "待定"
-					if ord.Deadline != nil {
-						deadlineStr = ord.Deadline.Format("2006-01-02 15:04")
-					}
-
-					// 1. 发送企微卡片通知给被强制指派的设计师
-					if err := Wecom.NotifyNewOrder(ord.OrderSN, ord.OperatorID, ord.Topic, ord.Pages, ord.Price, deadlineStr, []string{ord.DesignerID}); err != nil {
-						log.Printf("⚠️ 发送超时派单企微通知失败: sn=%s err=%v", ord.OrderSN, err)
-					}
-
-					// 2. 自动建群并播报需求
-					chatID, err := Wecom.SetupOrderGroup(
-						ord.OrderSN, ord.OperatorID, ord.DesignerID,
-						ord.Topic, ord.Pages, ord.Price, deadlineStr, ord.Remark,
-					)
-					if err == nil && chatID != "" {
-						if wxErr := models.WriteTx(func(tx *gorm.DB) error {
-							return tx.Model(ord).Update("wecom_chat_id", chatID).Error
-						}); wxErr != nil {
-							log.Printf("❌ 更新订单群聊ID失败: sn=%s err=%v", ord.OrderSN, wxErr)
-						}
-					}
-				}(order)
-			}
-		}()
-		}
-	}()
+	log.Println("⚠️ StartOrderTimeoutWatcher 已废弃 (v2.0)，跳过启动")
 }
 
 // StartDeadlineReminderWatcher 启动交付截止倒计时提醒
-// 距离约定交付时间 3 小时，企微机器人私信设计师进行告警催更
+// v2.0: 距离约定交付时间 3 小时，企微机器人私信跟单客服进行告警催更
 func StartDeadlineReminderWatcher(ctx context.Context) {
-	log.Println("✅ 交付截止倒计时提醒系统已启动 (距交付 3h 自动催更)")
+	log.Println("✅ 交付截止倒计时提醒系统已启动 (距交付 3h 自动催更，通知跟单客服)")
 
 	go func() {
 		defer func() {
@@ -650,7 +512,13 @@ func StartDeadlineReminderWatcher(ctx context.Context) {
 				).Find(&urgentOrders)
 
 				for _, o := range urgentOrders {
-					if o.DesignerID == "" {
+					// v2.0: 通知跟单客服（FollowOperatorID），而非设计师
+					notifyTarget := o.FollowOperatorID
+					if notifyTarget == "" {
+						// 降级: 如果没有跟单客服，尝试通知谈单客服
+						notifyTarget = o.OperatorID
+					}
+					if notifyTarget == "" {
 						continue
 					}
 
@@ -659,13 +527,13 @@ func StartDeadlineReminderWatcher(ctx context.Context) {
 					minutes := int(remaining.Minutes()) % 60
 
 					msg := fmt.Sprintf(
-						"⏰ 交付倒计时提醒\n━━━━━━━━━━━\n📦 订单: %s\n🎯 主题: %s\n⏳ 剩余: %d小时%d分钟\n━━━━━━━━━━━\n请尽快完成并在群内回复「已交付」！",
+						"⏰ 交付倒计时提醒\n━━━━━━━━━━━\n📦 订单: %s\n🎯 主题: %s\n⏳ 剩余: %d小时%d分钟\n━━━━━━━━━━━\n请跟进设计进度，确保按时交付！",
 						o.OrderSN, o.Topic, hours, minutes,
 					)
 
-					// 1. 私信设计师
-					if err := Wecom.SendTextMessage([]string{o.DesignerID}, msg); err != nil {
-						log.Printf("⚠️ 发送交付倒计时企微通知失败: sn=%s designer=%s err=%v", o.OrderSN, o.DesignerID, err)
+					// 1. 私信跟单客服
+					if err := Wecom.SendTextMessage([]string{notifyTarget}, msg); err != nil {
+						log.Printf("⚠️ 发送交付倒计时企微通知失败: sn=%s follow=%s err=%v", o.OrderSN, notifyTarget, err)
 					}
 
 					// 2. 如果有群聊，也在群内提醒
@@ -681,7 +549,7 @@ func StartDeadlineReminderWatcher(ctx context.Context) {
 					}); err != nil {
 						log.Printf("❌ 标记deadline_reminded失败: sn=%s err=%v", o.OrderSN, err)
 					}
-					log.Printf("⏰ 已发送交付催更提醒 | sn=%s | designer=%s | 剩余 %dh%dm", o.OrderSN, o.DesignerID, hours, minutes)
+					log.Printf("⏰ 已发送交付催更提醒 | sn=%s | follow=%s | 剩余 %dh%dm", o.OrderSN, notifyTarget, hours, minutes)
 				}
 			}()
 		}

@@ -27,42 +27,10 @@ var Monitor = &GrabMonitor{
 	DesigningTimeoutThreshold: 48 * time.Hour,
 }
 
-// Start 启动定时检测
+// Deprecated: v2.0 已移除抢单机制，GrabMonitor 不再启动
+// Start 保留函数签名以避免编译错误，但不再执行任何监控逻辑
 func (m *GrabMonitor) Start(ctx context.Context) {
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("[GrabMonitor] panic recovered: %v", r)
-			}
-		}()
-		ticker := time.NewTicker(m.CheckInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				log.Println("[GrabMonitor] 已停止")
-				return
-			case <-ticker.C:
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							log.Printf("[GrabMonitor] checkTimeoutGrabs panic recovered: %v", r)
-						}
-					}()
-					m.checkTimeoutGrabs()
-				}()
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							log.Printf("[GrabMonitor] checkDesigningTimeout panic recovered: %v", r)
-						}
-					}()
-					m.checkDesigningTimeout()
-				}()
-			}
-		}
-	}()
-	log.Printf("[GrabMonitor] 已启动，每 %v 检查一次，抢单超时阈值 %v，设计超时阈值 %v", m.CheckInterval, m.TimeoutThreshold, m.DesigningTimeoutThreshold)
+	log.Println("⚠️ GrabMonitor.Start 已废弃 (v2.0 无抢单机制)，跳过启动")
 }
 
 // checkTimeoutGrabs 检查超时未推进的抢单（仅告警未告警过的订单）

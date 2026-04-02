@@ -187,7 +187,7 @@ export default function OrdersPage() {
   }, []);
 
   const hasMoreActions = (order) => {
-    if (['COMPLETED', 'REFUNDED', 'CLOSED'].includes(order.status)) return false;
+    if (['COMPLETED', 'REFUNDED'].includes(order.status)) return false;
     if (role === 'admin') return true;
     if (role === 'follow') return true;
     return false;
@@ -201,13 +201,9 @@ export default function OrdersPage() {
   const batchActions = useMemo(() => {
     if (selectedOrders.length === 0) return [];
     const actions = [];
-    const canComplete = selectedOrders.every((o) => ['DELIVERED', 'AFTER_SALE'].includes(o.status));
+    const canComplete = selectedOrders.every((o) => o.status === 'DESIGNING');
     if (canComplete && ['admin', 'sales', 'follow'].includes(role)) {
       actions.push({ status: 'COMPLETED', label: '批量完成', type: 'primary' });
-    }
-    const canClose = selectedOrders.every((o) => ['PENDING', 'GROUP_CREATED', 'CONFIRMED', 'DESIGNING', 'REVISION', 'AFTER_SALE'].includes(o.status));
-    if (canClose && role === 'admin') {
-      actions.push({ status: 'CLOSED', label: '批量关闭', type: 'danger' });
     }
     return actions;
   }, [selectedOrders, role]);
@@ -397,7 +393,7 @@ export default function OrdersPage() {
                 type="text"
                 placeholder="搜索订单..."
                 aria-label="搜索订单"
-                className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 py-1.5 pl-9 text-[13px] rounded-lg"
+                className="w-full pl-9 pr-3 py-1.5 text-[13px] text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
               />
               <svg className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             </div>
@@ -646,8 +642,14 @@ export default function OrdersPage() {
                         <InfoItem label="页数" value={drawerData.order.pages || '-'} />
                         <InfoItem label="截止时间" value={drawerData.order.deadline ? formatTime(drawerData.order.deadline) : '无'} />
                         <InfoItem label="管家" value={drawerData.people.operator_name || drawerData.order.operator_id || '-'} />
-                        <InfoItem label="设计师" value={drawerData.people.designer_name || drawerData.order.designer_id || '待分配'} />
+                        <InfoItem label="设计师" value={drawerData.order.freelance_designer_name || drawerData.people.designer_name || drawerData.order.designer_id || '待分配'} />
                       </div>
+                      {drawerData.order.commission_adjusted && (
+                        <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                          佣金已调整
+                        </div>
+                      )}
                     </div>
 
                     {/* 备注 */}
@@ -751,8 +753,9 @@ export default function OrdersPage() {
 
 // ── Memoized Order Row ──
 const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggleSelect, openMoreMenu, onSetMoreMenu, onUpdateStatus, onConfirmComplete, onHandleRefund, onConfirmClose, hasMoreActions, onPreviewImage, onReassign, onOpenDrawer }) {
+  const isCommissionAdjusted = order.commission_adjusted;
   return (
-    <tr className={`group transition-colors cursor-pointer ${selected ? 'bg-brand-500/5' : 'hover:bg-[#FAFBFC]'}`} onClick={() => onOpenDrawer(order)}>
+    <tr className={`group transition-colors cursor-pointer ${isCommissionAdjusted ? 'border-l-4 border-l-amber-500 bg-amber-500/5' : ''} ${selected ? 'bg-brand-500/5' : 'hover:bg-[#FAFBFC]'}`} onClick={() => onOpenDrawer(order)}>
       <td className="w-10 pl-4 pr-0" onClick={(e) => e.stopPropagation()}>
         <input
           type="checkbox"
@@ -796,7 +799,7 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
           </div>
           <div className="flex items-center gap-1.5 text-slate-500">
             <span className="text-slate-400 text-[11px]">设计</span>
-            <span className="text-slate-700 font-medium text-[11px] truncate">{order.designer_id || '待分配'}</span>
+            <span className="text-slate-700 font-medium text-[11px] truncate">{order.freelance_designer_name || order.designer_id || '待分配'}</span>
           </div>
         </div>
       </td>
@@ -806,25 +809,13 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
       <td className="text-center" onClick={(e) => e.stopPropagation()}>
         <div className="text-[11px] text-slate-400 font-medium tabular-nums mb-1">{formatTime(order.created_at)}</div>
         <div className="flex flex-wrap items-center justify-center gap-1">
-          {/* sales: 确认需求 (GROUP_CREATED -> CONFIRMED) */}
-          {order.status === 'GROUP_CREATED' && (role === 'admin' || role === 'sales') && (
-            <button onClick={() => onUpdateStatus(order, 'CONFIRMED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">确认需求</button>
+          {/* admin/follow: 开始设计 (PENDING -> DESIGNING) */}
+          {order.status === 'PENDING' && (role === 'admin' || role === 'follow') && (
+            <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm active:scale-[0.98]">开始设计</button>
           )}
-          {/* designer: 接手设计 (CONFIRMED -> DESIGNING) */}
-          {order.status === 'CONFIRMED' && (role === 'admin' || role === 'designer') && (
-            <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">接手设计</button>
-          )}
-          {/* designer: 标记交付 (DESIGNING -> DELIVERED) */}
-          {order.status === 'DESIGNING' && (role === 'admin' || (role === 'designer' && order.designer_id === userId)) && (
-            <button onClick={() => onUpdateStatus(order, 'DELIVERED')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg text-[11px] bg-white active:scale-[0.98]">标记交付</button>
-          )}
-          {/* follow: 确认完成 (DELIVERED -> COMPLETED) */}
-          {order.status === 'DELIVERED' && (role === 'admin' || role === 'follow') && (
-            <button onClick={() => onConfirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[11px] active:scale-[0.98]">标记完成</button>
-          )}
-          {/* follow: 需要修改 (DELIVERED -> REVISION) */}
-          {order.status === 'DELIVERED' && (role === 'admin' || role === 'follow') && (
-            <button onClick={() => onUpdateStatus(order, 'REVISION')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-400 text-amber-600 hover:bg-amber-50 text-[11px] bg-white active:scale-[0.98]">需要修改</button>
+          {/* admin/follow: 标记完成 (DESIGNING -> COMPLETED) */}
+          {order.status === 'DESIGNING' && (role === 'admin' || role === 'follow') && (
+            <button onClick={() => onConfirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg bg-white active:scale-[0.98]">标记完成</button>
           )}
           {hasMoreActions && (
             <div className="relative">
@@ -833,32 +824,18 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
               </button>
               {openMoreMenu === order.id && (
                 <div className="absolute right-0 top-8 w-40 bg-white rounded-xl shadow-xl border border-slate-200/80 z-50 overflow-hidden py-1" onClick={(e) => e.stopPropagation()}>
-                  {/* follow: 标记售后 */}
-                  {['DESIGNING','DELIVERED','COMPLETED'].includes(order.status) && (role === 'admin' || role === 'follow') && (
-                    <button onClick={() => { onUpdateStatus(order, 'AFTER_SALE'); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-orange-600 hover:bg-orange-50 transition-colors flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
-                      标记售后
-                    </button>
-                  )}
-                  {/* Fix #2: Refund permission - only admin and sales, NOT follow */}
-                  {!['REFUNDED','CLOSED'].includes(order.status) && (role === 'admin' || role === 'sales') && (
+                  {/* Refund - admin and sales */}
+                  {!['REFUNDED'].includes(order.status) && (role === 'admin' || role === 'sales') && (
                     <button onClick={() => { onHandleRefund(order); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors flex items-center gap-2">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z" /></svg>
                       退款
                     </button>
                   )}
                   {/* admin: 转派设计师 */}
-                  {['GROUP_CREATED','CONFIRMED','DESIGNING','DELIVERED','REVISION','AFTER_SALE'].includes(order.status) && order.designer_id && role === 'admin' && (
+                  {order.status === 'DESIGNING' && order.designer_id && role === 'admin' && (
                     <button onClick={() => { onReassign(order); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-2">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
                       转派设计师
-                    </button>
-                  )}
-                  {/* admin: 关闭订单 */}
-                  {['PENDING','GROUP_CREATED','CONFIRMED','DESIGNING'].includes(order.status) && role === 'admin' && (
-                    <button onClick={() => { onConfirmClose(order); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                      关闭订单
                     </button>
                   )}
                 </div>

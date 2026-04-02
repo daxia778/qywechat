@@ -194,30 +194,12 @@ func (w *WeComClient) SendGroupMessage(chatID, content string) error {
 	return w.postJSON(fmt.Sprintf("%s/appchat/send?access_token=%s", w.baseURL, token), payload)
 }
 
-// NotifyNewOrder 新订单通知设计师
-func (w *WeComClient) NotifyNewOrder(orderSN, operatorName, topic string, pages, priceFen int, deadlineStr string, designerIDs []string) error {
-	if !w.IsConfigured() || len(designerIDs) == 0 {
-		return nil
-	}
-
-	priceYuan := float64(priceFen) / 100
-	desc := fmt.Sprintf("📋 新PPT订单\n━━━━━━━━━━━\n订单号: %s\n客服: %s\n主题: %s\n页数: %d页\n金额: ¥%.2f\n交付: %s\n━━━━━━━━━━━\n点击下方按钮立即接单！",
-		orderSN, operatorName, topic, pages, priceYuan, deadlineStr)
-
-	titleTopic := topic
-	if len(titleTopic) > 20 {
-		titleTopic = titleTopic[:20]
-	}
-
-	return w.SendTextCardMessage(designerIDs,
-		fmt.Sprintf("🔔 新订单 - %s", titleTopic),
-		desc,
-		fmt.Sprintf("%s/grab?order_sn=%s", config.C.BaseURL, orderSN),
-	)
-}
+// Deprecated: NotifyNewOrder 已废弃，v2.0 不再有设计师抢单机制
+// func (w *WeComClient) NotifyNewOrder(...) error { ... }
 
 // SetupOrderGroup 建群 + 播报需求
-func (w *WeComClient) SetupOrderGroup(orderSN, operatorID, designerID, topic string, pages, priceFen int, deadlineStr, remark string) (string, error) {
+// v2.0: 群成员改为谈单客服 + 跟单客服（设计师后续手动拉入）
+func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID, topic string, pages int, priceFen int, deadlineStr, remark string) (string, error) {
 	topicShort := topic
 	if len(topicShort) > 12 {
 		topicShort = topicShort[:12]
@@ -227,17 +209,15 @@ func (w *WeComClient) SetupOrderGroup(orderSN, operatorID, designerID, topic str
 		snShort = snShort[len(snShort)-6:]
 	}
 
-	// 去重: 当 operatorID == designerID 时避免重复成员导致建群失败
-	members := []string{operatorID}
-	if designerID != operatorID {
-		members = append(members, designerID)
+	// 去重: 当 salesOperatorID == followOperatorID 时避免重复成员导致建群失败
+	members := []string{followOperatorID}
+	if salesOperatorID != followOperatorID {
+		members = append(members, salesOperatorID)
 	}
 
-	chatID, err := w.CreateGroupChat(
-		fmt.Sprintf("PPT-%s %s", snShort, topicShort),
-		designerID,
-		members,
-	)
+	groupName := fmt.Sprintf("PPT-%s %s", snShort, topicShort)
+	// 群主设为跟单客服（项目经理角色）
+	chatID, err := w.CreateGroupChat(groupName, followOperatorID, members)
 	if err != nil {
 		return "", err
 	}
@@ -246,13 +226,13 @@ func (w *WeComClient) SetupOrderGroup(orderSN, operatorID, designerID, topic str
 	}
 
 	// 保存群聊快照到数据库
-	SaveGroupChatSnapshot(chatID, fmt.Sprintf("PPT-%s %s", snShort, topicShort), designerID, members, orderSN)
+	SaveGroupChatSnapshot(chatID, groupName, followOperatorID, members, orderSN)
 
 	priceYuan := float64(priceFen) / 100
 	if remark == "" {
 		remark = "无"
 	}
-	brief := fmt.Sprintf("📋 PPT 设计需求清单\n━━━━━━━━━━━━━━━━━\n📦 订单号: %s\n🎯 主题: %s\n📄 页数: %d页\n💰 金额: ¥%.2f\n⏰ 交付: %s\n📝 备注: %s\n━━━━━━━━━━━━━━━━━\n请尽快开始设计，完成后在群内回复「已交付」！",
+	brief := fmt.Sprintf("📋 PPT 设计需求清单\n━━━━━━━━━━━━━━━━━\n📦 订单号: %s\n🎯 主题: %s\n📄 页数: %d页\n💰 金额: ¥%.2f\n⏰ 交付: %s\n📝 备注: %s\n━━━━━━━━━━━━━━━━━\n请跟进设计进度，确保按时交付！",
 		orderSN, topic, pages, priceYuan, deadlineStr, remark)
 	_ = w.SendGroupMessage(chatID, brief)
 

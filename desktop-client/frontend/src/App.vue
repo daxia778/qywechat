@@ -115,11 +115,10 @@ const state = reactive({
   
   form: {
     customerContact: '',
-    topic: '',
-    pages: '',
-    deadline: '',
-    remark: ''
+    followStaffUID: '',
   },
+  followStaffList: [],
+  followStaffLoading: false,
 
   // 备注图片附件
   attachments: [],        // [{url: '服务端URL', preview: 'base64预览'}]
@@ -178,6 +177,11 @@ onMounted(async () => {
       }
     }
 
+    // 登录成功后加载跟单客服列表
+    if (state.isLoggedIn) {
+      loadFollowStaff();
+    }
+
     // 检查版本更新
     checkAppUpdate();
   } catch (e) {
@@ -217,6 +221,20 @@ const checkAppUpdate = async () => {
 };
 
 // ══ 功能 ══
+
+const loadFollowStaff = async () => {
+  state.followStaffLoading = true;
+  try {
+    const list = await window.go.main.App.GetFollowStaffList();
+    state.followStaffList = list || [];
+  } catch (e) {
+    console.error('加载跟单客服列表失败', e);
+    state.followStaffList = [];
+  } finally {
+    state.followStaffLoading = false;
+  }
+};
+
 const handleLogout = async () => {
   // 清除 Go 后端状态和本地会话文件
   try { await window.go.main.App.ClearSession(); } catch(e) {}
@@ -252,6 +270,7 @@ const handleLogin = async () => {
       state.empName = res.name;
       state.wecomUid = res.wecom_uid;
       showToast('设备登录成功');
+      loadFollowStaff();
     } else {
       state.loginError = res.message;
     }
@@ -495,22 +514,23 @@ const submit = async () => {
     showToast('手动模式下请填写完整订单号和金额', 'error');
     return;
   }
-  if (!state.form.customerContact || !state.form.topic) {
-    showToast('请填写必填项(微信号/主题)', 'error');
+  if (!state.form.customerContact) {
+    showToast('请填写订单备注信息', 'error');
     return;
   }
-  
+  if (!state.form.followStaffUID) {
+    showToast('请选择跟单客服', 'error');
+    return;
+  }
+
   state.submitLoading = true;
-  
+
   try {
     const res = await window.go.main.App.SubmitOrder(
       state.orderSn,
       state.form.customerContact,
-      state.form.topic,
-      state.form.remark,
-      state.form.deadline,
+      state.form.followStaffUID,
       state.price,
-      parseInt(state.form.pages) || 0,
       state.attachments.map(a => a.url),
       state.screenshotUrl
     );
@@ -523,7 +543,11 @@ const submit = async () => {
       state.rawPrice = '';
       state.priceLocked = false;
       state.attachments = [];
-      state.form = { customerContact: '', topic: '', pages: '', deadline: '', remark: '' };
+      state.previewUrl = '';
+      state.screenshotUrl = '';
+      state.orderTime = '';
+      state.ocrRetryCount = 0;
+      state.form = { customerContact: '', followStaffUID: '' };
     } else {
       showToast(res.message, 'error');
     }
@@ -658,32 +682,51 @@ const submit = async () => {
       <div class="card">
         <div class="card-title">
           <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
-          顾客与需求信息
+          顾客与建群信息
         </div>
         <div class="form-group">
-          <label class="form-label">顾客微信号 / 手机号 <span style="color:red">*</span></label>
-          <input v-model="state.form.customerContact" class="form-input" placeholder="输入顾客联系方式用于企微建群" />
+          <label class="form-label">订单备注信息 <span style="color:red">*</span></label>
+          <textarea v-model="state.form.customerContact" class="form-textarea" rows="5" placeholder="请填写以下信息：&#10;顾客微信号/手机号：&#10;PPT主题：&#10;大约页数：&#10;交付时间：&#10;其他备注："></textarea>
         </div>
-        
+
+        <!-- 选择跟单客服建群 -->
         <div class="form-group">
-          <label class="form-label">PPT 主题 <span style="color:red">*</span></label>
-          <input v-model="state.form.topic" class="form-input" placeholder="例如：某市第一季度政务汇报PPT" />
-        </div>
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">大约页数</label>
-            <input v-model="state.form.pages" type="number" class="form-input" placeholder="0" />
+          <label class="form-label">
+            确认后台在线的跟单客服 <span style="color:red">*</span>
+            <button class="btn-refresh-staff" @click="loadFollowStaff" :disabled="state.followStaffLoading" title="刷新列表">
+              <svg :class="{ 'spin': state.followStaffLoading }" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            </button>
+          </label>
+          <div class="staff-select-list" v-if="state.followStaffList.length > 0">
+            <div
+              v-for="staff in state.followStaffList"
+              :key="staff.wecom_userid"
+              class="staff-option"
+              :class="{
+                'selected': state.form.followStaffUID === staff.wecom_userid,
+                'offline': !staff.is_online
+              }"
+              @click="state.form.followStaffUID = staff.wecom_userid"
+            >
+              <div class="staff-avatar">{{ staff.name.charAt(0) }}</div>
+              <div class="staff-info">
+                <div class="staff-name">{{ staff.name }}</div>
+                <div class="staff-meta">
+                  <span class="online-dot" :class="staff.is_online ? 'on' : 'off'"></span>
+                  {{ staff.is_online ? '在线' : '离线' }}
+                  <span v-if="staff.active_orders > 0" style="margin-left: 6px; color: #f59e0b;">{{ staff.active_orders }}单进行中</span>
+                </div>
+              </div>
+              <svg v-if="state.form.followStaffUID === staff.wecom_userid" class="staff-check" width="18" height="18" fill="none" stroke="#10B981" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" /></svg>
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">交付时间</label>
-            <input v-model="state.form.deadline" type="datetime-local" class="form-input" />
+          <div v-else-if="state.followStaffLoading" class="staff-empty">
+            <div class="spinner" style="width: 18px; height: 18px; border-width: 2px; border-top-color: var(--accent);"></div>
+            <span>加载中...</span>
           </div>
-        </div>
-        
-        <div class="form-group" style="margin-bottom: 0;">
-          <label class="form-label">特殊备注 (直达设计师)</label>
-          <textarea v-model="state.form.remark" class="form-textarea" placeholder="例如: 偏好深蓝色，不要套模板，极简风" @paste="handleAttachmentPaste"></textarea>
+          <div v-else class="staff-empty">
+            <span>暂无跟单客服，请联系管理员添加</span>
+          </div>
         </div>
 
         <!-- 备注图片附件 -->
@@ -710,7 +753,7 @@ const submit = async () => {
               <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
             </div>
           </div>
-          <div class="attachment-hint">在备注框内按 <kbd>Ctrl+V</kbd> / <kbd>Cmd+V</kbd> 可直接粘贴图片</div>
+          <div class="attachment-hint">按 <kbd>Ctrl+V</kbd> / <kbd>Cmd+V</kbd> 可直接粘贴图片</div>
         </div>
       </div>
       
@@ -1000,6 +1043,115 @@ const submit = async () => {
   border-radius: 3px;
   font-size: 10px;
   font-family: inherit;
+}
+
+/* 跟单客服选择列表 */
+.btn-refresh-staff {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #94a3b8;
+  padding: 2px;
+  margin-left: 6px;
+  vertical-align: -3px;
+  transition: color 0.15s ease;
+}
+.btn-refresh-staff:hover {
+  color: var(--accent);
+}
+.btn-refresh-staff:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.btn-refresh-staff .spin {
+  animation: spin 0.8s linear infinite;
+}
+.staff-select-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.staff-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+.staff-option:hover {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.03);
+}
+.staff-option.selected {
+  border-color: #10B981;
+  background: rgba(16, 185, 129, 0.05);
+}
+.staff-option.offline {
+  opacity: 0.55;
+}
+.staff-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.staff-info {
+  flex: 1;
+  min-width: 0;
+}
+.staff-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e293b;
+}
+.staff-meta {
+  font-size: 12px;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+.online-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.online-dot.on {
+  background: #10B981;
+  box-shadow: 0 0 4px rgba(16, 185, 129, 0.5);
+}
+.online-dot.off {
+  background: #cbd5e1;
+}
+.staff-check {
+  flex-shrink: 0;
+}
+.staff-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  color: #94a3b8;
+  font-size: 13px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px dashed #e2e8f0;
 }
 
 </style>

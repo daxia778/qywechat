@@ -439,6 +439,55 @@ func (a *App) SelectScreenshotFile() string {
 	return selection
 }
 
+// ─── 获取跟单客服列表 ──────────────────────────
+
+type FollowStaffItem struct {
+	ID           uint   `json:"id"`
+	Name         string `json:"name"`
+	WecomUserID  string `json:"wecom_userid"`
+	Status       string `json:"status"`
+	IsOnline     bool   `json:"is_online"`
+	ActiveOrders int    `json:"active_orders"`
+}
+
+func (a *App) GetFollowStaffList() []FollowStaffItem {
+	result := a.doGetFollowStaff()
+	// 401 时自动刷新 token 重试一次
+	if result == nil {
+		a.deviceLogin()
+		if a.token != "" {
+			return a.doGetFollowStaff()
+		}
+	}
+	return result
+}
+
+func (a *App) doGetFollowStaff() []FollowStaffItem {
+	req, _ := http.NewRequest("GET", a.serverURL+"/api/v1/orders/follow-staff", nil)
+	if a.token != "" {
+		req.Header.Set("Authorization", "Bearer "+a.token)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Println("获取跟单客服列表失败:", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		log.Println("获取跟单客服列表 HTTP", resp.StatusCode)
+		return nil
+	}
+
+	var body struct {
+		Data []FollowStaffItem `json:"data"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	return body.Data
+}
+
 // ─── 提交订单 ──────────────────────────────
 
 type SubmitResult struct {
@@ -447,30 +496,27 @@ type SubmitResult struct {
 	OrderSN string `json:"order_sn"`
 }
 
-func (a *App) SubmitOrder(orderSN, customerContact, topic, remark, deadline string, price, pages int, attachmentURLs []string, screenshotPath string) *SubmitResult {
-	result := a.doSubmitOrder(orderSN, customerContact, topic, remark, deadline, price, pages, attachmentURLs, screenshotPath)
+func (a *App) SubmitOrder(orderSN, customerContact, followStaffUID string, price int, attachmentURLs []string, screenshotPath string) *SubmitResult {
+	result := a.doSubmitOrder(orderSN, customerContact, followStaffUID, price, attachmentURLs, screenshotPath)
 	// 401 时自动刷新 token 重试一次
 	if !result.Success && strings.Contains(result.Message, "401") {
 		log.Println("⚠️ 提交订单 401，尝试刷新 token 重试")
 		a.deviceLogin()
 		if a.token != "" {
-			return a.doSubmitOrder(orderSN, customerContact, topic, remark, deadline, price, pages, attachmentURLs, screenshotPath)
+			return a.doSubmitOrder(orderSN, customerContact, followStaffUID, price, attachmentURLs, screenshotPath)
 		}
 	}
 	return result
 }
 
-func (a *App) doSubmitOrder(orderSN, customerContact, topic, remark, deadline string, price, pages int, attachmentURLs []string, screenshotPath string) *SubmitResult {
+func (a *App) doSubmitOrder(orderSN, customerContact, followStaffUID string, price int, attachmentURLs []string, screenshotPath string) *SubmitResult {
 	payload := map[string]interface{}{
 		"order_sn":         orderSN,
 		"customer_contact": customerContact,
 		"price":            price,
-		"topic":            topic,
-		"pages":            pages,
-		"deadline":         deadline,
-		"remark":           remark,
+		"follow_uid":       followStaffUID,
 		"attachment_urls":  attachmentURLs,
-		"screenshot_url":  screenshotPath,
+		"screenshot_url":   screenshotPath,
 	}
 	body, _ := json.Marshal(payload)
 

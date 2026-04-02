@@ -30,7 +30,7 @@ type Employee struct {
 }
 
 // ValidRoles 合法角色值
-var ValidRoles = []string{"sales", "designer", "follow", "admin"}
+var ValidRoles = []string{"sales", "follow", "admin"}
 
 // IsValidRole 校验角色是否合法
 func IsValidRole(role string) bool {
@@ -50,7 +50,9 @@ type Order struct {
 	CustomerID      uint       `gorm:"column:customer_id;index" json:"customer_id"`
 	Price           int        `gorm:"column:price;not null;default:0" json:"price"`
 	OperatorID      string     `gorm:"column:operator_id;size:64;not null" json:"operator_id"`       // 谈单客服 (sales)
-	DesignerID      string     `gorm:"column:designer_id;size:64" json:"designer_id,omitempty"`      // 设计师
+	DesignerID      string     `gorm:"column:designer_id;size:64" json:"designer_id,omitempty"`      // [旧] 设计师，保留兼容旧数据
+	FreelanceDesignerID   uint   `gorm:"column:freelance_designer_id;index" json:"freelance_designer_id"`           // 关联花名册
+	FreelanceDesignerName string `gorm:"column:freelance_designer_name;size:64" json:"freelance_designer_name"`     // 冗余名字方便展示
 	FollowOperatorID string   `gorm:"column:follow_operator_id;size:64" json:"follow_operator_id,omitempty"` // 跟单客服 (follow)
 	Topic           string     `gorm:"column:topic;size:256" json:"topic,omitempty"`
 	Pages           int        `gorm:"column:pages;default:0" json:"pages"`
@@ -65,6 +67,8 @@ type Order struct {
 	Status          string     `gorm:"column:status;size:32;default:PENDING;index:idx_status_created,priority:1" json:"status"`
 	WecomChatID     string     `gorm:"column:wecom_chat_id;size:64" json:"wecom_chat_id,omitempty"`
 	RefundReason    string     `gorm:"column:refund_reason;type:text" json:"refund_reason,omitempty"`
+	CommissionAdjusted    bool `gorm:"column:commission_adjusted;default:false" json:"commission_adjusted"`       // 佣金是否被调整过
+	OriginalDesignerRate  int  `gorm:"-" json:"original_designer_rate"`                                           // 不存数据库，展示用
 
 	// 分润结果字段（由分润引擎自动计算，单位：分）
 	PlatformFee        int `gorm:"column:platform_fee;default:0" json:"platform_fee"`
@@ -85,54 +89,44 @@ type Order struct {
 	DesigningAlertSent   bool      `gorm:"column:designing_alert_sent;default:false" json:"designing_alert_sent"`
 }
 
-// OrderStatus 状态机常量
+// OrderStatus 状态机常量（v2.0 简化: 3+1）
 const (
-	StatusPending      = "PENDING"
+	StatusPending   = "PENDING"
+	StatusDesigning = "DESIGNING"
+	StatusCompleted = "COMPLETED"
+	StatusRefunded  = "REFUNDED"
+)
+
+// [废弃] 旧状态常量，保留仅供历史数据查询兼容
+const (
 	StatusGroupCreated = "GROUP_CREATED"
 	StatusConfirmed    = "CONFIRMED"
-	StatusDesigning    = "DESIGNING"
 	StatusDelivered    = "DELIVERED"
 	StatusRevision     = "REVISION"
 	StatusAfterSale    = "AFTER_SALE"
-	StatusCompleted    = "COMPLETED"
-	StatusRefunded     = "REFUNDED"
 	StatusClosed       = "CLOSED"
 )
 
-// ValidTransitions 合法状态转换
-// 正向: PENDING → GROUP_CREATED → CONFIRMED → DESIGNING → DELIVERED → COMPLETED
-// 分支: DELIVERED → REVISION → DESIGNING (修改循环)
-// 分支: DESIGNING/DELIVERED/REVISION/AFTER_SALE → AFTER_SALE (售后)
-// 逆向: 任意进行中状态 → REFUNDED / CLOSED
+// ValidTransitions 合法状态转换（v2.0 简化）
+// 正向: PENDING → DESIGNING → COMPLETED
+// 标记: COMPLETED → REFUNDED
 var ValidTransitions = map[string][]string{
-	StatusPending:      {StatusGroupCreated, StatusClosed, StatusRefunded},
-	StatusGroupCreated: {StatusConfirmed, StatusClosed, StatusRefunded},
-	StatusConfirmed:    {StatusDesigning, StatusClosed, StatusRefunded},
-	StatusDesigning:    {StatusDelivered, StatusAfterSale, StatusClosed, StatusRefunded},
-	StatusDelivered:    {StatusCompleted, StatusRevision, StatusAfterSale, StatusRefunded},
-	StatusRevision:     {StatusDesigning, StatusAfterSale, StatusClosed, StatusRefunded},
-	StatusAfterSale:    {StatusDesigning, StatusRevision, StatusCompleted, StatusRefunded, StatusClosed},
-	StatusCompleted:    {StatusAfterSale, StatusRefunded},
+	StatusPending:   {StatusDesigning},
+	StatusDesigning: {StatusCompleted},
+	StatusCompleted: {StatusRefunded},
 }
 
-// StatusChangePermission 定义每个目标状态所需的操作权限
+// StatusChangePermission 定义每个目标状态所需的操作权限（v2.0 简化）
 // key = 目标状态, value = 允许执行此操作的角色列表
 var StatusChangePermission = map[string][]string{
-	StatusGroupCreated: {"admin", "sales"},
-	StatusConfirmed:    {"admin", "sales"},
-	StatusDesigning:    {"admin", "sales"},
-	StatusDelivered:    {"admin", "designer"},
-	StatusRevision:     {"admin", "follow"},
-	StatusAfterSale:    {"admin", "follow"},
-	StatusCompleted:    {"admin", "sales", "follow"},
-	StatusRefunded:     {"admin", "sales"},
-	StatusClosed:       {"admin"},
+	StatusDesigning: {"admin", "follow"},
+	StatusCompleted: {"admin", "follow"},
+	StatusRefunded:  {"admin", "follow"},
 }
 
 // IsTerminalStatus 判断是否为终态（不可再转换）
-// 注意: COMPLETED 不再是终态，可转换到 AFTER_SALE / REFUNDED
 func IsTerminalStatus(status string) bool {
-	return status == StatusRefunded || status == StatusClosed
+	return status == StatusRefunded
 }
 
 // ValidateStatusTransition 校验状态流转是否合法，返回 nil 表示合法，否则返回错误描述

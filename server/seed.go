@@ -23,8 +23,9 @@ func SeedData() {
 	log.Println("[Seed] 开始填充测试数据...")
 
 	empMap := seedEmployees()
+	flDesigners := seedFreelanceDesigners()
 	customers := seedCustomers()
-	orders := seedOrders(empMap, customers)
+	orders := seedOrders(empMap, flDesigners, customers)
 	seedPayments(orders)
 
 	log.Println("[Seed] 测试数据填充完成")
@@ -56,12 +57,12 @@ func hoursAfter(base time.Time, h int) time.Time {
 	return base.Add(time.Duration(h)*time.Hour + time.Duration(rand.Intn(45))*time.Minute)
 }
 
-// calcProfit 按默认费率计算分润 (5% / 40% / 10% / 5%)
+// calcProfit 按 v2.0 费率计算分润 (30% / 25% / 10% / 5%)
 func calcProfit(price int) (pf, dc, sc, fc, np int) {
-	pf = price * 5 / 100   // 平台扣点
-	dc = price * 40 / 100  // 设计师
-	sc = price * 10 / 100  // 谈单客服
-	fc = price * 5 / 100   // 跟单客服
+	pf = price * 30 / 100 // 平台扣点
+	dc = price * 25 / 100 // 设计师
+	sc = price * 10 / 100 // 谈单客服
+	fc = price * 5 / 100  // 跟单客服
 	np = price - pf - dc - sc - fc
 	return
 }
@@ -83,12 +84,10 @@ func seedEmployees() map[string]empInfo {
 
 	defs := []def{
 		{"admin", "管理员柒", "admin", "admin888"},
+		{"sales_001", "测试客服", "sales", "pass1234"},
+		{"sales_002", "小陈", "sales", "pass1234"},
 		{"follow_001", "小王", "follow", "pass1234"},
 		{"follow_002", "小李", "follow", "pass1234"},
-		{"sales_001", "测试客服", "sales", "pass1234"},
-		{"designer_001", "阿杰", "designer", "pass1234"},
-		{"designer_002", "小美", "designer", "pass1234"},
-		{"designer_003", "大刘", "designer", "pass1234"},
 	}
 
 	result := make(map[string]empInfo, len(defs))
@@ -119,7 +118,39 @@ func seedEmployees() map[string]empInfo {
 }
 
 // ────────────────────────────────────────────────────────
-// 2. 顾客
+// 2. 兼职设计师花名册
+// ────────────────────────────────────────────────────────
+
+func seedFreelanceDesigners() []models.FreelanceDesigner {
+	designers := []models.FreelanceDesigner{
+		{Name: "张小明", WechatID: "zhangxm_design", Specialty: "PPT 商务风"},
+		{Name: "李设计", WechatID: "lidesign88", Mobile: "13800001111", Specialty: "PPT 简约风"},
+		{Name: "王创意", WechatID: "wangcy_ppt", Specialty: "PPT 科技风"},
+		{Name: "赵美工", Mobile: "13900002222", Specialty: "PPT 教育风"},
+		{Name: "陈排版", WechatID: "chenpb_work", Specialty: "PPT 营销风"},
+	}
+
+	created := make([]models.FreelanceDesigner, 0, len(designers))
+	for i := range designers {
+		var existing models.FreelanceDesigner
+		if err := models.DB.Where("name = ?", designers[i].Name).First(&existing).Error; err == nil {
+			log.Printf("[Seed] 兼职设计师 %s 已存在，跳过", designers[i].Name)
+			created = append(created, existing)
+			continue
+		}
+		if err := models.DB.Create(&designers[i]).Error; err != nil {
+			log.Printf("[Seed] 创建兼职设计师 %s 失败: %v", designers[i].Name, err)
+			continue
+		}
+		created = append(created, designers[i])
+		log.Printf("[Seed]   + 兼职设计师: %s (%s)", designers[i].Name, designers[i].Specialty)
+	}
+	log.Printf("[Seed]   + 兼职设计师合计: %d 个", len(created))
+	return created
+}
+
+// ────────────────────────────────────────────────────────
+// 3. 顾客
 // ────────────────────────────────────────────────────────
 
 func seedCustomers() []models.Customer {
@@ -159,78 +190,66 @@ func seedCustomers() []models.Customer {
 }
 
 // ────────────────────────────────────────────────────────
-// 3. 订单 + 时间线
+// 4. 订单 + 时间线
 // ────────────────────────────────────────────────────────
 
 type orderDef struct {
-	custIdx    int
-	price      int
-	pages      int
-	topic      string
-	status     string
-	daysAgo    int
-	costPrice  int
-	extraPages int
-	extraPrice int
-	remark     string
-	refundMsg  string
+	custIdx       int
+	price         int
+	pages         int
+	topic         string
+	status        string
+	daysAgo       int
+	costPrice     int
+	extraPages    int
+	extraPrice    int
+	remark        string
+	refundMsg     string
+	designerIdx   int // index into freelance designers, -1 = no designer
+	commissionAdj bool
 }
 
-func seedOrders(empMap map[string]empInfo, customers []models.Customer) []models.Order {
-	sales := "sales_001"
-	designers := []string{"designer_001", "designer_002", "designer_003"}
-	follows := []string{"follow_001", "follow_002"}
+func seedOrders(empMap map[string]empInfo, flDesigners []models.FreelanceDesigner, customers []models.Customer) []models.Order {
+	salesIDs := []string{"sales_001", "sales_002"}
+	followIDs := []string{"follow_001", "follow_002"}
 
-	// 29 orders covering all statuses
+	// 28 orders: COMPLETED(7) + REFUNDED(3) + DESIGNING(9) + PENDING(9)
 	specs := []orderDef{
-		// ── COMPLETED (8) ── 较早创建
-		{0, 5800, 20, "年度工作总结PPT", models.StatusCompleted, 28, 2300, 0, 0, "客户要求高端大气风格", ""},
-		{1, 3500, 12, "产品发布会演示", models.StatusCompleted, 25, 1400, 0, 0, "", ""},
-		{3, 8800, 40, "融资路演PPT", models.StatusCompleted, 22, 3500, 5, 500, "A轮融资，需要英文版", ""},
-		{5, 6200, 25, "品牌策划方案", models.StatusCompleted, 20, 2500, 0, 0, "", ""},
-		{7, 4500, 18, "教育培训课件", models.StatusCompleted, 17, 1800, 0, 0, "幼儿教育主题", ""},
-		{8, 7200, 30, "商业计划书", models.StatusCompleted, 14, 2900, 3, 300, "", ""},
-		{13, 5000, 22, "季度业绩汇报", models.StatusCompleted, 12, 2000, 0, 0, "", ""},
-		{14, 4800, 16, "市场调研报告", models.StatusCompleted, 10, 1900, 0, 0, "需要数据图表", ""},
+		// ── COMPLETED (7) ── 较早创建
+		{0, 5800, 20, "年度工作总结PPT", models.StatusCompleted, 28, 2300, 0, 0, "客户要求高端大气风格", "", 0, false},
+		{1, 3500, 12, "产品发布会演示", models.StatusCompleted, 25, 1400, 0, 0, "", "", 1, false},
+		{3, 8800, 40, "融资路演PPT", models.StatusCompleted, 22, 3500, 5, 500, "A轮融资，需要英文版", "", 2, true},
+		{5, 6200, 25, "品牌策划方案", models.StatusCompleted, 20, 2500, 0, 0, "", "", 3, false},
+		{7, 4500, 18, "教育培训课件", models.StatusCompleted, 17, 1800, 0, 0, "幼儿教育主题", "", 4, false},
+		{8, 7200, 30, "商业计划书", models.StatusCompleted, 14, 2900, 3, 300, "", "", 0, false},
+		{13, 5000, 22, "季度业绩汇报", models.StatusCompleted, 12, 2000, 0, 0, "", "", 1, true},
 
-		// ── AFTER_SALE (2) ──
-		{3, 9500, 45, "年会颁奖典礼", models.StatusAfterSale, 15, 3800, 0, 0, "客户要求修改配色方案", ""},
-		{8, 6800, 28, "企业文化手册", models.StatusAfterSale, 11, 2700, 0, 0, "", ""},
+		// ── REFUNDED (3) ──
+		{6, 3200, 10, "活动宣传PPT", models.StatusRefunded, 18, 0, 0, 0, "", "客户取消活动，申请全额退款", 2, false},
+		{9, 4000, 15, "内部培训资料", models.StatusRefunded, 9, 1600, 0, 0, "", "设计风格不满意，协商退款", 3, false},
+		{10, 2800, 8, "简历PPT", models.StatusRefunded, 15, 0, 0, 0, "", "客户不再需要", 4, true},
 
-		// ── REFUNDED (2) ──
-		{6, 3200, 10, "活动宣传PPT", models.StatusRefunded, 18, 0, 0, 0, "", "客户取消活动，申请全额退款"},
-		{9, 4000, 15, "内部培训资料", models.StatusRefunded, 9, 1600, 0, 0, "", "设计风格不满意，协商退款"},
+		// ── DESIGNING (9) ── 关联花名册设计师
+		{3, 7500, 32, "战略规划PPT", models.StatusDesigning, 5, 3000, 0, 0, "", "", 0, false},
+		{8, 4300, 16, "产品手册设计", models.StatusDesigning, 5, 1700, 0, 0, "", "", 1, false},
+		{13, 3600, 12, "周会汇报PPT", models.StatusDesigning, 4, 1400, 0, 0, "每周例会用", "", 2, false},
+		{14, 8200, 38, "集团年报PPT", models.StatusDesigning, 3, 3300, 4, 400, "页数较多，注意排版", "", 3, true},
+		{0, 4600, 18, "客户答谢会PPT", models.StatusDesigning, 3, 1800, 0, 0, "", "", 4, false},
+		{7, 3900, 14, "公开课课件", models.StatusDesigning, 2, 1600, 0, 0, "", "", 0, false},
+		{2, 5100, 20, "展会宣传PPT", models.StatusDesigning, 2, 2000, 0, 0, "", "", 1, false},
+		{11, 3300, 10, "个人作品集", models.StatusDesigning, 1, 1300, 0, 0, "", "", 2, false},
+		{1, 5200, 20, "新品推广方案", models.StatusDesigning, 4, 2100, 0, 0, "第二期推广", "", 3, false},
 
-		// ── CLOSED (1) ──
-		{10, 2800, 8, "简历PPT", models.StatusClosed, 23, 0, 0, 0, "客户失联", ""},
-
-		// ── DELIVERED (3) ──
-		{2, 3800, 14, "项目汇报PPT", models.StatusDelivered, 8, 1500, 0, 0, "", ""},
-		{4, 5500, 24, "毕业论文答辩", models.StatusDelivered, 7, 2200, 2, 200, "加急", ""},
-		{11, 4200, 18, "数据分析报告", models.StatusDelivered, 6, 1700, 0, 0, "", ""},
-
-		// ── REVISION (2) ──
-		{1, 5200, 20, "新品推广方案", models.StatusRevision, 6, 2100, 0, 0, "第二次修改", ""},
-		{5, 6500, 26, "投标文件PPT", models.StatusRevision, 5, 2600, 0, 0, "甲方要求调整图表", ""},
-
-		// ── DESIGNING (4) ──
-		{3, 7500, 32, "战略规划PPT", models.StatusDesigning, 5, 3000, 0, 0, "", ""},
-		{8, 4300, 16, "产品手册设计", models.StatusDesigning, 5, 1700, 0, 0, "", ""},
-		{13, 3600, 12, "周会汇报PPT", models.StatusDesigning, 4, 1400, 0, 0, "每周例会用", ""},
-		{14, 8200, 38, "集团年报PPT", models.StatusDesigning, 3, 3300, 4, 400, "页数较多，注意排版", ""},
-
-		// ── CONFIRMED (2) ──
-		{0, 4600, 18, "客户答谢会PPT", models.StatusConfirmed, 3, 1800, 0, 0, "", ""},
-		{7, 3900, 14, "公开课课件", models.StatusConfirmed, 2, 1600, 0, 0, "", ""},
-
-		// ── GROUP_CREATED (2) ──
-		{2, 5100, 20, "展会宣传PPT", models.StatusGroupCreated, 2, 0, 0, 0, "", ""},
-		{11, 3300, 10, "个人作品集", models.StatusGroupCreated, 1, 0, 0, 0, "", ""},
-
-		// ── PENDING (3) ──
-		{4, 4800, 20, "婚礼策划方案", models.StatusPending, 1, 0, 0, 0, "需要浪漫风格", ""},
-		{9, 6000, 25, "企业宣传片脚本", models.StatusPending, 0, 0, 0, 0, "", ""},
-		{12, 3500, 12, "述职报告PPT", models.StatusPending, 0, 0, 0, 0, "", ""},
+		// ── PENDING (9) ── 最近创建，无设计师
+		{4, 4800, 20, "婚礼策划方案", models.StatusPending, 1, 0, 0, 0, "需要浪漫风格", "", -1, false},
+		{9, 6000, 25, "企业宣传片脚本", models.StatusPending, 0, 0, 0, 0, "", "", -1, false},
+		{12, 3500, 12, "述职报告PPT", models.StatusPending, 0, 0, 0, 0, "", "", -1, false},
+		{5, 5500, 24, "毕业论文答辩", models.StatusPending, 1, 0, 0, 0, "加急", "", -1, false},
+		{2, 3800, 14, "项目汇报PPT", models.StatusPending, 0, 0, 0, 0, "", "", -1, false},
+		{14, 6800, 28, "企业文化手册", models.StatusPending, 1, 0, 0, 0, "", "", -1, false},
+		{3, 9500, 45, "年会颁奖典礼", models.StatusPending, 0, 0, 0, 0, "", "", -1, false},
+		{8, 4200, 18, "数据分析报告", models.StatusPending, 0, 0, 0, 0, "", "", -1, false},
+		{11, 3900, 15, "团队建设方案", models.StatusPending, 1, 0, 0, 0, "", "", -1, false},
 	}
 
 	orders := make([]models.Order, 0, len(specs))
@@ -244,81 +263,63 @@ func seedOrders(empMap map[string]empInfo, customers []models.Customer) []models
 			contact = customers[s.custIdx].Mobile
 		}
 
-		designerIdx := i % len(designers)
-		followIdx := i % len(follows)
+		salesID := salesIDs[i%len(salesIDs)]
+		followID := followIDs[i%len(followIDs)]
 
 		orderSN := fmt.Sprintf("PDD%s%03d", created.Format("20060102"), i+1)
 
 		o := models.Order{
-			OrderSN:          orderSN,
-			CustomerContact:  contact,
-			CustomerID:       custID,
-			Price:            s.price,
-			OperatorID:       sales,
-			Topic:            s.topic,
-			Pages:            s.pages,
-			ExtraPages:       s.extraPages,
-			ExtraPrice:       s.extraPrice,
-			CostPrice:        s.costPrice,
-			Status:           s.status,
-			Remark:           s.remark,
-			RefundReason:     s.refundMsg,
-			CreatedAt:        created,
-			UpdatedAt:        created,
+			OrderSN:            orderSN,
+			CustomerContact:    contact,
+			CustomerID:         custID,
+			Price:              s.price,
+			OperatorID:         salesID,
+			Topic:              s.topic,
+			Pages:              s.pages,
+			ExtraPages:         s.extraPages,
+			ExtraPrice:         s.extraPrice,
+			CostPrice:          s.costPrice,
+			Status:             s.status,
+			Remark:             s.remark,
+			RefundReason:       s.refundMsg,
+			CommissionAdjusted: s.commissionAdj,
+			CreatedAt:          created,
+			UpdatedAt:          created,
 		}
 
-		// 设置 deadline: 创建后 3-7 天
+		// deadline: 创建后 3-7 天
 		deadline := created.AddDate(0, 0, 3+rand.Intn(5))
 		o.Deadline = tp(deadline)
 
-		// 非 PENDING/GROUP_CREATED 的订单分配设计师和跟单
-		needDesigner := s.status != models.StatusPending && s.status != models.StatusGroupCreated
-		needFollow := needDesigner
-
-		if needDesigner {
-			o.DesignerID = designers[designerIdx]
-		}
-		if needFollow {
-			o.FollowOperatorID = follows[followIdx]
-		}
-
-		// GROUP_CREATED 有跟单但没设计师
-		if s.status == models.StatusGroupCreated {
-			o.FollowOperatorID = follows[followIdx]
-		}
-
-		// 设置各阶段时间戳
-		if needDesigner {
+		// 非 PENDING 订单分配跟单 + 设计师
+		if s.status != models.StatusPending {
+			o.FollowOperatorID = followID
+			if s.designerIdx >= 0 && s.designerIdx < len(flDesigners) {
+				o.FreelanceDesignerID = flDesigners[s.designerIdx].ID
+				o.FreelanceDesignerName = flDesigners[s.designerIdx].Name
+			}
 			assignT := hoursAfter(created, 1)
 			o.AssignedAt = tp(assignT)
 		}
 
+		// 设置各阶段时间戳
 		switch s.status {
-		case models.StatusDelivered:
-			o.DeliveredAt = tp(hoursAfter(created, 24+rand.Intn(48)))
 		case models.StatusCompleted:
 			deliverT := hoursAfter(created, 24+rand.Intn(48))
 			completeT := hoursAfter(deliverT, 2+rand.Intn(24))
 			o.DeliveredAt = tp(deliverT)
 			o.CompletedAt = tp(completeT)
-		case models.StatusClosed:
-			o.ClosedAt = tp(hoursAfter(created, 48))
 		case models.StatusRefunded:
-			o.ClosedAt = tp(hoursAfter(created, 24+rand.Intn(48)))
+			deliverT := hoursAfter(created, 24+rand.Intn(48))
+			completeT := hoursAfter(deliverT, 2+rand.Intn(24))
+			o.DeliveredAt = tp(deliverT)
+			o.CompletedAt = tp(completeT)
+			o.ClosedAt = tp(hoursAfter(completeT, 2+rand.Intn(24)))
 		}
 
-		// 分润 (仅 COMPLETED / AFTER_SALE / DELIVERED 有意义)
+		// 分润（仅 COMPLETED 有最终分润）
 		totalPrice := s.price + s.extraPrice
-		switch s.status {
-		case models.StatusCompleted, models.StatusAfterSale:
-			pf, dc, sc, fc, np := calcProfit(totalPrice)
-			o.PlatformFee = pf
-			o.DesignerCommission = dc
-			o.SalesCommission = sc
-			o.FollowCommission = fc
-			o.NetProfit = np
-		case models.StatusDelivered:
-			// 已交付但未完成，也预算分润
+		if s.status == models.StatusCompleted {
 			pf, dc, sc, fc, np := calcProfit(totalPrice)
 			o.PlatformFee = pf
 			o.DesignerCommission = dc
@@ -334,82 +335,59 @@ func seedOrders(empMap map[string]empInfo, customers []models.Customer) []models
 		orders = append(orders, o)
 
 		// 生成时间线
-		seedTimeline(o, sales, designers[designerIdx], follows[followIdx])
+		seedTimeline(o, salesID, followID)
 	}
 
 	log.Printf("[Seed]   + 订单: %d 单", len(orders))
 
-	// 额外: 为部分订单添加 amount_changed / pages_changed 事件
+	// 额外时间线事件
 	seedExtraTimelineEvents(orders)
 
 	return orders
 }
 
-// statusChain 根据目标状态返回从 PENDING 到目标状态的状态链
+// statusChain 根据目标状态返回从 PENDING 到目标状态的状态链 (v2.0)
 func statusChain(target string) []string {
 	full := []string{
 		models.StatusPending,
-		models.StatusGroupCreated,
-		models.StatusConfirmed,
 		models.StatusDesigning,
-		models.StatusDelivered,
 		models.StatusCompleted,
 	}
 
 	switch target {
 	case models.StatusPending:
 		return nil
-	case models.StatusGroupCreated:
-		return full[:2]
-	case models.StatusConfirmed:
-		return full[:3]
 	case models.StatusDesigning:
-		return full[:4]
-	case models.StatusDelivered:
-		return full[:5]
+		return full[:2]
 	case models.StatusCompleted:
-		return full[:6]
-	case models.StatusRevision:
-		// PENDING->...->DELIVERED->REVISION
-		return append(full[:5], models.StatusRevision)
-	case models.StatusAfterSale:
-		// PENDING->...->COMPLETED->AFTER_SALE
-		return append(full[:6], models.StatusAfterSale)
+		return full[:3]
 	case models.StatusRefunded:
-		// PENDING->...->DESIGNING->REFUNDED
-		return append(full[:4], models.StatusRefunded)
-	case models.StatusClosed:
-		return []string{models.StatusPending, models.StatusClosed}
+		// PENDING -> DESIGNING -> COMPLETED -> REFUNDED
+		return append(full[:3], models.StatusRefunded)
 	}
 	return nil
 }
 
-// operatorForTransition 根据状态转换决定操作人
-func operatorForTransition(toStatus, salesID, designerID, followID string) (string, string) {
+// operatorForTransition 根据状态转换决定操作人 (v2.0: 无 designer 角色)
+func operatorForTransition(toStatus, salesID, followID string) (string, string) {
 	switch toStatus {
-	case models.StatusGroupCreated, models.StatusConfirmed, models.StatusDesigning:
-		return salesID, nameFor(salesID)
-	case models.StatusDelivered:
-		return designerID, nameFor(designerID)
-	case models.StatusCompleted, models.StatusRevision, models.StatusAfterSale:
+	case models.StatusDesigning:
+		return followID, nameFor(followID)
+	case models.StatusCompleted:
 		return followID, nameFor(followID)
 	case models.StatusRefunded:
-		return salesID, nameFor(salesID)
-	case models.StatusClosed:
-		return "admin", "管理员柒"
+		return followID, nameFor(followID)
 	}
 	return salesID, nameFor(salesID)
 }
 
 func nameFor(wecomID string) string {
 	m := map[string]string{
-		"admin":        "管理员柒",
-		"sales_001":    "小张",
-		"follow_001":   "小王",
-		"follow_002":   "小李",
-		"designer_001": "阿杰",
-		"designer_002": "小美",
-		"designer_003": "大刘",
+		"admin":      "管理员柒",
+		"sales_001":  "测试客服",
+		"sales_002":  "小陈",
+		"follow_001": "小王",
+		"follow_002": "小李",
 	}
 	if n, ok := m[wecomID]; ok {
 		return n
@@ -417,7 +395,7 @@ func nameFor(wecomID string) string {
 	return wecomID
 }
 
-func seedTimeline(o models.Order, salesID, designerID, followID string) {
+func seedTimeline(o models.Order, salesID, followID string) {
 	chain := statusChain(o.Status)
 	if len(chain) < 2 {
 		return
@@ -427,7 +405,7 @@ func seedTimeline(o models.Order, salesID, designerID, followID string) {
 	for i := 1; i < len(chain); i++ {
 		from := chain[i-1]
 		to := chain[i]
-		opID, opName := operatorForTransition(to, salesID, designerID, followID)
+		opID, opName := operatorForTransition(to, salesID, followID)
 		eventTime := hoursAfter(baseTime, 1+i*2)
 
 		evt := models.OrderTimeline{
@@ -440,6 +418,20 @@ func seedTimeline(o models.Order, salesID, designerID, followID string) {
 			CreatedAt:    eventTime,
 		}
 		models.DB.Create(&evt)
+
+		// 进入 DESIGNING 时添加"关联设计师"事件
+		if to == models.StatusDesigning && o.FreelanceDesignerName != "" {
+			designerEvt := models.OrderTimeline{
+				OrderID:      o.ID,
+				EventType:    "designer_assigned",
+				OperatorID:   opID,
+				OperatorName: opName,
+				Remark:       fmt.Sprintf("关联设计师: %s", o.FreelanceDesignerName),
+				CreatedAt:    hoursAfter(eventTime, 0),
+			}
+			models.DB.Create(&designerEvt)
+		}
+
 		baseTime = eventTime
 	}
 }
@@ -447,7 +439,7 @@ func seedTimeline(o models.Order, salesID, designerID, followID string) {
 func seedExtraTimelineEvents(orders []models.Order) {
 	count := 0
 	for _, o := range orders {
-		// 给第 3 单 (index=2) 添加 amount_changed
+		// 给一个 COMPLETED 订单添加 amount_changed
 		if o.Status == models.StatusCompleted && count == 0 {
 			evt := models.OrderTimeline{
 				OrderID:      o.ID,
@@ -455,7 +447,7 @@ func seedExtraTimelineEvents(orders []models.Order) {
 				OldValue:     fmt.Sprintf("%d", o.Price-500),
 				NewValue:     fmt.Sprintf("%d", o.Price),
 				OperatorID:   "sales_001",
-				OperatorName: "小张",
+				OperatorName: "测试客服",
 				Remark:       "客户追加需求，调整价格",
 				CreatedAt:    hoursAfter(o.CreatedAt, 6),
 			}
@@ -463,7 +455,7 @@ func seedExtraTimelineEvents(orders []models.Order) {
 			count++
 			continue
 		}
-		// 给 pages_changed
+		// 给有加页的订单添加 pages_changed
 		if o.ExtraPages > 0 && count == 1 {
 			evt := models.OrderTimeline{
 				OrderID:      o.ID,
@@ -471,7 +463,7 @@ func seedExtraTimelineEvents(orders []models.Order) {
 				OldValue:     fmt.Sprintf("%d", o.Pages),
 				NewValue:     fmt.Sprintf("%d", o.Pages+o.ExtraPages),
 				OperatorID:   "sales_001",
-				OperatorName: "小张",
+				OperatorName: "测试客服",
 				Remark:       "客户要求加页",
 				CreatedAt:    hoursAfter(o.CreatedAt, 8),
 			}
@@ -486,8 +478,8 @@ func seedExtraTimelineEvents(orders []models.Order) {
 				EventType:    "amount_changed",
 				OldValue:     fmt.Sprintf("%d", o.Price-300),
 				NewValue:     fmt.Sprintf("%d", o.Price),
-				OperatorID:   "sales_001",
-				OperatorName: "小张",
+				OperatorID:   "sales_002",
+				OperatorName: "小陈",
 				Remark:       "价格微调",
 				CreatedAt:    hoursAfter(o.CreatedAt, 4),
 			}
@@ -502,14 +494,14 @@ func seedExtraTimelineEvents(orders []models.Order) {
 }
 
 // ────────────────────────────────────────────────────────
-// 4. 收款流水
+// 5. 收款流水
 // ────────────────────────────────────────────────────────
 
 func seedPayments(orders []models.Order) {
 	payCount := 0
 
 	for _, o := range orders {
-		// 所有非 PENDING 订单至少有一条 PDD 收款
+		// PENDING 订单无收款
 		if o.Status == models.StatusPending {
 			continue
 		}
@@ -519,17 +511,17 @@ func seedPayments(orders []models.Order) {
 		matchedAt := hoursAfter(paidAt, 0)
 
 		pr := models.PaymentRecord{
-			TransactionID:  txID,
-			OrderID:        o.ID,
-			CustomerID:     o.CustomerID,
-			Amount:         o.Price,
-			Source:         "pdd",
-			PayeeUserID:    o.OperatorID,
-			TradeState:     "SUCCESS",
-			PaidAt:         paidAt,
-			MatchedAt:      tp(matchedAt),
-			MatchMethod:    "auto",
-			Remark:         "PDD平台收款",
+			TransactionID: txID,
+			OrderID:       o.ID,
+			CustomerID:    o.CustomerID,
+			Amount:        o.Price,
+			Source:        "pdd",
+			PayeeUserID:   o.OperatorID,
+			TradeState:    "SUCCESS",
+			PaidAt:        paidAt,
+			MatchedAt:     tp(matchedAt),
+			MatchMethod:   "auto",
+			Remark:        "PDD平台收款",
 		}
 		if err := models.DB.Create(&pr).Error; err != nil {
 			log.Printf("[Seed] 创建收款记录失败: %v", err)
@@ -537,44 +529,44 @@ func seedPayments(orders []models.Order) {
 		}
 		payCount++
 
-		// COMPLETED 的部分订单有企微追加收款 (每隔2个COMPLETED订单)
+		// COMPLETED 且有加页费的订单：企微追加收款
 		if o.Status == models.StatusCompleted && o.ExtraPrice > 0 {
 			wecomPaidAt := hoursAfter(paidAt, 24+rand.Intn(48))
 			wecomTxID := fmt.Sprintf("WECOM-%d-%04d", wecomPaidAt.Unix(), rand.Intn(10000))
 			wpr := models.PaymentRecord{
-				TransactionID:  wecomTxID,
-				OrderID:        o.ID,
-				CustomerID:     o.CustomerID,
-				Amount:         o.ExtraPrice,
-				Source:         "wecom",
-				PayeeUserID:    o.FollowOperatorID,
-				TradeState:     "SUCCESS",
-				PaidAt:         wecomPaidAt,
-				MatchedAt:      tp(hoursAfter(wecomPaidAt, 1)),
-				MatchMethod:    "auto",
-				Remark:         "企微追加收款（加页费用）",
+				TransactionID: wecomTxID,
+				OrderID:       o.ID,
+				CustomerID:    o.CustomerID,
+				Amount:        o.ExtraPrice,
+				Source:        "wecom",
+				PayeeUserID:   o.FollowOperatorID,
+				TradeState:    "SUCCESS",
+				PaidAt:        wecomPaidAt,
+				MatchedAt:     tp(hoursAfter(wecomPaidAt, 1)),
+				MatchMethod:   "auto",
+				Remark:        "企微追加收款（加页费用）",
 			}
 			if err := models.DB.Create(&wpr).Error; err == nil {
 				payCount++
 			}
 		}
 
-		// 再给2个 COMPLETED 订单加企微追加收款（模拟客户加急费）
+		// COMPLETED 且页数 > 25 的订单：追加加急费
 		if o.Status == models.StatusCompleted && o.Pages > 25 {
 			wecomPaidAt2 := hoursAfter(paidAt, 36+rand.Intn(24))
 			wecomTxID2 := fmt.Sprintf("WECOM-%d-%04d", wecomPaidAt2.Unix(), rand.Intn(10000))
 			wpr2 := models.PaymentRecord{
-				TransactionID:  wecomTxID2,
-				OrderID:        o.ID,
-				CustomerID:     o.CustomerID,
-				Amount:         500 + rand.Intn(1000),
-				Source:         "wecom",
-				PayeeUserID:    o.FollowOperatorID,
-				TradeState:     "SUCCESS",
-				PaidAt:         wecomPaidAt2,
-				MatchedAt:      tp(hoursAfter(wecomPaidAt2, 0)),
-				MatchMethod:    "manual",
-				Remark:         "企微追加收款（加急费）",
+				TransactionID: wecomTxID2,
+				OrderID:       o.ID,
+				CustomerID:    o.CustomerID,
+				Amount:        500 + rand.Intn(1000),
+				Source:        "wecom",
+				PayeeUserID:   o.FollowOperatorID,
+				TradeState:    "SUCCESS",
+				PaidAt:        wecomPaidAt2,
+				MatchedAt:     tp(hoursAfter(wecomPaidAt2, 0)),
+				MatchMethod:   "manual",
+				Remark:        "企微追加收款（加急费）",
 			}
 			if err := models.DB.Create(&wpr2).Error; err == nil {
 				payCount++
@@ -590,7 +582,7 @@ func seedPayments(orders []models.Order) {
 	}{
 		{0, 200, "客户微信转账补差价"},
 		{3, 500, "线下现金收款补录"},
-		{7, 300, "支付宝转账补录"},
+		{5, 300, "支付宝转账补录"},
 	}
 
 	for _, mp := range manualPayments {
@@ -601,16 +593,16 @@ func seedPayments(orders []models.Order) {
 		manualPaidAt := hoursAfter(o.CreatedAt, 48+rand.Intn(24))
 		manualTxID := fmt.Sprintf("MANUAL-%d-%04d", manualPaidAt.Unix(), rand.Intn(10000))
 		mpr := models.PaymentRecord{
-			TransactionID:  manualTxID,
-			OrderID:        o.ID,
-			CustomerID:     o.CustomerID,
-			Amount:         mp.amount,
-			Source:         "manual",
-			PayeeUserID:    "sales_001",
-			TradeState:     "SUCCESS",
-			PaidAt:         manualPaidAt,
-			MatchMethod:    "manual",
-			Remark:         mp.remark,
+			TransactionID: manualTxID,
+			OrderID:       o.ID,
+			CustomerID:    o.CustomerID,
+			Amount:        mp.amount,
+			Source:        "manual",
+			PayeeUserID:   "sales_001",
+			TradeState:    "SUCCESS",
+			PaidAt:        manualPaidAt,
+			MatchMethod:   "manual",
+			Remark:        mp.remark,
 		}
 		if err := models.DB.Create(&mpr).Error; err == nil {
 			payCount++

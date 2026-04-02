@@ -2,12 +2,7 @@ import { createElement } from 'react';
 
 export const STATUS_MAP = {
   PENDING: '待处理',
-  GROUP_CREATED: '已建群',
-  CONFIRMED: '已确认',
   DESIGNING: '设计中',
-  DELIVERED: '已交付',
-  REVISION: '修改中',
-  AFTER_SALE: '售后中',
   COMPLETED: '已完成',
   REFUNDED: '已退款',
   CLOSED: '已关闭',
@@ -15,15 +10,10 @@ export const STATUS_MAP = {
 
 export const STATUS_BADGE_MAP = {
   PENDING: 'warning',
-  GROUP_CREATED: 'primary',
-  CONFIRMED: 'primary',
-  DESIGNING: 'secondary',
-  DELIVERED: 'secondary',
-  REVISION: 'warning',
-  AFTER_SALE: 'warning',
+  DESIGNING: 'primary',
   COMPLETED: 'success',
-  REFUNDED: 'warning',
-  CLOSED: 'danger',
+  REFUNDED: 'danger',
+  CLOSED: 'secondary',
 };
 
 export const ROLE_MAP = {
@@ -51,11 +41,11 @@ export const ROLE_AVATAR_CLASS_MAP = {
 };
 
 export const BADGE_VARIANT_CLASSES = {
-  success: 'bg-success-bg text-green-800 border-green-200',
-  warning: 'bg-warning-bg text-amber-800 border-amber-200',
-  danger: 'bg-danger-bg text-red-800 border-red-200',
-  primary: 'bg-brand-50 text-brand-500 border-brand-200',
-  secondary: 'bg-slate-50 text-slate-600 border-slate-200',
+  success: 'border bg-success-bg text-green-800 border-green-200',
+  warning: 'border bg-warning-bg text-amber-800 border-amber-200',
+  danger: 'border bg-danger-bg text-red-800 border-red-200',
+  primary: 'border bg-brand-50 text-brand-500 border-brand-200',
+  secondary: 'border bg-slate-50 text-slate-600 border-slate-200',
 };
 
 const svgProps = { xmlns: 'http://www.w3.org/2000/svg', fill: 'none', viewBox: '0 0 24 24', strokeWidth: 2, stroke: 'currentColor', className: 'w-5 h-5' };
@@ -85,12 +75,6 @@ export const NAV_ROUTES = [
     icon: NavIcon({ d: 'M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z' }),
   },
   {
-    path: '/grab-alerts',
-    title: '抢单监控',
-    roles: ['admin'],
-    icon: NavIcon({ d: 'M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0' }),
-  },
-  {
     path: '/customers',
     title: '顾客管理',
     roles: ['admin', 'follow', 'sales'],
@@ -109,12 +93,6 @@ export const NAV_ROUTES = [
     icon: NavIcon({ d: 'M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm-1.875 6.75a4.5 4.5 0 00-4.125 2.694v.006h8.25v-.006a4.5 4.5 0 00-4.125-2.694z' }),
   },
   {
-    path: '/activation-codes',
-    title: '设备管理',
-    roles: ['admin'],
-    icon: NavIcon({ d: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' }),
-  },
-  {
     path: '/revenue',
     title: '营收图表',
     roles: ['admin'],
@@ -125,15 +103,9 @@ export const NAV_ROUTES = [
 export const ORDER_STATUSES = [
   { value: '', label: '全部' },
   { value: 'PENDING', label: '待处理' },
-  { value: 'GROUP_CREATED', label: '已建群' },
-  { value: 'CONFIRMED', label: '已确认' },
   { value: 'DESIGNING', label: '设计中' },
-  { value: 'DELIVERED', label: '已交付' },
-  { value: 'REVISION', label: '修改中' },
-  { value: 'AFTER_SALE', label: '售后中' },
   { value: 'COMPLETED', label: '已完成' },
   { value: 'REFUNDED', label: '已退款' },
-  { value: 'CLOSED', label: '已关闭' },
 ];
 
 export const STATUS_COLORS = {

@@ -138,7 +138,8 @@ type CreateOrderReq struct {
 	Deadline        string   `json:"deadline"`
 	Remark          string   `json:"remark"`
 	ScreenshotURL   string   `json:"screenshot_url"`
-	AttachmentURLs  []string `json:"attachment_urls"` // 备注图片URL列表
+	AttachmentURLs  []string `json:"attachment_urls"`
+	FollowUID       string   `json:"follow_uid"`
 }
 
 // CreateOrder 创建订单
@@ -200,31 +201,13 @@ func CreateOrder(c *gin.Context) {
 
 	order, err := services.CreateOrder(
 		operatorID, req.OrderSN, req.CustomerContact,
-		req.Topic, req.Remark, req.ScreenshotURL, attachmentURLsJSON, req.Price, req.Pages, deadline,
+		req.Topic, req.Remark, req.ScreenshotURL, attachmentURLsJSON, req.FollowUID, req.Price, req.Pages, deadline,
 	)
 	if err != nil {
 		log.Printf("创建订单失败: %v", err)
 		internalError(c, "创建订单失败，请稍后重试")
 		return
 	}
-
-	// 异步通知设计师
-	safeGo("CreateOrder.notify", func() {
-		designers := services.GetIdleDesigners()
-		ids := make([]string, len(designers))
-		for i, d := range designers {
-			ids[i] = d.WecomUserID
-		}
-		deadlineStr := "待定"
-		if deadline != nil {
-			deadlineStr = deadline.Format("2006-01-02 15:04")
-		}
-		if len(ids) > 0 {
-			if err := services.Wecom.NotifyNewOrder(order.OrderSN, operatorID, req.Topic, req.Pages, req.Price, deadlineStr, ids); err != nil {
-				log.Printf("发送新订单企微通知失败: sn=%s err=%v", order.OrderSN, err)
-			}
-		}
-	})
 
 	respondOK(c, order)
 }
@@ -234,51 +217,9 @@ type GrabOrderReq struct {
 	DesignerUserID string `json:"designer_userid" binding:"required"`
 }
 
-// GrabOrder 设计师抢单
+// GrabOrder 已废弃（v2.0 移除抢单功能）
 func GrabOrder(c *gin.Context) {
-	var req GrabOrderReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("GrabOrder 参数绑定失败: %v", err)
-		badRequest(c, "请求参数格式错误")
-		return
-	}
-
-	// 安全校验: 从 JWT 中获取真实用户身份，防止伪造 designer_userid
-	callerID, _ := c.Get("wecom_userid")
-	callerStr, _ := callerID.(string)
-	if callerStr == "" {
-		unauthorized(c, "未授权")
-		return
-	}
-	if req.DesignerUserID != callerStr {
-		forbidden(c, "只能为自己抢单")
-		return
-	}
-
-	order, err := services.GrabOrder(req.OrderID, req.DesignerUserID)
-	if err != nil {
-		conflict(c, err.Error())
-		return
-	}
-
-	// 异步建群
-	safeGo("GrabOrder.setupGroup", func() {
-		deadlineStr := "待定"
-		if order.Deadline != nil {
-			deadlineStr = order.Deadline.Format("2006-01-02 15:04")
-		}
-		chatID, err := services.Wecom.SetupOrderGroup(
-			order.OrderSN, order.OperatorID, req.DesignerUserID,
-			order.Topic, order.Pages, order.Price, deadlineStr, order.Remark,
-		)
-		if err == nil && chatID != "" {
-			models.WriteTx(func(tx *gorm.DB) error {
-				return tx.Model(order).Update("wecom_chat_id", chatID).Error
-			})
-		}
-	})
-
-	respondOK(c, order)
+	badRequest(c, "抢单功能已停用，请使用关联设计师功能")
 }
 
 // UpdateOrderStatus 更新订单状态 (包含鉴权逻辑)
@@ -546,27 +487,11 @@ func ListOrders(c *gin.Context) {
 
 	query := models.DB.Model(&models.Order{})
 
-	// 角色权限过滤：非 admin 只能查看自己相关的订单
+	// 所有已认证用户均可查看全部订单列表（订单大厅）
 	role, _ := c.Get("role")
 	roleStr, _ := role.(string)
-	uid, _ := c.Get("wecom_userid")
-	uidStr, _ := uid.(string)
 	if roleStr == "" {
 		forbidden(c, "未知角色，无权访问")
-		return
-	}
-
-	switch roleStr {
-	case "admin":
-		// admin 可查看全部订单
-	case "sales":
-		query = query.Where("operator_id = ?", uidStr)
-	case "designer":
-		query = query.Where("designer_id = ?", uidStr)
-	case "follow":
-		query = query.Where("follow_operator_id = ? OR operator_id = ?", uidStr, uidStr)
-	default:
-		forbidden(c, "当前角色无权查看订单")
 		return
 	}
 
@@ -620,38 +545,10 @@ func GetOrder(c *gin.Context) {
 		return
 	}
 
-	// 角色权限校验：非 admin 只能查看自己相关的订单
+	// 所有已认证用户均可查看任意订单详情
 	var order models.Order
 	if err := models.DB.First(&order, uint(id)).Error; err != nil {
 		notFound(c, "订单不存在")
-		return
-	}
-
-	role, _ := c.Get("role")
-	roleStr, _ := role.(string)
-	uid, _ := c.Get("wecom_userid")
-	uidStr, _ := uid.(string)
-
-	switch roleStr {
-	case "admin":
-		// admin 可查看任意订单
-	case "sales":
-		if order.OperatorID != uidStr {
-			forbidden(c, "无权限查看此订单")
-			return
-		}
-	case "designer":
-		if order.DesignerID != uidStr {
-			forbidden(c, "无权限查看此订单")
-			return
-		}
-	case "follow":
-		if order.FollowOperatorID != uidStr && order.OperatorID != uidStr {
-			forbidden(c, "无权限查看此订单")
-			return
-		}
-	default:
-		forbidden(c, "无权限")
 		return
 	}
 
@@ -712,8 +609,8 @@ func UpdateOrderAmount(c *gin.Context) {
 	roleStr, _ := role.(string)
 	uidStr, _ := userID.(string)
 
-	// 权限校验: 仅 designer 和 admin 可修改
-	if roleStr != "admin" && roleStr != "designer" {
+	// 权限校验: 仅 admin 和 follow 可修改
+	if roleStr != "admin" && roleStr != "follow" {
 		forbidden(c, "当前角色无权修改订单金额")
 		return
 	}
@@ -725,9 +622,9 @@ func UpdateOrderAmount(c *gin.Context) {
 		return
 	}
 
-	// designer 只能修改自己的订单
-	if roleStr == "designer" && order.DesignerID != uidStr {
-		forbidden(c, "只能修改指派给自己的订单")
+	// follow 只能修改自己负责的订单
+	if roleStr == "follow" && order.FollowOperatorID != uidStr && order.OperatorID != uidStr {
+		forbidden(c, "只能修改自己负责的订单")
 		return
 	}
 
@@ -1058,6 +955,27 @@ func MatchOrderContact(c *gin.Context) {
 		Type:    "order_updated",
 		Payload: order,
 	})
+}
+
+// ─── 跟单客服列表 (桌面端建群选择) ──────────────────────────────────
+
+// ListFollowStaff 返回角色为 follow 且在职的跟单客服列表（含在线状态）
+func ListFollowStaff(c *gin.Context) {
+	var employees []models.Employee
+	models.DB.Where("role = ? AND is_active = ?", "follow", true).Find(&employees)
+
+	result := make([]gin.H, 0, len(employees))
+	for _, emp := range employees {
+		result = append(result, gin.H{
+			"id":            emp.ID,
+			"name":          emp.Name,
+			"wecom_userid":  emp.WecomUserID,
+			"status":        emp.Status,
+			"is_online":     services.Hub.UserClientCount(emp.WecomUserID) > 0,
+			"active_orders": emp.ActiveOrderCount,
+		})
+	}
+	respondOK(c, gin.H{"data": result})
 }
 
 // ─── 个人统计 (所有角色可用) ──────────────────────────────────

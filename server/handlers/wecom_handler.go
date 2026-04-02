@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"pdd-order-system/config"
@@ -49,9 +48,12 @@ func WecomCallback(c *gin.Context) {
 			timestamp := c.Query("timestamp")
 			nonce := c.Query("nonce")
 
+			log.Printf("[WecomCallback] VerifyURL attempt | token=%s aeskey_len=%d corpid=%s", config.C.WecomToken[:6]+"...", len(config.C.WecomEncodingAESKey), config.C.WecomCorpID)
+			log.Printf("[WecomCallback] params | msg_signature=%s timestamp=%s nonce=%s echostr=%s", msgSignature, timestamp, nonce, echostr)
 			wxcpt := middleware.NewWXBizMsgCrypt(config.C.WecomToken, config.C.WecomEncodingAESKey, config.C.WecomCorpID, middleware.XmlType)
 			echoStrBytes, err := wxcpt.VerifyURL(msgSignature, timestamp, nonce, echostr)
 			if err != nil {
+				log.Printf("[WecomCallback] VerifyURL FAILED | errcode=%d errmsg=%s", err.ErrCode, err.ErrMsg)
 				c.String(http.StatusBadRequest, "verify url failed")
 				return
 			}
@@ -120,35 +122,8 @@ func WecomCallback(c *gin.Context) {
 		return
 	}
 
-	// 文本消息且包含"已交付"或"已发货"
-	if msg.MsgType == "text" && (strings.Contains(msg.Content, "已交付") || strings.Contains(msg.Content, "已发货")) {
-		designerID := msg.FromUserName
-
-		// 安全校验: 仅处理来自已关联订单群聊的消息
-		// 通过 ChatID 匹配确保消息来源可信，防止任意用户触发状态变更
-		var orders []models.Order
-		query := models.DB.Where("designer_id = ? AND status IN ?", designerID, []string{models.StatusGroupCreated, models.StatusDesigning})
-
-		// 如果消息携带 ChatID (群聊消息)，严格匹配订单所属群
-		chatID := msg.ChatID
-		if chatID != "" {
-			query = query.Where("wecom_chat_id = ?", chatID)
-		} else {
-			// 非群聊消息 (私聊) 不触发自动交付，跳过
-			log.Printf("⚠️ 忽略非群聊的交付消息 | from=%s", designerID)
-			c.String(http.StatusOK, "success")
-			return
-		}
-
-		query.Find(&orders)
-
-		for _, o := range orders {
-			_, err := services.UpdateOrderStatus(o.ID, models.StatusDelivered)
-			if err == nil {
-				log.Printf("📥 群聊交付确认，自动更新订单状态 | sn=%s | designer=%s | chat=%s", o.OrderSN, designerID, chatID)
-			}
-		}
-	}
+	// v2.0: 已移除"已交付"文本自动改状态逻辑（DELIVERED 状态已废弃）
+	// 群聊文本消息暂不做自动处理
 
 	c.String(http.StatusOK, "success")
 }

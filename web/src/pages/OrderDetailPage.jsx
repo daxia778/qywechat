@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
-import { getOrderDetail, getOrderTimeline, updateOrderStatus, updateOrderAmount } from '../api/orders';
+import { getOrderDetail, getOrderTimeline, updateOrderStatus, updateOrderAmount, searchDesigners, assignDesigner, adjustCommission } from '../api/orders';
 import { getCustomerDetail } from '../api/customers';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
@@ -73,6 +73,25 @@ export default function OrderDetailPage() {
   const dragStartRef = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
   const zoomImgRef = useRef(null);
 
+  // 关联设计师状态
+  const [designerQuery, setDesignerQuery] = useState('');
+  const [designerResults, setDesignerResults] = useState([]);
+  const [designerSearching, setDesignerSearching] = useState(false);
+  const [showDesignerDropdown, setShowDesignerDropdown] = useState(false);
+  const [assigningDesigner, setAssigningDesigner] = useState(false);
+  const [showNewDesignerForm, setShowNewDesignerForm] = useState(false);
+  const [newDesignerName, setNewDesignerName] = useState('');
+  const [newDesignerWechat, setNewDesignerWechat] = useState('');
+  const [newDesignerPhone, setNewDesignerPhone] = useState('');
+  const [newDesignerSpecialty, setNewDesignerSpecialty] = useState('');
+
+  // 调整佣金状态
+  const [showCommissionModal, setShowCommissionModal] = useState(false);
+  const [commissionRate, setCommissionRate] = useState('');
+  const [commissionSubmitting, setCommissionSubmitting] = useState(false);
+
+  const designerSearchRef = useRef(null);
+
   const openPreview = useCallback((src) => {
     setPreviewImage(src);
     setZoomScale(1);
@@ -126,6 +145,97 @@ export default function OrderDetailPage() {
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }, []);
+
+  // 设计师搜索防抖
+  useEffect(() => {
+    if (!designerQuery.trim()) {
+      setDesignerResults([]);
+      setShowDesignerDropdown(false);
+      return;
+    }
+    setDesignerSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await searchDesigners(designerQuery.trim());
+        const list = res.data.data || res.data.designers || [];
+        setDesignerResults(list);
+        setShowDesignerDropdown(true);
+      } catch {
+        setDesignerResults([]);
+      } finally {
+        setDesignerSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [designerQuery]);
+
+  // 点击外部关闭下拉
+  useEffect(() => {
+    const handler = (e) => {
+      if (designerSearchRef.current && !designerSearchRef.current.contains(e.target)) {
+        setShowDesignerDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const doAssignDesigner = async (designerId) => {
+    setAssigningDesigner(true);
+    try {
+      await assignDesigner(id, { freelance_designer_id: designerId });
+      toast('设计师关联成功', 'success');
+      setDesignerQuery('');
+      setShowDesignerDropdown(false);
+      fetchDetail();
+    } catch (err) {
+      toast('关联失败: ' + (err.displayMessage || err.message), 'error');
+    } finally {
+      setAssigningDesigner(false);
+    }
+  };
+
+  const doCreateAndAssignDesigner = async () => {
+    if (!newDesignerName.trim()) {
+      toast('设计师名字不能为空', 'warning');
+      return;
+    }
+    setAssigningDesigner(true);
+    try {
+      await assignDesigner(id, { designer_name: newDesignerName.trim(), wechat: newDesignerWechat, phone: newDesignerPhone, specialty: newDesignerSpecialty });
+      toast('新建设计师并关联成功', 'success');
+      setShowNewDesignerForm(false);
+      setNewDesignerName('');
+      setNewDesignerWechat('');
+      setNewDesignerPhone('');
+      setNewDesignerSpecialty('');
+      setDesignerQuery('');
+      fetchDetail();
+    } catch (err) {
+      toast('新建失败: ' + (err.displayMessage || err.message), 'error');
+    } finally {
+      setAssigningDesigner(false);
+    }
+  };
+
+  const doAdjustCommission = async () => {
+    const val = parseFloat(commissionRate);
+    if (isNaN(val) || val < 0 || val > 100) {
+      toast('请输入 0-100 之间的数值', 'warning');
+      return;
+    }
+    setCommissionSubmitting(true);
+    try {
+      await adjustCommission(id, { designer_commission_rate: val });
+      toast('佣金比例调整成功', 'success');
+      setShowCommissionModal(false);
+      fetchDetail();
+    } catch (err) {
+      toast('调整失败: ' + (err.displayMessage || err.message), 'error');
+    } finally {
+      setCommissionSubmitting(false);
+    }
+  };
 
   const showModal = (opts, action) => {
     actionRef.current = action;
@@ -259,60 +369,52 @@ export default function OrderDetailPage() {
           <h1 className="text-[26px] font-extrabold text-slate-800 font-[Outfit] tracking-tight">订单详情</h1>
           <p className="text-[13px] text-slate-500 mt-0.5 font-mono">{order.order_sn}</p>
         </div>
-        <span className={`ml-auto inline-flex items-center gap-1 rounded-full font-semibold tracking-wide text-[13px] py-1 px-3 ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[order.status]] || BADGE_VARIANT_CLASSES.secondary}`}>
-          {STATUS_MAP[order.status] || order.status}
-        </span>
+        <div className="ml-auto flex items-center gap-2">
+          {order.commission_adjusted && (
+            <span className="inline-flex items-center gap-1 rounded-full font-semibold tracking-wide text-[12px] py-1 px-3 bg-amber-50 text-amber-700 border border-amber-200">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+              佣金已调整
+            </span>
+          )}
+          <span className={`inline-flex items-center gap-1 rounded-full font-semibold tracking-wide text-[13px] py-1 px-3 ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[order.status]] || BADGE_VARIANT_CLASSES.secondary}`}>
+            {STATUS_MAP[order.status] || order.status}
+          </span>
+        </div>
       </div>
 
       {/* Action Bar */}
-      {order.status && !['COMPLETED', 'REFUNDED', 'CLOSED'].includes(order.status) && (
+      {order.status && !['COMPLETED', 'REFUNDED'].includes(order.status) && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)]">
           <div className="px-6 py-4 flex items-center gap-3 flex-wrap">
             <span className="text-[13px] font-semibold text-slate-500 mr-auto">操作:</span>
-            {/* sales: 确认需求 (GROUP_CREATED → CONFIRMED) */}
-            {order.status === 'GROUP_CREATED' && canOperate('sales') && (
-              <button onClick={() => doUpdateStatus('CONFIRMED')} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[12px] active:scale-[0.98]">确认需求</button>
+            {/* 开始设计 (PENDING → DESIGNING) */}
+            {order.status === 'PENDING' && canOperate('follow') && (
+              <button onClick={() => doUpdateStatus('DESIGNING')} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[12px] active:scale-[0.98]">开始设计</button>
             )}
-            {/* designer: 接手设计 (CONFIRMED → DESIGNING) */}
-            {order.status === 'CONFIRMED' && canOperate('designer') && (
-              <button onClick={() => doUpdateStatus('DESIGNING')} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[12px] active:scale-[0.98]">接手设计</button>
-            )}
-            {/* designer: 标记交付 (DESIGNING → DELIVERED) */}
-            {order.status === 'DESIGNING' && canOperate('designer') && (
-              <button onClick={() => doUpdateStatus('DELIVERED')} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg text-[12px] bg-white active:scale-[0.98]">标记交付</button>
-            )}
-            {/* follow: 确认完成 (DELIVERED → COMPLETED) */}
-            {order.status === 'DELIVERED' && canOperate('follow') && (
+            {/* 标记完成 (DESIGNING → COMPLETED) */}
+            {order.status === 'DESIGNING' && canOperate('follow') && (
               <button onClick={() => showModal({
                 title: '完成订单', message: `确认已收到尾款并将订单 ${order.order_sn} 标记为完成？`,
                 type: 'info', confirmText: '确认完成',
                 detail: { '订单号': order.order_sn, '金额': `¥${((order.price ?? 0) / 100).toFixed(2)}` },
-              }, () => doUpdateStatus('COMPLETED'))} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[12px] active:scale-[0.98]">标记完成</button>
+              }, () => doUpdateStatus('COMPLETED'))} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg text-[12px] bg-white active:scale-[0.98]">标记完成</button>
             )}
-            {/* follow: 需要修改 (DELIVERED → REVISION) */}
-            {order.status === 'DELIVERED' && canOperate('follow') && (
-              <button onClick={() => doUpdateStatus('REVISION')} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-400 text-amber-600 hover:bg-amber-50 text-[12px] bg-white active:scale-[0.98]">需要修改</button>
-            )}
-            {/* follow: 标记售后 */}
-            {['DESIGNING','DELIVERED','COMPLETED'].includes(order.status) && canOperate('follow') && (
-              <button onClick={() => doUpdateStatus('AFTER_SALE')} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-orange-400 text-orange-600 hover:bg-orange-50 text-[12px] bg-white active:scale-[0.98]">标记售后</button>
-            )}
-            {/* follow: 退款 */}
-            {canOperate('follow') && (
+            {/* 退款 */}
+            {canOperate('sales') && (
               <button onClick={() => showModal({
-                title: '退款 / 售后', message: `请填写订单 ${order.order_sn} 的退款原因：`,
+                title: '退款', message: `请填写订单 ${order.order_sn} 的退款原因：`,
                 type: 'warning', showInput: true, inputPlaceholder: '退款原因（必填）', confirmText: '提交退款',
               }, (reason) => {
                 if (!reason?.trim()) { toast('退款原因不能为空', 'warning'); return; }
                 doUpdateStatus('REFUNDED', reason);
-              })} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-400 text-amber-600 hover:bg-amber-50 text-[12px] bg-white active:scale-[0.98]">退款</button>
+              })} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-400 text-amber-600 hover:bg-amber-50 text-[12px] bg-white active:scale-[0.98]">退款</button>
             )}
-            {/* admin: 关闭订单 */}
-            {role === 'admin' && ['PENDING','GROUP_CREATED','CONFIRMED','DESIGNING'].includes(order.status) && (
-              <button onClick={() => showModal({
-                title: '关闭订单', message: `确定要强制关闭订单 ${order.order_sn} 吗？此操作不可撤销。`,
-                type: 'danger', confirmText: '关闭订单',
-              }, () => doUpdateStatus('CLOSED'))} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-danger hover:bg-red-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[12px] active:scale-[0.98]">关闭订单</button>
+            {/* 调整佣金 */}
+            {canOperate('follow') && (
+              <button onClick={() => { setCommissionRate(String(profit.designer_rate || 0)); setShowCommissionModal(true); }} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-purple-400 text-purple-600 hover:bg-purple-50 text-[12px] bg-white active:scale-[0.98]">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                调整佣金
+              </button>
             )}
           </div>
         </div>
@@ -367,7 +469,16 @@ export default function OrderDetailPage() {
               </div>
               <div>
                 <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">设计师</span>
-                <p className="text-sm font-semibold text-slate-800 mt-1">{people.designer_name || order.designer_id || '待分配'}</p>
+                <p className="text-sm font-semibold text-slate-800 mt-1 flex items-center gap-2">
+                  {order.freelance_designer_name ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <svg className="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                      {order.freelance_designer_name}
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 text-xs">未关联设计师</span>
+                  )}
+                </p>
               </div>
               <div>
                 <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">订单金额</span>
@@ -415,7 +526,7 @@ export default function OrderDetailPage() {
                       <input
                         type="number" step="0.01" min="0.01"
                         value={editPrice} onChange={(e) => setEditPrice(e.target.value)}
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 transition-all tabular-nums"
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all tabular-nums"
                         placeholder="输入新金额"
                       />
                     </div>
@@ -424,7 +535,7 @@ export default function OrderDetailPage() {
                       <input
                         type="number" step="1" min="0"
                         value={editPages} onChange={(e) => setEditPages(e.target.value)}
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 transition-all tabular-nums"
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all tabular-nums"
                         placeholder="输入新页数"
                       />
                     </div>
@@ -433,7 +544,7 @@ export default function OrderDetailPage() {
                       <input
                         type="text"
                         value={editRemark} onChange={(e) => setEditRemark(e.target.value)}
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 transition-all"
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
                         placeholder="如: 客户加页5页"
                       />
                     </div>
@@ -459,6 +570,137 @@ export default function OrderDetailPage() {
               </div>
             )}
           </div>
+
+          {/* 关联设计师区域 (admin/follow 可见) */}
+          {canOperate('follow') && (
+            <div className="bg-surface-container-lowest ghost-border rounded-xl">
+              <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-violet-50">
+                  <svg className="w-4 h-4 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                </div>
+                <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">关联设计师</h2>
+                {order.freelance_designer_name && (
+                  <span className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-brand-50 text-brand-700 border border-brand-200">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                    已关联: {order.freelance_designer_name}
+                  </span>
+                )}
+              </div>
+              <div className="p-6">
+                <div ref={designerSearchRef} className="relative">
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">搜索花名册</label>
+                  <div className="relative">
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    <input
+                      type="text"
+                      value={designerQuery}
+                      onChange={(e) => setDesignerQuery(e.target.value)}
+                      onFocus={() => { if (designerResults.length > 0) setShowDesignerDropdown(true); }}
+                      className="w-full pl-10 pr-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
+                      placeholder="输入设计师名字搜索..."
+                      disabled={assigningDesigner}
+                    />
+                    {designerSearching && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        <div className="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 搜索结果下拉 */}
+                  {showDesignerDropdown && (
+                    <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                      {designerResults.length > 0 ? (
+                        designerResults.map((d) => (
+                          <button
+                            key={d.id}
+                            onClick={() => doAssignDesigner(d.id)}
+                            disabled={assigningDesigner}
+                            className="w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex items-center justify-between gap-3 border-b border-slate-100 last:border-b-0 cursor-pointer disabled:opacity-50"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-slate-800 truncate">{d.name}</p>
+                              {d.specialty && <p className="text-xs text-slate-500 mt-0.5 truncate">{d.specialty}</p>}
+                            </div>
+                            <span className="text-xs text-slate-400 shrink-0 tabular-nums">{d.total_orders ?? 0} 单</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="p-4 text-center">
+                          <p className="text-sm text-slate-400 mb-3">未找到匹配的设计师</p>
+                          <button
+                            onClick={() => { setShowDesignerDropdown(false); setShowNewDesignerForm(true); setNewDesignerName(designerQuery); }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-brand-600 bg-brand-50 hover:bg-brand-100 transition-colors border border-brand-200 cursor-pointer"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                            新建设计师
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* 新建设计师表单 */}
+                {showNewDesignerForm && (
+                  <div className="mt-4 bg-violet-50/60 border border-violet-200 rounded-xl p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <svg className="w-4 h-4 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
+                      <h3 className="text-sm font-bold text-violet-800">新建设计师</h3>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">名字 <span className="text-red-400">*</span></label>
+                        <input
+                          type="text" value={newDesignerName} onChange={(e) => setNewDesignerName(e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
+                          placeholder="设计师名字"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">微信号</label>
+                        <input
+                          type="text" value={newDesignerWechat} onChange={(e) => setNewDesignerWechat(e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
+                          placeholder="选填"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">手机号</label>
+                        <input
+                          type="text" value={newDesignerPhone} onChange={(e) => setNewDesignerPhone(e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
+                          placeholder="选填"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">擅长方向</label>
+                        <input
+                          type="text" value={newDesignerSpecialty} onChange={(e) => setNewDesignerSpecialty(e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
+                          placeholder="如: PPT/海报/Logo"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 mt-4">
+                      <button
+                        onClick={doCreateAndAssignDesigner} disabled={assigningDesigner}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg text-white bg-brand-500 hover:bg-brand-600 transition-all cursor-pointer border-none shadow-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
+                      >
+                        {assigningDesigner ? '提交中...' : '新建并关联'}
+                      </button>
+                      <button
+                        onClick={() => setShowNewDesignerForm(false)} disabled={assigningDesigner}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg text-slate-600 bg-white hover:bg-slate-50 transition-all cursor-pointer border border-slate-300 disabled:opacity-50 active:scale-[0.97]"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Customer Info */}
           {customer && (
@@ -691,6 +933,58 @@ export default function OrderDetailPage() {
                 滚轮缩放 · 拖拽移动
               </div>
             )}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* 调整佣金 Modal (Portal) */}
+      {showCommissionModal && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[2px]" onClick={() => setShowCommissionModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 pt-6 pb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-purple-50">
+                  <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+                <h3 className="font-bold text-slate-800 text-lg font-[Outfit]">调整佣金比例</h3>
+              </div>
+              <button onClick={() => setShowCommissionModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer bg-transparent border-none">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="px-6 py-5">
+              <div className="bg-slate-50 rounded-xl p-4 mb-5">
+                <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">当前设计师佣金比例</p>
+                <p className="text-2xl font-bold text-slate-800 font-[Outfit] tabular-nums">{profit.designer_rate || 0}%</p>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">新佣金比例 (%)</label>
+                <input
+                  type="number" step="1" min="0" max="100"
+                  value={commissionRate}
+                  onChange={(e) => setCommissionRate(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all tabular-nums"
+                  placeholder="输入 0-100 之间的数值"
+                  autoFocus
+                />
+                <p className="text-[11px] text-slate-400 mt-2">修改后将影响该订单的设计师佣金计算</p>
+              </div>
+            </div>
+            <div className="px-6 pb-6 pt-2 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowCommissionModal(false)} disabled={commissionSubmitting}
+                className="px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer bg-transparent border-none disabled:opacity-50 active:scale-[0.97]"
+              >
+                取消
+              </button>
+              <button
+                onClick={doAdjustCommission} disabled={commissionSubmitting}
+                className="inline-flex items-center gap-1.5 px-5 py-2.5 text-sm font-semibold rounded-lg text-white bg-brand-500 hover:bg-brand-600 transition-all cursor-pointer border-none shadow-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
+              >
+                {commissionSubmitting ? '提交中...' : '确认调整'}
+              </button>
+            </div>
           </div>
         </div>,
         document.body
