@@ -113,28 +113,27 @@ func TestCreateOrder_DuplicateSN(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// UpdateOrderStatus
+// UpdateOrderStatus (v2.0: PENDING → DESIGNING → COMPLETED → REFUNDED)
 // ---------------------------------------------------------------------------
 
 func TestUpdateOrderStatus_ValidTransition(t *testing.T) {
 	setupOrderTest(t)
 
-	// Seed: PENDING order with a designer.
+	// Seed: PENDING order.
 	models.DB.Create(&models.Order{
 		OrderSN:    "STATUS-001",
 		OperatorID: "sales01",
-		DesignerID: "designer01",
 		Status:     models.StatusPending,
 		Price:      3000,
 	})
 
-	// PENDING -> GROUP_CREATED (valid).
-	updated, err := UpdateOrderStatus(1, models.StatusGroupCreated)
+	// v2.0: PENDING -> DESIGNING (valid).
+	updated, err := UpdateOrderStatus(1, models.StatusDesigning)
 	if err != nil {
 		t.Fatalf("UpdateOrderStatus returned error: %v", err)
 	}
-	if updated.Status != models.StatusGroupCreated {
-		t.Errorf("Status: expected %s, got %s", models.StatusGroupCreated, updated.Status)
+	if updated.Status != models.StatusDesigning {
+		t.Errorf("Status: expected %s, got %s", models.StatusDesigning, updated.Status)
 	}
 	time.Sleep(100 * time.Millisecond)
 }
@@ -149,8 +148,8 @@ func TestUpdateOrderStatus_InvalidTransition(t *testing.T) {
 		Price:      3000,
 	})
 
-	// PENDING -> DESIGNING is not a valid direct transition.
-	_, err := UpdateOrderStatus(1, models.StatusDesigning)
+	// v2.0: PENDING -> COMPLETED is not a valid direct transition (must go through DESIGNING).
+	_, err := UpdateOrderStatus(1, models.StatusCompleted)
 	if err == nil {
 		t.Fatal("Expected error for invalid transition, got nil")
 	}
@@ -162,7 +161,7 @@ func TestUpdateOrderStatus_InvalidTransition(t *testing.T) {
 func TestUpdateOrderStatus_OrderNotFound(t *testing.T) {
 	setupOrderTest(t)
 
-	_, err := UpdateOrderStatus(9999, models.StatusGroupCreated)
+	_, err := UpdateOrderStatus(9999, models.StatusDesigning)
 	if err == nil {
 		t.Fatal("Expected error for non-existent order, got nil")
 	}
@@ -174,12 +173,11 @@ func TestUpdateOrderStatus_OrderNotFound(t *testing.T) {
 func TestUpdateOrderStatus_CompletedSetsTimestamp(t *testing.T) {
 	setupOrderTest(t)
 
-	// Seed an order in DELIVERED state.
+	// v2.0: Seed an order in DESIGNING state (DESIGNING → COMPLETED is valid).
 	models.DB.Create(&models.Order{
 		OrderSN:    "STATUS-003",
 		OperatorID: "sales01",
-		DesignerID: "designer01",
-		Status:     models.StatusDelivered,
+		Status:     models.StatusDesigning,
 		Price:      3000,
 	})
 
@@ -193,44 +191,29 @@ func TestUpdateOrderStatus_CompletedSetsTimestamp(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 }
 
-func TestUpdateOrderStatus_TerminalReleasesDesigner(t *testing.T) {
+func TestUpdateOrderStatus_RefundedIsTerminal(t *testing.T) {
 	setupOrderTest(t)
 
-	// Seed designer with active orders.
-	models.DB.Create(&models.Employee{
-		WecomUserID:      "designer01",
-		Name:             "Designer One",
-		Role:             "designer",
-		IsActive:         true,
-		Status:           "busy",
-		ActiveOrderCount: 1,
-	})
-
-	// Seed a PENDING order (so we can transition to CLOSED, a terminal state).
+	// v2.0: COMPLETED → REFUNDED (terminal state)
 	models.DB.Create(&models.Order{
 		OrderSN:    "STATUS-TERM-001",
 		OperatorID: "sales01",
-		DesignerID: "designer01",
-		Status:     models.StatusPending,
+		Status:     models.StatusCompleted,
 		Price:      3000,
 	})
 
-	_, err := UpdateOrderStatus(1, models.StatusClosed)
+	updated, err := UpdateOrderStatus(1, models.StatusRefunded)
 	if err != nil {
 		t.Fatalf("UpdateOrderStatus returned error: %v", err)
 	}
-
-	// Verify the designer's active_order_count was decremented.
-	var designer models.Employee
-	models.DB.Where("wecom_userid = ?", "designer01").First(&designer)
-	if designer.ActiveOrderCount != 0 {
-		t.Errorf("ActiveOrderCount: expected 0 after terminal status, got %d", designer.ActiveOrderCount)
+	if updated.Status != models.StatusRefunded {
+		t.Errorf("Status: expected %s, got %s", models.StatusRefunded, updated.Status)
 	}
 	time.Sleep(100 * time.Millisecond)
 }
 
 // ---------------------------------------------------------------------------
-// GrabOrder
+// GrabOrder (v2.0 deprecated but service layer still exists)
 // ---------------------------------------------------------------------------
 
 func TestGrabOrder_Success(t *testing.T) {
@@ -264,6 +247,7 @@ func TestGrabOrder_Success(t *testing.T) {
 	if order.DesignerID != "designer01" {
 		t.Errorf("DesignerID: expected designer01, got %s", order.DesignerID)
 	}
+	// GrabOrder sets status to GROUP_CREATED (legacy behavior)
 	if order.Status != models.StatusGroupCreated {
 		t.Errorf("Status: expected %s, got %s", models.StatusGroupCreated, order.Status)
 	}

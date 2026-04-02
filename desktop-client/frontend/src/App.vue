@@ -251,6 +251,7 @@ const handleLogout = async () => {
       state.empName = res.name;
       state.wecomUid = res.wecom_uid;
       showToast('设备已识别，自动重新登录');
+      loadFollowStaff();
       return;
     }
   } catch(e) {}
@@ -686,7 +687,7 @@ const submit = async () => {
         </div>
         <div class="form-group">
           <label class="form-label">订单备注信息 <span style="color:red">*</span></label>
-          <textarea v-model="state.form.customerContact" class="form-textarea" rows="5" placeholder="请填写以下信息：&#10;顾客微信号/手机号：&#10;PPT主题：&#10;大约页数：&#10;交付时间：&#10;其他备注："></textarea>
+          <textarea v-model="state.form.customerContact" class="form-textarea" rows="5" placeholder="请填写以下信息：&#10;顾客微信号/手机号：&#10;PPT主题：&#10;大约页数：&#10;交付时间：&#10;其他备注：" @paste="handleAttachmentPaste"></textarea>
         </div>
 
         <!-- 选择跟单客服建群 -->

@@ -14,6 +14,8 @@ const EVENT_TYPE_MAP = {
   amount_changed: () => '金额变更',
   pages_changed: () => '页数变更',
   designer_reassigned: () => '设计师转派',
+  designer_assigned: () => '关联设计师',
+  commission_adjusted: () => '佣金调整',
   customer_matched: () => '关联客户',
 };
 
@@ -21,6 +23,8 @@ const EVENT_BADGE_MAP = {
   amount_changed: 'warning',
   pages_changed: 'warning',
   designer_reassigned: 'secondary',
+  designer_assigned: 'primary',
+  commission_adjusted: 'warning',
   customer_matched: 'primary',
 };
 
@@ -383,7 +387,7 @@ export default function OrderDetailPage() {
       </div>
 
       {/* Action Bar */}
-      {order.status && !['COMPLETED', 'REFUNDED'].includes(order.status) && (
+      {order.status && !['REFUNDED', 'CLOSED'].includes(order.status) && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)]">
           <div className="px-6 py-4 flex items-center gap-3 flex-wrap">
             <span className="text-[13px] font-semibold text-slate-500 mr-auto">操作:</span>
@@ -399,8 +403,8 @@ export default function OrderDetailPage() {
                 detail: { '订单号': order.order_sn, '金额': `¥${((order.price ?? 0) / 100).toFixed(2)}` },
               }, () => doUpdateStatus('COMPLETED'))} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg text-[12px] bg-white active:scale-[0.98]">标记完成</button>
             )}
-            {/* 退款 */}
-            {canOperate('sales') && (
+            {/* 退款 (COMPLETED → REFUNDED 或其他非终态 → REFUNDED) */}
+            {!['REFUNDED'].includes(order.status) && canOperate('follow') && (
               <button onClick={() => showModal({
                 title: '退款', message: `请填写订单 ${order.order_sn} 的退款原因：`,
                 type: 'warning', showInput: true, inputPlaceholder: '退款原因（必填）', confirmText: '提交退款',
@@ -409,8 +413,8 @@ export default function OrderDetailPage() {
                 doUpdateStatus('REFUNDED', reason);
               })} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-400 text-amber-600 hover:bg-amber-50 text-[12px] bg-white active:scale-[0.98]">退款</button>
             )}
-            {/* 调整佣金 */}
-            {canOperate('follow') && (
+            {/* 调整佣金 (非终态时可用) */}
+            {!['COMPLETED'].includes(order.status) && canOperate('follow') && (
               <button onClick={() => { setCommissionRate(String(profit.designer_rate || 0)); setShowCommissionModal(true); }} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-purple-400 text-purple-600 hover:bg-purple-50 text-[12px] bg-white active:scale-[0.98]">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 调整佣金

@@ -75,44 +75,10 @@ func seedEmployee(t *testing.T, emp *models.Employee) {
 }
 
 // ---------------------------------------------------------------
-// GrabOrder: Identity validation (JWT caller vs designer_userid)
+// GrabOrder: v2.0 已废弃，handler 返回 400
 // ---------------------------------------------------------------
 
-func TestGrabOrder_ValidGrab(t *testing.T) {
-	setupTestDB(t)
-	gin.SetMode(gin.TestMode)
-
-	seedOrder(t, &models.Order{
-		OrderSN:    "GRAB-OK-001",
-		OperatorID: "op1",
-		Status:     models.StatusPending,
-		Price:      1000,
-	})
-	seedEmployee(t, &models.Employee{
-		WecomUserID: "designer1",
-		Name:        "Designer One",
-		Role:        "designer",
-		IsActive:    true,
-		Status:      "idle",
-	})
-
-	body, _ := json.Marshal(GrabOrderReq{OrderID: 1, DesignerUserID: "designer1"})
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request, _ = http.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("wecom_userid", "designer1") // JWT caller matches body
-
-	GrabOrder(c)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Valid grab: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	// Let async goroutine (group creation) settle.
-	time.Sleep(100 * time.Millisecond)
-}
-
-func TestGrabOrder_MismatchedCaller(t *testing.T) {
+func TestGrabOrder_Deprecated(t *testing.T) {
 	setupTestDB(t)
 	gin.SetMode(gin.TestMode)
 
@@ -121,42 +87,24 @@ func TestGrabOrder_MismatchedCaller(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("wecom_userid", "attacker") // JWT says "attacker", body says "designer1"
+	c.Set("wecom_userid", "designer1")
 
 	GrabOrder(c)
 
-	if w.Code != http.StatusForbidden {
-		t.Errorf("Mismatched caller: expected 403, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestGrabOrder_MissingJWTClaims(t *testing.T) {
-	setupTestDB(t)
-	gin.SetMode(gin.TestMode)
-
-	body, _ := json.Marshal(GrabOrderReq{OrderID: 1, DesignerUserID: "designer1"})
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request, _ = http.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	// wecom_userid intentionally NOT set
-
-	GrabOrder(c)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("Missing JWT claims: expected 401, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("GrabOrder deprecated: expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
 // ---------------------------------------------------------------
-// UpdateOrderStatus: Role + ownership permission logic
+// UpdateOrderStatus: Role + ownership permission logic (v2.0)
 // ---------------------------------------------------------------
 
-func TestUpdateOrderStatus_AdminCanUpdateAnyOrder(t *testing.T) {
+func TestUpdateOrderStatus_AdminCanUpdateOrder(t *testing.T) {
 	setupTestDB(t)
 	gin.SetMode(gin.TestMode)
 
-	// Order belongs to op1, no designer -- admin should still be able to close it.
+	// v2.0: admin 可以将 PENDING → DESIGNING
 	seedOrder(t, &models.Order{
 		OrderSN:    "ADM-001",
 		OperatorID: "op1",
@@ -164,7 +112,7 @@ func TestUpdateOrderStatus_AdminCanUpdateAnyOrder(t *testing.T) {
 		Price:      5000,
 	})
 
-	body, _ := json.Marshal(map[string]string{"status": models.StatusClosed})
+	body, _ := json.Marshal(map[string]string{"status": models.StatusDesigning})
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "1"}}
@@ -177,124 +125,97 @@ func TestUpdateOrderStatus_AdminCanUpdateAnyOrder(t *testing.T) {
 	UpdateOrderStatus(c)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("Admin update any order: expected 200, got %d: %s", w.Code, w.Body.String())
+		t.Errorf("Admin update order: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	time.Sleep(100 * time.Millisecond)
 }
 
-func TestUpdateOrderStatus_OperatorOwnOrder(t *testing.T) {
+func TestUpdateOrderStatus_FollowCanUpdateOwnOrder(t *testing.T) {
+	setupTestDB(t)
+	gin.SetMode(gin.TestMode)
+
+	// v2.0: follow 可以操作自己负责的订单
+	seedOrder(t, &models.Order{
+		OrderSN:          "FOLLOW-001",
+		OperatorID:       "op1",
+		FollowOperatorID: "follow1",
+		Status:           models.StatusPending,
+		Price:            5000,
+	})
+
+	body, _ := json.Marshal(map[string]string{"status": models.StatusDesigning})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "1"}}
+	c.Request, _ = http.NewRequest(http.MethodPut, "/orders/1/status", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set("wecom_userid", "follow1")
+	c.Set("role", "follow")
+	c.Set("name", "Follow 1")
+
+	UpdateOrderStatus(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Follow own order: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	time.Sleep(100 * time.Millisecond)
+}
+
+func TestUpdateOrderStatus_FollowCannotUpdateOtherOrder(t *testing.T) {
 	setupTestDB(t)
 	gin.SetMode(gin.TestMode)
 
 	seedOrder(t, &models.Order{
-		OrderSN:    "OP-OWN-001",
+		OrderSN:          "FOLLOW-OTHER-001",
+		OperatorID:       "op1",
+		FollowOperatorID: "follow1",
+		Status:           models.StatusPending,
+		Price:            5000,
+	})
+
+	body, _ := json.Marshal(map[string]string{"status": models.StatusDesigning})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "1"}}
+	c.Request, _ = http.NewRequest(http.MethodPut, "/orders/1/status", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set("wecom_userid", "follow2") // does NOT match FollowOperatorID or OperatorID
+	c.Set("role", "follow")
+	c.Set("name", "Follow 2")
+
+	UpdateOrderStatus(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("Follow other order: expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateOrderStatus_SalesCannotOperate(t *testing.T) {
+	setupTestDB(t)
+	gin.SetMode(gin.TestMode)
+
+	seedOrder(t, &models.Order{
+		OrderSN:    "SALES-001",
 		OperatorID: "op1",
 		Status:     models.StatusPending,
 		Price:      5000,
 	})
 
-	body, _ := json.Marshal(map[string]string{"status": models.StatusRefunded})
+	// v2.0: sales 不在 StatusChangePermission 中，无权操作状态变更
+	body, _ := json.Marshal(map[string]string{"status": models.StatusDesigning})
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "1"}}
 	c.Request, _ = http.NewRequest(http.MethodPut, "/orders/1/status", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("wecom_userid", "op1") // matches OperatorID
+	c.Set("wecom_userid", "op1")
 	c.Set("role", "sales")
-	c.Set("name", "Operator 1")
-
-	UpdateOrderStatus(c)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Operator own order: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	time.Sleep(100 * time.Millisecond)
-}
-
-func TestUpdateOrderStatus_OperatorOtherOrder(t *testing.T) {
-	setupTestDB(t)
-	gin.SetMode(gin.TestMode)
-
-	seedOrder(t, &models.Order{
-		OrderSN:    "OP-OTHER-001",
-		OperatorID: "op1",
-		Status:     models.StatusPending,
-		Price:      5000,
-	})
-
-	body, _ := json.Marshal(map[string]string{"status": models.StatusRefunded})
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "1"}}
-	c.Request, _ = http.NewRequest(http.MethodPut, "/orders/1/status", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("wecom_userid", "op2") // does NOT match OperatorID "op1"
-	c.Set("role", "sales")
-	c.Set("name", "Operator 2")
+	c.Set("name", "Sales 1")
 
 	UpdateOrderStatus(c)
 
 	if w.Code != http.StatusForbidden {
-		t.Errorf("Operator other order: expected 403, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestUpdateOrderStatus_DesignerOwnOrder(t *testing.T) {
-	setupTestDB(t)
-	gin.SetMode(gin.TestMode)
-
-	seedOrder(t, &models.Order{
-		OrderSN:    "DS-OWN-001",
-		OperatorID: "op1",
-		DesignerID: "designer1",
-		Status:     models.StatusDesigning,
-		Price:      5000,
-	})
-
-	body, _ := json.Marshal(map[string]string{"status": models.StatusDelivered})
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "1"}}
-	c.Request, _ = http.NewRequest(http.MethodPut, "/orders/1/status", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("wecom_userid", "designer1") // matches DesignerID
-	c.Set("role", "designer")
-	c.Set("name", "Designer 1")
-
-	UpdateOrderStatus(c)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Designer own order: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	time.Sleep(100 * time.Millisecond)
-}
-
-func TestUpdateOrderStatus_DesignerOtherOrder(t *testing.T) {
-	setupTestDB(t)
-	gin.SetMode(gin.TestMode)
-
-	seedOrder(t, &models.Order{
-		OrderSN:    "DS-OTHER-001",
-		OperatorID: "op1",
-		DesignerID: "designer1",
-		Status:     models.StatusDesigning,
-		Price:      5000,
-	})
-
-	body, _ := json.Marshal(map[string]string{"status": models.StatusDelivered})
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "1"}}
-	c.Request, _ = http.NewRequest(http.MethodPut, "/orders/1/status", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("wecom_userid", "designer2") // does NOT match DesignerID "designer1"
-	c.Set("role", "designer")
-	c.Set("name", "Designer 2")
-
-	UpdateOrderStatus(c)
-
-	if w.Code != http.StatusForbidden {
-		t.Errorf("Designer other order: expected 403, got %d: %s", w.Code, w.Body.String())
+		t.Errorf("Sales role: expected 403, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -305,13 +226,12 @@ func TestUpdateOrderStatus_WrongRole(t *testing.T) {
 	seedOrder(t, &models.Order{
 		OrderSN:    "ROLE-001",
 		OperatorID: "op1",
-		DesignerID: "designer1",
 		Status:     models.StatusPending,
 		Price:      5000,
 	})
 
-	// Designer tries to CLOSE (only admin is allowed for StatusClosed).
-	body, _ := json.Marshal(map[string]string{"status": models.StatusClosed})
+	// v2.0: designer 不在任何 StatusChangePermission 中
+	body, _ := json.Marshal(map[string]string{"status": models.StatusDesigning})
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "1"}}
@@ -325,6 +245,46 @@ func TestUpdateOrderStatus_WrongRole(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("Wrong role: expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateOrderStatus_CompleteFlow(t *testing.T) {
+	setupTestDB(t)
+	gin.SetMode(gin.TestMode)
+
+	// v2.0 完整流程: PENDING → DESIGNING → COMPLETED → REFUNDED
+	seedOrder(t, &models.Order{
+		OrderSN:    "FLOW-001",
+		OperatorID: "op1",
+		Status:     models.StatusPending,
+		Price:      5000,
+	})
+
+	steps := []struct {
+		status string
+	}{
+		{models.StatusDesigning},
+		{models.StatusCompleted},
+		{models.StatusRefunded},
+	}
+
+	for _, step := range steps {
+		body, _ := json.Marshal(map[string]string{"status": step.status})
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Params = gin.Params{{Key: "id", Value: "1"}}
+		c.Request, _ = http.NewRequest(http.MethodPut, "/orders/1/status", bytes.NewReader(body))
+		c.Request.Header.Set("Content-Type", "application/json")
+		c.Set("wecom_userid", "admin_user")
+		c.Set("role", "admin")
+		c.Set("name", "Admin")
+
+		UpdateOrderStatus(c)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("Step %s: expected 200, got %d: %s", step.status, w.Code, w.Body.String())
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

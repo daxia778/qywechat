@@ -415,6 +415,11 @@ func BatchUpdateOrderStatus(c *gin.Context) {
 			results = append(results, result)
 			continue
 		}
+		if roleStr == "follow" && order.FollowOperatorID != uidStr && order.OperatorID != uidStr {
+			result.Error = "只能操作自己负责的订单"
+			results = append(results, result)
+			continue
+		}
 
 		// 在单个事务中执行: 状态更新 + 时间线记录
 		oldStatus := order.Status

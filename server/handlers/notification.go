@@ -110,13 +110,10 @@ func MarkNotificationRead(c *gin.Context) {
 func SendOrderStatusNotification(order *models.Order, newStatus string) {
 	go func() {
 		statusNames := map[string]string{
-			models.StatusPending:      "待接单",
-			models.StatusGroupCreated: "已建群",
-			models.StatusDesigning:    "设计中",
-			models.StatusDelivered:    "已交付",
-			models.StatusCompleted:    "已完成",
-			models.StatusRefunded:     "已退款",
-			models.StatusClosed:       "已关闭",
+			models.StatusPending:   "待接单",
+			models.StatusDesigning: "设计中",
+			models.StatusCompleted: "已完成",
+			models.StatusRefunded:  "已退款",
 		}
 		statusText := statusNames[newStatus]
 		if statusText == "" {
@@ -126,24 +123,25 @@ func SendOrderStatusNotification(order *models.Order, newStatus string) {
 		title := fmt.Sprintf("订单 %s 状态更新", order.OrderSN)
 		content := fmt.Sprintf("订单 %s (%s) 状态变更为: %s", order.OrderSN, order.Topic, statusText)
 
-		// 通知设计师 (当客服完成/关闭/退款)
-		if order.DesignerID != "" && (newStatus == models.StatusCompleted || newStatus == models.StatusClosed || newStatus == models.StatusRefunded) {
+		// 通知跟单客服 (所有状态变更)
+		if order.FollowOperatorID != "" {
 			models.WriteTx(func(tx *gorm.DB) error {
 				return tx.Create(&models.Notification{
-					UserID:   order.DesignerID,
+					UserID:   order.FollowOperatorID,
 					Title:    title,
 					Content:  content,
 					Category: "order",
 					RefID:    fmt.Sprintf("%d", order.ID),
 				}).Error
 			})
-			if err := services.Wecom.SendTextMessage([]string{order.DesignerID}, content); err != nil {
-				log.Printf("发送企微通知失败 (设计师 %s): %v", order.DesignerID, err)
+			if err := services.Wecom.SendTextMessage([]string{order.FollowOperatorID}, content); err != nil {
+				log.Printf("发送企微通知失败 (跟单客服 %s): %v", order.FollowOperatorID, err)
 			}
 		}
 
-		// 通知客服 (当设计师交付)
-		if order.OperatorID != "" && newStatus == models.StatusDelivered {
+		// 通知谈单客服 (完成/退款时)
+		if order.OperatorID != "" && order.OperatorID != order.FollowOperatorID &&
+			(newStatus == models.StatusCompleted || newStatus == models.StatusRefunded) {
 			models.WriteTx(func(tx *gorm.DB) error {
 				return tx.Create(&models.Notification{
 					UserID:   order.OperatorID,
@@ -154,11 +152,11 @@ func SendOrderStatusNotification(order *models.Order, newStatus string) {
 				}).Error
 			})
 			if err := services.Wecom.SendTextMessage([]string{order.OperatorID}, content); err != nil {
-				log.Printf("发送企微通知失败 (客服 %s): %v", order.OperatorID, err)
+				log.Printf("发送企微通知失败 (谈单客服 %s): %v", order.OperatorID, err)
 			}
 		}
 
-		// 通知管理员 (所有终态)
+		// 通知管理员 (终态: 退款)
 		if models.IsTerminalStatus(newStatus) {
 			models.WriteTx(func(tx *gorm.DB) error {
 				return tx.Create(&models.Notification{
@@ -169,6 +167,14 @@ func SendOrderStatusNotification(order *models.Order, newStatus string) {
 					RefID:    fmt.Sprintf("%d", order.ID),
 				}).Error
 			})
+		}
+
+		// 如果有群聊，也在群内推送状态变更
+		if order.WecomChatID != "" {
+			groupMsg := fmt.Sprintf("📢 订单状态变更\n订单: %s\n状态: %s", order.OrderSN, statusText)
+			if err := services.Wecom.SendGroupMessage(order.WecomChatID, groupMsg); err != nil {
+				log.Printf("发送群聊状态通知失败: sn=%s chat=%s err=%v", order.OrderSN, order.WecomChatID, err)
+			}
 		}
 	}()
 }

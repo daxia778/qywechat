@@ -2,7 +2,10 @@ import { createElement } from 'react';
 
 export const STATUS_MAP = {
   PENDING: '待处理',
+  GROUP_CREATED: '已建群',
+  CONFIRMED: '已确认',
   DESIGNING: '设计中',
+  DELIVERED: '已交付',
   COMPLETED: '已完成',
   REFUNDED: '已退款',
   CLOSED: '已关闭',
@@ -10,7 +13,10 @@ export const STATUS_MAP = {
 
 export const STATUS_BADGE_MAP = {
   PENDING: 'warning',
+  GROUP_CREATED: 'primary',
+  CONFIRMED: 'primary',
   DESIGNING: 'primary',
+  DELIVERED: 'success',
   COMPLETED: 'success',
   REFUNDED: 'danger',
   CLOSED: 'secondary',
@@ -103,9 +109,13 @@ export const NAV_ROUTES = [
 export const ORDER_STATUSES = [
   { value: '', label: '全部' },
   { value: 'PENDING', label: '待处理' },
+  { value: 'GROUP_CREATED', label: '已建群' },
+  { value: 'CONFIRMED', label: '已确认' },
   { value: 'DESIGNING', label: '设计中' },
+  { value: 'DELIVERED', label: '已交付' },
   { value: 'COMPLETED', label: '已完成' },
   { value: 'REFUNDED', label: '已退款' },
+  { value: 'CLOSED', label: '已关闭' },
 ];
 
 export const STATUS_COLORS = {

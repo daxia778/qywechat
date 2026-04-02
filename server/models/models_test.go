@@ -10,16 +10,15 @@ func TestIsTerminalStatus(t *testing.T) {
 		expected bool
 	}{
 		{StatusPending, false},
-		{StatusGroupCreated, false},
-		{StatusConfirmed, false},
 		{StatusDesigning, false},
-		{StatusDelivered, false},
-		{StatusRevision, false},
-		{StatusAfterSale, false},
-		// COMPLETED 不再是终态：可转到 AFTER_SALE / REFUNDED
+		// v2.0: COMPLETED 不是终态，可转到 REFUNDED
 		{StatusCompleted, false},
 		{StatusRefunded, true},
-		{StatusClosed, true},
+		// 旧状态（保留兼容）
+		{StatusGroupCreated, false},
+		{StatusConfirmed, false},
+		{StatusDelivered, false},
+		{StatusClosed, false}, // CLOSED 在 v2.0 中不再定义为终态（IsTerminalStatus 只认 REFUNDED）
 		{"UNKNOWN", false},
 	}
 
@@ -38,44 +37,21 @@ func TestValidTransitions(t *testing.T) {
 		to       string
 		expected bool
 	}{
-		// PENDING 起点
-		{StatusPending, StatusGroupCreated, true},
-		{StatusPending, StatusRefunded, true},
-		{StatusPending, StatusClosed, true},
-		{StatusPending, StatusDesigning, false}, // 不可跳过
-
-		// GROUP_CREATED → CONFIRMED（不可直接跳到 DESIGNING）
-		{StatusGroupCreated, StatusConfirmed, true},
-		{StatusGroupCreated, StatusDesigning, false},  // 需经过 CONFIRMED
-		{StatusGroupCreated, StatusDelivered, false},  // 不可跳过
-
-		// CONFIRMED → DESIGNING
-		{StatusConfirmed, StatusDesigning, true},
-		{StatusConfirmed, StatusDelivered, false}, // 不可跳过
-
-		// DESIGNING 流转
-		{StatusDesigning, StatusDelivered, true},
-		{StatusDesigning, StatusAfterSale, true},
-		{StatusDesigning, StatusClosed, true},
-
-		// DELIVERED 流转
-		{StatusDelivered, StatusCompleted, true},
-		{StatusDelivered, StatusRevision, true},
-		{StatusDelivered, StatusAfterSale, true},
-		{StatusDelivered, StatusDesigning, false}, // 不可直接回退
-
-		// REVISION 循环
-		{StatusRevision, StatusDesigning, true},
-		{StatusRevision, StatusAfterSale, true},
-
-		// AFTER_SALE 处理
-		{StatusAfterSale, StatusDesigning, true},
-		{StatusAfterSale, StatusCompleted, true},
-
-		// COMPLETED 可继续流转（非终态）
-		{StatusCompleted, StatusAfterSale, true},
+		// v2.0 正向流转: PENDING → DESIGNING → COMPLETED → REFUNDED
+		{StatusPending, StatusDesigning, true},
+		{StatusDesigning, StatusCompleted, true},
 		{StatusCompleted, StatusRefunded, true},
-		{StatusCompleted, StatusDesigning, false}, // 不可直接回退到设计
+
+		// v2.0 非法转换
+		{StatusPending, StatusCompleted, false},   // 不可跳过 DESIGNING
+		{StatusPending, StatusRefunded, false},    // 不可直接退款
+		{StatusDesigning, StatusRefunded, false},   // 必须先完成
+		{StatusCompleted, StatusDesigning, false},  // 不可回退
+		{StatusRefunded, StatusPending, false},     // 终态不可转换
+
+		// 旧状态不在 ValidTransitions 中，所以都是 false
+		{StatusPending, StatusGroupCreated, false},
+		{StatusGroupCreated, StatusConfirmed, false},
 	}
 
 	for _, tt := range tests {
@@ -100,31 +76,21 @@ func TestValidTransitions(t *testing.T) {
 }
 
 func TestStatusChangePermission(t *testing.T) {
-	// 验证设计师只能流转到"已交付"状态
-	designAllowed := StatusChangePermission[StatusDelivered]
-	hasDesigner := false
-	for _, role := range designAllowed {
-		if role == "designer" {
-			hasDesigner = true
+	// v2.0: 只有 admin 和 follow 可以操作状态变更
+	// 验证 admin 可以操作 DESIGNING
+	designingAllowed := StatusChangePermission[StatusDesigning]
+	hasAdmin := false
+	for _, role := range designingAllowed {
+		if role == "admin" {
+			hasAdmin = true
 		}
 	}
-	if !hasDesigner {
-		t.Errorf("Designer should be allowed to change status to %s", StatusDelivered)
-	}
-
-	// 验证 sales 可以操作 COMPLETED（角色已从 operator 重命名为 sales）
-	completedAllowed := StatusChangePermission[StatusCompleted]
-	hasSales := false
-	for _, role := range completedAllowed {
-		if role == "sales" {
-			hasSales = true
-		}
-	}
-	if !hasSales {
-		t.Errorf("Sales should be allowed to change status to %s", StatusCompleted)
+	if !hasAdmin {
+		t.Errorf("Admin should be allowed to change status to %s", StatusDesigning)
 	}
 
 	// 验证 follow 可以操作 COMPLETED
+	completedAllowed := StatusChangePermission[StatusCompleted]
 	hasFollow := false
 	for _, role := range completedAllowed {
 		if role == "follow" {
@@ -133,6 +99,28 @@ func TestStatusChangePermission(t *testing.T) {
 	}
 	if !hasFollow {
 		t.Errorf("Follow should be allowed to change status to %s", StatusCompleted)
+	}
+
+	// 验证 follow 可以操作 REFUNDED
+	refundedAllowed := StatusChangePermission[StatusRefunded]
+	hasFollowRefund := false
+	for _, role := range refundedAllowed {
+		if role == "follow" {
+			hasFollowRefund = true
+		}
+	}
+	if !hasFollowRefund {
+		t.Errorf("Follow should be allowed to change status to %s", StatusRefunded)
+	}
+
+	// 验证 designer/sales 不在权限列表中 (v2.0 移除了这些角色的状态操作权限)
+	for _, status := range []string{StatusDesigning, StatusCompleted, StatusRefunded} {
+		roles := StatusChangePermission[status]
+		for _, role := range roles {
+			if role == "designer" || role == "sales" {
+				t.Errorf("Role %s should NOT be allowed to change status to %s in v2.0", role, status)
+			}
+		}
 	}
 
 	// 验证未定义状态的获取

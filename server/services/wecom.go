@@ -200,6 +200,14 @@ func (w *WeComClient) SendGroupMessage(chatID, content string) error {
 // SetupOrderGroup 建群 + 播报需求
 // v2.0: 群成员改为谈单客服 + 跟单客服（设计师后续手动拉入）
 func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID, topic string, pages int, priceFen int, deadlineStr, remark string) (string, error) {
+	// fallback: 如果没有跟单客服，使用谈单客服作为群主
+	if followOperatorID == "" {
+		followOperatorID = salesOperatorID
+	}
+	if followOperatorID == "" {
+		return "", fmt.Errorf("建群失败: 缺少群主 (谈单客服和跟单客服均为空)")
+	}
+
 	topicShort := topic
 	if len(topicShort) > 12 {
 		topicShort = topicShort[:12]

@@ -78,7 +78,7 @@ func TestE2E_PaymentCRUD(t *testing.T) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// Test 6: Employee Management
+// Test 6: Employee Management (v2.0: 只有 sales/follow/admin 角色)
 // ══════════════════════════════════════════════════════════════
 
 func TestE2E_EmployeeManagement(t *testing.T) {
@@ -90,14 +90,15 @@ func TestE2E_EmployeeManagement(t *testing.T) {
 	token := loginAndGetToken(t, client, server.URL, "admin_emp", "Admin@123")
 	csrf := getCSRFToken(t, client, server.URL)
 
-	// Create designer
+	// v2.0: Create follow staff (designer role removed from ValidRoles)
 	createReq := map[string]string{
-		"name": "New Designer",
-		"role": "designer",
+		"name": "New Follow Staff",
+		"role": "follow",
 	}
 	createResp := doRequest(t, client, "POST", server.URL+"/api/v1/admin/employees", token, csrf, createReq)
 	if createResp.StatusCode != http.StatusOK {
-		t.Fatalf("create employee failed")
+		raw, _ := io.ReadAll(createResp.Body)
+		t.Fatalf("create employee failed: %s", raw)
 	}
 	createData := readJSON(t, createResp)
 	newUsername := createData["username"].(string)
@@ -106,8 +107,8 @@ func TestE2E_EmployeeManagement(t *testing.T) {
 	empID := uint(empData["id"].(float64))
 
 	// Verify login with new creds
-	designerToken := loginAndGetToken(t, client, server.URL, newUsername, newPassword)
-	if designerToken == "" {
+	followToken := loginAndGetToken(t, client, server.URL, newUsername, newPassword)
+	if followToken == "" {
 		t.Fatalf("failed to login with new credentials")
 	}
 
@@ -209,17 +210,15 @@ func TestE2E_TokenLifecycle(t *testing.T) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// Test 8: Order Amount & Reassign
+// Test 8: Order Amount Update (v2.0: 无抢单，直接用 admin 改金额)
 // ══════════════════════════════════════════════════════════════
 
-func TestE2E_OrderAmountAndReassign(t *testing.T) {
+func TestE2E_OrderAmountUpdate(t *testing.T) {
 	server, cleanup := setupE2ERouter(t)
 	defer cleanup()
 	client := server.Client()
 
 	seedTestEmployee(t, "admin_order", "Admin@123", "admin", "admin_order", "AdminOrder")
-	seedTestEmployee(t, "designer_a", "Design@123", "designer", "designer_a", "DesignerA")
-	seedTestEmployee(t, "designer_b", "Design@123", "designer", "designer_b", "DesignerB")
 
 	adminToken := loginAndGetToken(t, client, server.URL, "admin_order", "Admin@123")
 	csrf := getCSRFToken(t, client, server.URL)
@@ -227,29 +226,16 @@ func TestE2E_OrderAmountAndReassign(t *testing.T) {
 	// Admin creates order
 	orderResp := doRequest(t, client, "POST", server.URL+"/api/v1/orders/create", adminToken, csrf, map[string]interface{}{
 		"price": 3000,
-		"topic": "Reassign PPT",
+		"topic": "Amount Update PPT",
 	})
 	defer orderResp.Body.Close()
 	orderData := readJSON(t, orderResp)
 	orderID := uint(orderData["id"].(float64))
 
-	// Designer A grabs order
-	designerAToken := loginAndGetToken(t, client, server.URL, "designer_a", "Design@123")
-	csrfA := getCSRFToken(t, client, server.URL)
-	
-	grabResp := doRequest(t, client, "POST", server.URL+"/api/v1/orders/grab", designerAToken, csrfA, map[string]interface{}{
-		"order_id": orderID,
-		"designer_userid": "designer_a",
-	})
-	if grabResp.StatusCode != http.StatusOK {
-		t.Fatalf("Designer A grab failed: %v", grabResp.StatusCode)
-	}
-	grabResp.Body.Close()
-
 	// Admin updates amount
 	updateBody := map[string]interface{}{
-		"price": 4500,
-		"pages": 20,
+		"price":  4500,
+		"pages":  20,
 		"remark": "Added pages",
 	}
 	csrf = getCSRFToken(t, client, server.URL)
@@ -262,21 +248,6 @@ func TestE2E_OrderAmountAndReassign(t *testing.T) {
 	orderNode := amountData["order"].(map[string]interface{})
 	if int(orderNode["price"].(float64)) != 4500 {
 		t.Errorf("expected price 4500")
-	}
-
-	// Admin reassigns
-	csrf = getCSRFToken(t, client, server.URL)
-	reassignResp := doRequest(t, client, "PUT", fmt.Sprintf("%s/api/v1/orders/%d/reassign", server.URL, orderID), adminToken, csrf, map[string]interface{}{
-		"designer_userid": "designer_b",
-	})
-	if reassignResp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(reassignResp.Body)
-		t.Fatalf("reassign failed: %s", raw)
-	}
-	reassignData := readJSON(t, reassignResp)
-	orderNodeR := reassignData["order"].(map[string]interface{})
-	if orderNodeR["designer_id"].(string) != "designer_b" {
-		t.Errorf("expected reassigned to designer_b")
 	}
 }
 
@@ -305,11 +276,11 @@ func TestE2E_Notifications(t *testing.T) {
 	listResp := doRequest(t, client, "GET", server.URL+"/api/v1/admin/notifications?unread=true", adminToken, "", nil)
 	defer listResp.Body.Close()
 	listData := readJSON(t, listResp)
-	
+
 	if listData["unread_count"] == nil {
 		t.Fatalf("expected unread_count in response, got %v", listData)
 	}
-	
+
 	unreadCount := int(listData["unread_count"].(float64))
 	if unreadCount < 1 {
 		t.Errorf("expected at least 1 unread notification")
@@ -371,7 +342,7 @@ func TestE2E_AuditLogs(t *testing.T) {
 	logResp := doRequest(t, client, "GET", server.URL+"/api/v1/admin/audit_logs?action="+models.AuditEmployeeAdd, adminToken, "", nil)
 	defer logResp.Body.Close()
 	logData := readJSON(t, logResp)
-	
+
 	total := int(logData["total"].(float64))
 	if total < 1 {
 		t.Errorf("expected at least 1 audit log for employee creation")
@@ -379,7 +350,7 @@ func TestE2E_AuditLogs(t *testing.T) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// Test 11: Batch Order Status
+// Test 11: Batch Order Status (v2.0: PENDING → DESIGNING)
 // ══════════════════════════════════════════════════════════════
 
 func TestE2E_BatchOrderStatus(t *testing.T) {
@@ -389,7 +360,7 @@ func TestE2E_BatchOrderStatus(t *testing.T) {
 
 	seedTestEmployee(t, "admin_batch", "Admin@123", "admin", "admin_batch", "AdminBatch")
 	adminToken := loginAndGetToken(t, client, server.URL, "admin_batch", "Admin@123")
-	
+
 	// Create order 1
 	csrf := getCSRFToken(t, client, server.URL)
 	o1Resp := doRequest(t, client, "POST", server.URL+"/api/v1/orders/create", adminToken, csrf, map[string]interface{}{"price": 100})
@@ -402,23 +373,24 @@ func TestE2E_BatchOrderStatus(t *testing.T) {
 	defer o2Resp.Body.Close()
 	o2ID := uint(readJSON(t, o2Resp)["id"].(float64))
 
-	// Batch update status to GROUP_CREATED
+	// v2.0: Batch update status to DESIGNING (PENDING → DESIGNING)
 	csrf = getCSRFToken(t, client, server.URL)
 	batchResp := doRequest(t, client, "PUT", server.URL+"/api/v1/orders/batch-status", adminToken, csrf, map[string]interface{}{
 		"order_ids": []uint{o1ID, o2ID},
-		"status":    "GROUP_CREATED",
+		"status":    models.StatusDesigning,
 	})
 	if batchResp.StatusCode != http.StatusOK {
-		t.Fatalf("batch update failed")
+		raw, _ := io.ReadAll(batchResp.Body)
+		t.Fatalf("batch update failed: %s", raw)
 	}
 	batchResp.Body.Close()
 
 	// Verify status
-	listResp := doRequest(t, client, "GET", server.URL+"/api/v1/orders/list?status=GROUP_CREATED", adminToken, "", nil)
+	listResp := doRequest(t, client, "GET", server.URL+"/api/v1/orders/list?status=DESIGNING", adminToken, "", nil)
 	defer listResp.Body.Close()
 	listData := readJSON(t, listResp)
 	if int(listData["total"].(float64)) < 2 {
-		t.Errorf("expected at least 2 GROUP_CREATED orders")
+		t.Errorf("expected at least 2 DESIGNING orders")
 	}
 }
 
@@ -433,7 +405,7 @@ func TestE2E_OrderListAndDetail(t *testing.T) {
 
 	seedTestEmployee(t, "admin_list", "Admin@123", "admin", "admin_list", "AdminList")
 	adminToken := loginAndGetToken(t, client, server.URL, "admin_list", "Admin@123")
-	
+
 	csrf := getCSRFToken(t, client, server.URL)
 	oResp := doRequest(t, client, "POST", server.URL+"/api/v1/orders/create", adminToken, csrf, map[string]interface{}{
 		"price": 500, "topic": "List Test",
@@ -469,7 +441,7 @@ func TestE2E_PaymentMatch(t *testing.T) {
 
 	seedTestEmployee(t, "admin_match", "Admin@123", "admin", "admin_match", "AdminMatch")
 	adminToken := loginAndGetToken(t, client, server.URL, "admin_match", "Admin@123")
-	
+
 	csrf := getCSRFToken(t, client, server.URL)
 	oResp := doRequest(t, client, "POST", server.URL+"/api/v1/orders/create", adminToken, csrf, map[string]interface{}{
 		"price": 100, "topic": "Match Order",
@@ -514,7 +486,7 @@ func TestE2E_CustomerCRUD(t *testing.T) {
 
 	seedTestEmployee(t, "admin_cust", "Admin@123", "admin", "admin_cust", "AdminCust")
 	adminToken := loginAndGetToken(t, client, server.URL, "admin_cust", "Admin@123")
-	
+
 	// Create two orders with two contacts -> triggers customer creation
 	csrf := getCSRFToken(t, client, server.URL)
 	doRequest(t, client, "POST", server.URL+"/api/v1/orders/create", adminToken, csrf, map[string]interface{}{
@@ -577,7 +549,7 @@ func TestE2E_ProfitReports(t *testing.T) {
 
 	seedTestEmployee(t, "admin_prof", "Admin@123", "admin", "admin_prof", "AdminProf")
 	adminToken := loginAndGetToken(t, client, server.URL, "admin_prof", "Admin@123")
-	
+
 	csrf := getCSRFToken(t, client, server.URL)
 	oResp := doRequest(t, client, "POST", server.URL+"/api/v1/orders/create", adminToken, csrf, map[string]interface{}{
 		"price": 1000,
@@ -603,7 +575,7 @@ func TestE2E_ProfitReports(t *testing.T) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// Test 16: Batch Employee Ops
+// Test 16: Batch Employee Ops (v2.0: 使用 follow 角色)
 // ══════════════════════════════════════════════════════════════
 
 func TestE2E_BatchEmployeeOps(t *testing.T) {
@@ -614,17 +586,17 @@ func TestE2E_BatchEmployeeOps(t *testing.T) {
 	seedTestEmployee(t, "admin_bemp", "Admin@123", "admin", "admin_bemp", "AdminBemp")
 	adminToken := loginAndGetToken(t, client, server.URL, "admin_bemp", "Admin@123")
 
-	seedTestEmployee(t, "designer_b1", "D@123", "designer", "designer_b1", "D1")
-	seedTestEmployee(t, "designer_b2", "D@123", "designer", "designer_b2", "D2")
-	
-	var d1, d2 models.Employee
-	models.DB.Where("wecom_userid = ?", "designer_b1").First(&d1)
-	models.DB.Where("wecom_userid = ?", "designer_b2").First(&d2)
+	seedTestEmployee(t, "follow_b1", "F@123", "follow", "follow_b1", "F1")
+	seedTestEmployee(t, "follow_b2", "F@123", "follow", "follow_b2", "F2")
+
+	var f1, f2 models.Employee
+	models.DB.Where("wecom_userid = ?", "follow_b1").First(&f1)
+	models.DB.Where("wecom_userid = ?", "follow_b2").First(&f2)
 
 	// Batch Toggle (disable)
 	csrf := getCSRFToken(t, client, server.URL)
 	tResp := doRequest(t, client, "PUT", server.URL+"/api/v1/admin/employees/batch_toggle", adminToken, csrf, map[string]interface{}{
-		"ids":    []uint{d1.ID, d2.ID},
+		"ids":    []uint{f1.ID, f2.ID},
 		"active": false,
 	})
 	if tResp.StatusCode != http.StatusOK {
@@ -635,7 +607,7 @@ func TestE2E_BatchEmployeeOps(t *testing.T) {
 	// Batch Delete
 	csrf = getCSRFToken(t, client, server.URL)
 	dResp := doRequest(t, client, "POST", server.URL+"/api/v1/admin/employees/batch_delete", adminToken, csrf, map[string]interface{}{
-		"ids": []uint{d1.ID, d2.ID},
+		"ids": []uint{f1.ID, f2.ID},
 	})
 	if dResp.StatusCode != http.StatusOK {
 		t.Fatalf("batch delete failed")
@@ -644,7 +616,7 @@ func TestE2E_BatchEmployeeOps(t *testing.T) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// Test 17: Device Unbind
+// Test 17: Device Unbind (v2.0: 使用 follow 角色)
 // ══════════════════════════════════════════════════════════════
 
 func TestE2E_DeviceUnbind(t *testing.T) {
@@ -655,7 +627,7 @@ func TestE2E_DeviceUnbind(t *testing.T) {
 	seedTestEmployee(t, "admin_unbind", "Admin@123", "admin", "admin_unbind", "AdminUnbind")
 	adminToken := loginAndGetToken(t, client, server.URL, "admin_unbind", "Admin@123")
 
-	seedTestEmployee(t, "emp_unbind", "E@123", "designer", "emp_unbind", "E_Unbind")
+	seedTestEmployee(t, "emp_unbind", "E@123", "follow", "emp_unbind", "E_Unbind")
 	var emp models.Employee
 	models.DB.Where("wecom_userid = ?", "emp_unbind").First(&emp)
 	models.DB.Model(&emp).Update("machine_id", "TEST-MACHINE-123")
@@ -725,4 +697,3 @@ func TestE2E_ExportCSV(t *testing.T) {
 	}
 	resp3.Body.Close()
 }
-

@@ -196,6 +196,36 @@ func AssignDesigner(c *gin.Context) {
 		Type:    "order_updated",
 		Payload: order,
 	})
+
+	// 异步建群: 关联设计师且状态流转为 DESIGNING 时，自动建企微群
+	if order.Status == models.StatusDesigning && order.WecomChatID == "" {
+		go func() {
+			deadlineStr := "待定"
+			if order.Deadline != nil {
+				deadlineStr = order.Deadline.Format("01-02 15:04")
+			}
+			chatID, err := services.Wecom.SetupOrderGroup(
+				order.OrderSN,
+				order.OperatorID,
+				order.FollowOperatorID,
+				order.Topic,
+				order.Pages,
+				order.Price,
+				deadlineStr,
+				order.Remark,
+			)
+			if err != nil {
+				log.Printf("⚠️ 自动建群失败: sn=%s err=%v", order.OrderSN, err)
+				return
+			}
+			if chatID != "" {
+				models.WriteTx(func(tx *gorm.DB) error {
+					return tx.Model(&models.Order{}).Where("id = ?", order.ID).Update("wecom_chat_id", chatID).Error
+				})
+				log.Printf("✅ 关联设计师后自动建群 | sn=%s | chatid=%s", order.OrderSN, chatID)
+			}
+		}()
+	}
 }
 
 // AdjustCommission 修改设计师佣金比例（跟单客服/管理员权限）

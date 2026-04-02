@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"pdd-order-system/config"
 	"pdd-order-system/handlers"
@@ -427,9 +426,8 @@ func TestE2E_OrderLifecycle(t *testing.T) {
 	defer cleanup()
 	client := server.Client()
 
-	// -- 1. 创建管理员 + 设计师 + 客服账号 --
+	// -- 1. 创建管理员 + 客服账号 (v2.0 不需要设计师单独登录操作) --
 	seedTestEmployee(t, "admin_ol", "Admin@123", "admin", "admin_ol", "管理员老张")
-	seedTestEmployee(t, "designer_ol", "Design@123", "designer", "designer_ol", "设计师小王")
 	seedTestEmployee(t, "sales_ol", "Sales@123", "sales", "sales_ol", "客服小李")
 
 	// -- 2. 客服登录，创建订单 (price=5800, topic="毕业设计PPT") --
@@ -460,49 +458,11 @@ func TestE2E_OrderLifecycle(t *testing.T) {
 		t.Errorf("expected status %s after create, got %s", models.StatusPending, status)
 	}
 
-	// -- 4. 设计师登录，抢单 --
-	designerToken := loginAndGetToken(t, client, server.URL, "designer_ol", "Design@123")
-
-	csrf = getCSRFToken(t, client, server.URL)
-	grabBody := map[string]interface{}{
-		"order_id":        orderID,
-		"designer_userid": "designer_ol",
-	}
-	resp = doRequest(t, client, "POST", server.URL+"/api/v1/orders/grab", designerToken, csrf, grabBody)
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		t.Fatalf("grab order failed with %d: %s", resp.StatusCode, string(raw))
-	}
-	grabData := readJSON(t, resp)
-
-	// -- 5. 验证抢单后状态变为 GROUP_CREATED --
-	status, _ = grabData["status"].(string)
-	if status != models.StatusGroupCreated {
-		t.Errorf("expected status %s after grab, got %s", models.StatusGroupCreated, status)
-	}
-
-	// 等待异步操作（建群等）完成
-	time.Sleep(200 * time.Millisecond)
-
-	// -- 6. 管理员登录，GROUP_CREATED -> CONFIRMED --
+	// -- 4. 管理员登录，v2.0 流程: PENDING -> DESIGNING --
 	adminToken := loginAndGetToken(t, client, server.URL, "admin_ol", "Admin@123")
 
 	csrf = getCSRFToken(t, client, server.URL)
-	statusBody := map[string]string{"status": models.StatusConfirmed}
-	resp = doRequest(t, client, "PUT",
-		fmt.Sprintf("%s/api/v1/orders/%d/status", server.URL, orderID),
-		adminToken, csrf, statusBody)
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		t.Fatalf("CONFIRMED transition failed with %d: %s", resp.StatusCode, string(raw))
-	}
-	resp.Body.Close()
-
-	// -- 7. 管理员 CONFIRMED -> DESIGNING --
-	csrf = getCSRFToken(t, client, server.URL)
-	statusBody = map[string]string{"status": models.StatusDesigning}
+	statusBody := map[string]string{"status": models.StatusDesigning}
 	resp = doRequest(t, client, "PUT",
 		fmt.Sprintf("%s/api/v1/orders/%d/status", server.URL, orderID),
 		adminToken, csrf, statusBody)
@@ -513,20 +473,7 @@ func TestE2E_OrderLifecycle(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// -- 8. 设计师交付 DESIGNING -> DELIVERED --
-	csrf = getCSRFToken(t, client, server.URL)
-	statusBody = map[string]string{"status": models.StatusDelivered}
-	resp = doRequest(t, client, "PUT",
-		fmt.Sprintf("%s/api/v1/orders/%d/status", server.URL, orderID),
-		designerToken, csrf, statusBody)
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		t.Fatalf("DELIVERED transition failed with %d: %s", resp.StatusCode, string(raw))
-	}
-	resp.Body.Close()
-
-	// -- 9. 管理员确认完成 DELIVERED -> COMPLETED --
+	// -- 5. 管理员: DESIGNING -> COMPLETED --
 	csrf = getCSRFToken(t, client, server.URL)
 	statusBody = map[string]string{"status": models.StatusCompleted}
 	resp = doRequest(t, client, "PUT",
@@ -539,7 +486,7 @@ func TestE2E_OrderLifecycle(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// -- 10. 查询订单详情，验证最终状态和金额 --
+	// -- 6. 查询订单详情，验证最终状态和金额 --
 	resp = doRequest(t, client, "GET",
 		fmt.Sprintf("%s/api/v1/orders/%d/detail", server.URL, orderID),
 		adminToken, "", nil)
@@ -565,7 +512,7 @@ func TestE2E_OrderLifecycle(t *testing.T) {
 		t.Errorf("expected price 5800, got %d", int(finalPrice))
 	}
 
-	// -- 11. 查询订单时间线，验证有操作记录 --
+	// -- 7. 查询订单时间线，验证有操作记录 --
 	resp = doRequest(t, client, "GET",
 		fmt.Sprintf("%s/api/v1/orders/%d/timeline", server.URL, orderID),
 		adminToken, "", nil)
@@ -603,7 +550,7 @@ func TestE2E_AdminDashboard(t *testing.T) {
 	client := server.Client()
 
 	seedTestEmployee(t, "admin_dash", "Admin@123", "admin", "admin_dash", "管理员")
-	seedTestEmployee(t, "designer_dash", "Design@123", "designer", "designer_dash", "设计师")
+	seedTestEmployee(t, "sales_dash", "Sales@123", "sales", "sales_dash", "客服")
 
 	// -- 1. 管理员登录 --
 	adminToken := loginAndGetToken(t, client, server.URL, "admin_dash", "Admin@123")
@@ -632,19 +579,19 @@ func TestE2E_AdminDashboard(t *testing.T) {
 		t.Error("employees returned nil data")
 	}
 
-	// -- 4. 非管理员（设计师）访问 admin 接口，验证返回 403 --
-	designerToken := loginAndGetToken(t, client, server.URL, "designer_dash", "Design@123")
+	// -- 4. 非管理员（客服）访问 admin 接口，验证返回 403 --
+	salesToken := loginAndGetToken(t, client, server.URL, "sales_dash", "Sales@123")
 
-	resp = doRequest(t, client, "GET", server.URL+"/api/v1/admin/dashboard", designerToken, "", nil)
+	resp = doRequest(t, client, "GET", server.URL+"/api/v1/admin/dashboard", salesToken, "", nil)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
-		t.Errorf("designer accessing admin dashboard: expected 403, got %d", resp.StatusCode)
+		t.Errorf("sales accessing admin dashboard: expected 403, got %d", resp.StatusCode)
 	}
 
-	resp = doRequest(t, client, "GET", server.URL+"/api/v1/admin/employees", designerToken, "", nil)
+	resp = doRequest(t, client, "GET", server.URL+"/api/v1/admin/employees", salesToken, "", nil)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
-		t.Errorf("designer accessing admin employees: expected 403, got %d", resp.StatusCode)
+		t.Errorf("sales accessing admin employees: expected 403, got %d", resp.StatusCode)
 	}
 }
 

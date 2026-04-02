@@ -19,6 +19,8 @@ const EVENT_TYPE_MAP = {
   amount_changed: () => '金额变更',
   pages_changed: () => '页数变更',
   designer_reassigned: () => '设计师转派',
+  designer_assigned: () => '关联设计师',
+  commission_adjusted: () => '佣金调整',
   customer_matched: () => '关联客户',
 };
 
@@ -26,6 +28,8 @@ const EVENT_BADGE_MAP = {
   amount_changed: 'warning',
   pages_changed: 'warning',
   designer_reassigned: 'secondary',
+  designer_assigned: 'primary',
+  commission_adjusted: 'warning',
   customer_matched: 'primary',
 };
 
@@ -187,7 +191,7 @@ export default function OrdersPage() {
   }, []);
 
   const hasMoreActions = (order) => {
-    if (['COMPLETED', 'REFUNDED'].includes(order.status)) return false;
+    if (['REFUNDED', 'CLOSED'].includes(order.status)) return false;
     if (role === 'admin') return true;
     if (role === 'follow') return true;
     return false;
@@ -794,9 +798,15 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
       <td className="text-[12px] text-center overflow-hidden">
         <div className="inline-flex flex-col gap-1 text-left">
           <div className="flex items-center gap-1.5 text-slate-500">
-            <span className="text-slate-400 text-[11px]">管家</span>
+            <span className="text-slate-400 text-[11px]">谈单</span>
             <span className="text-slate-700 font-medium text-[11px] truncate">{order.operator_id || '待分配'}</span>
           </div>
+          {order.follow_operator_id && (
+            <div className="flex items-center gap-1.5 text-slate-500">
+              <span className="text-slate-400 text-[11px]">跟单</span>
+              <span className="text-slate-700 font-medium text-[11px] truncate">{order.follow_operator_id}</span>
+            </div>
+          )}
           <div className="flex items-center gap-1.5 text-slate-500">
             <span className="text-slate-400 text-[11px]">设计</span>
             <span className="text-slate-700 font-medium text-[11px] truncate">{order.freelance_designer_name || order.designer_id || '待分配'}</span>
