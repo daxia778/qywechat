@@ -570,7 +570,12 @@ const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirm
           <span className="block truncate">{order.customer_contact}</span>
         ) : '-'}
       </td>
-      <td className="text-center text-[14px] font-bold text-slate-800 tabular-nums whitespace-nowrap">&yen;{order.price ? (order.price / 100).toFixed(2) : '0.00'}</td>
+      <td className="text-center text-[14px] font-bold text-slate-800 tabular-nums whitespace-nowrap">
+        &yen;{order.price ? (order.price / 100).toFixed(2) : '0.00'}
+        {order.commission_adjusted && (
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ml-1 -mt-1" title="佣金已调整" />
+        )}
+      </td>
       <td className="text-[12px] text-center overflow-hidden">
         <div className="inline-flex flex-col gap-1 text-left">
           <div className="flex items-center gap-1.5 text-slate-500">
@@ -601,6 +606,22 @@ const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirm
           )}
           {/* follow/admin: Mark complete (DESIGNING -> COMPLETED) */}
           {order.status === 'DESIGNING' && (role === 'admin' || role === 'follow') && (
+            <button onClick={() => onConfirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg bg-white active:scale-[0.98]">标记完成</button>
+          )}
+          {/* follow/admin: DESIGNING -> REVISION */}
+          {order.status === 'DESIGNING' && (role === 'admin' || role === 'follow') && (
+            <button onClick={() => onUpdateStatus(order, 'REVISION')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-300 text-amber-600 hover:bg-amber-50 bg-white active:scale-[0.98]">转修改</button>
+          )}
+          {/* follow/admin: DESIGNING -> AFTER_SALE */}
+          {order.status === 'DESIGNING' && (role === 'admin' || role === 'follow') && (
+            <button onClick={() => onUpdateStatus(order, 'AFTER_SALE')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-orange-300 text-orange-600 hover:bg-orange-50 bg-white active:scale-[0.98]">转售后</button>
+          )}
+          {/* follow/admin: REVISION -> DESIGNING */}
+          {order.status === 'REVISION' && (role === 'admin' || role === 'follow') && (
+            <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm active:scale-[0.98]">继续设计</button>
+          )}
+          {/* follow/admin: AFTER_SALE -> COMPLETED */}
+          {order.status === 'AFTER_SALE' && (role === 'admin' || role === 'follow') && (
             <button onClick={() => onConfirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg bg-white active:scale-[0.98]">标记完成</button>
           )}
           {/* follow/admin: Refund (COMPLETED -> REFUNDED) */}

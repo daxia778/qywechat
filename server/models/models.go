@@ -89,10 +89,12 @@ type Order struct {
 	DesigningAlertSent   bool      `gorm:"column:designing_alert_sent;default:false" json:"designing_alert_sent"`
 }
 
-// OrderStatus 状态机常量（v2.0 简化: 3+1）
+// OrderStatus 状态机常量
 const (
 	StatusPending   = "PENDING"
 	StatusDesigning = "DESIGNING"
+	StatusRevision  = "REVISION"
+	StatusAfterSale = "AFTER_SALE"
 	StatusCompleted = "COMPLETED"
 	StatusRefunded  = "REFUNDED"
 )
@@ -102,31 +104,31 @@ const (
 	StatusGroupCreated = "GROUP_CREATED"
 	StatusConfirmed    = "CONFIRMED"
 	StatusDelivered    = "DELIVERED"
-	StatusRevision     = "REVISION"
-	StatusAfterSale    = "AFTER_SALE"
 	StatusClosed       = "CLOSED"
 )
 
-// ValidTransitions 合法状态转换（v2.0 简化）
-// 正向: PENDING → DESIGNING → COMPLETED
-// 标记: COMPLETED → REFUNDED
+// ValidTransitions 合法状态转换
 var ValidTransitions = map[string][]string{
 	StatusPending:   {StatusDesigning},
-	StatusDesigning: {StatusCompleted},
+	StatusDesigning: {StatusCompleted, StatusRevision, StatusAfterSale},
+	StatusRevision:  {StatusDesigning},
+	StatusAfterSale: {StatusCompleted, StatusRefunded},
 	StatusCompleted: {StatusRefunded},
 }
 
-// StatusChangePermission 定义每个目标状态所需的操作权限（v2.0 简化）
+// StatusChangePermission 定义每个目标状态所需的操作权限
 // key = 目标状态, value = 允许执行此操作的角色列表
 var StatusChangePermission = map[string][]string{
 	StatusDesigning: {"admin", "follow"},
 	StatusCompleted: {"admin", "follow"},
 	StatusRefunded:  {"admin", "follow"},
+	StatusRevision:  {"admin", "follow"},
+	StatusAfterSale: {"admin", "follow"},
 }
 
 // IsTerminalStatus 判断是否为终态（不可再转换）
 func IsTerminalStatus(status string) bool {
-	return status == StatusRefunded
+	return status == StatusRefunded || status == StatusClosed
 }
 
 // ValidateStatusTransition 校验状态流转是否合法，返回 nil 表示合法，否则返回错误描述

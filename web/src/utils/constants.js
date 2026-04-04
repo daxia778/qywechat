@@ -5,6 +5,8 @@ export const STATUS_MAP = {
   GROUP_CREATED: '已建群',
   CONFIRMED: '已确认',
   DESIGNING: '设计中',
+  REVISION: '修改中',
+  AFTER_SALE: '售后中',
   DELIVERED: '已交付',
   COMPLETED: '已完成',
   REFUNDED: '已退款',
@@ -16,6 +18,8 @@ export const STATUS_BADGE_MAP = {
   GROUP_CREATED: 'primary',
   CONFIRMED: 'primary',
   DESIGNING: 'primary',
+  REVISION: 'warning',
+  AFTER_SALE: 'danger',
   DELIVERED: 'success',
   COMPLETED: 'success',
   REFUNDED: 'danger',
@@ -116,6 +120,8 @@ export const ORDER_STATUSES = [
   { value: '', label: '全部' },
   { value: 'PENDING', label: '待处理' },
   { value: 'DESIGNING', label: '设计中' },
+  { value: 'REVISION', label: '修改中' },
+  { value: 'AFTER_SALE', label: '售后中' },
   { value: 'COMPLETED', label: '已完成' },
   { value: 'REFUNDED', label: '已退款' },
 ];
@@ -140,13 +146,15 @@ export const PIPELINE_STAGES = [
   { key: 'completed', status: ['COMPLETED'],   label: '已完成', icon: '✅', color: '#10B981' },
 ]
 
-// 订单列表 Tab（我的订单页用，v2.0 简化）
+// 订单列表 Tab（我的订单页用）
 export const ORDER_TABS = [
-  { key: '',          label: '全部' },
-  { key: 'PENDING',   label: '待处理' },
-  { key: 'DESIGNING', label: '设计中' },
-  { key: 'COMPLETED', label: '已完成' },
-  { key: 'REFUNDED',  label: '已退款' },
+  { key: '',           label: '全部' },
+  { key: 'PENDING',    label: '待处理' },
+  { key: 'DESIGNING',  label: '设计中' },
+  { key: 'REVISION',   label: '修改中' },
+  { key: 'AFTER_SALE', label: '售后中' },
+  { key: 'COMPLETED',  label: '已完成' },
+  { key: 'REFUNDED',   label: '已退款' },
 ]
 
 export const ROLE_LABELS = {

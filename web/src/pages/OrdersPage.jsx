@@ -794,7 +794,12 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
           <Link to={`/customers?keyword=${encodeURIComponent(order.customer_contact)}`} className="text-brand-500 hover:underline cursor-pointer block truncate">{order.customer_contact}</Link>
         ) : '-'}
       </td>
-      <td className="text-center text-[14px] font-bold text-slate-800 tabular-nums whitespace-nowrap">&yen;{order.price ? (order.price / 100).toFixed(2) : '0.00'}</td>
+      <td className="text-center text-[14px] font-bold text-slate-800 tabular-nums whitespace-nowrap">
+        &yen;{order.price ? (order.price / 100).toFixed(2) : '0.00'}
+        {order.commission_adjusted && (
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ml-1 -mt-1" title="佣金已调整" />
+        )}
+      </td>
       <td className="text-[12px] text-center overflow-hidden">
         <div className="inline-flex flex-col gap-1 text-left">
           <div className="flex items-center gap-1.5 text-slate-500">
