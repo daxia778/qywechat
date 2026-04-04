@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
-import { getOrderDetail, getOrderTimeline, updateOrderStatus } from '../../api/orders'
+import { getOrderDetail, getOrderTimeline, updateOrderStatus, searchDesigners, assignDesigner, adjustCommission } from '../../api/orders'
 import { STATUS_MAP, STATUS_COLORS, fmtYuan, formatTime } from '../../utils/constants'
-import { ArrowLeft, Loader2, Clock, FileText, Layers, Zap, User, Calendar, Hash, MessageSquare, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Loader2, Clock, FileText, Layers, Zap, User, Calendar, Hash, MessageSquare, AlertTriangle, Search, Plus, DollarSign } from 'lucide-react'
 
 const EVENT_LABELS = {
   status_changed: (e) => STATUS_MAP[e.to_status] || e.to_status,
@@ -54,16 +54,35 @@ export default function StaffOrderDetail() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { toast } = useToast()
-  const role = user?.role || 'designer'
+  const role = user?.role || 'follow'
 
   const [order, setOrder] = useState({})
   const [people, setPeople] = useState({})
+  const [profit, setProfit] = useState({})
   const [timeline, setTimeline] = useState([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
 
   const [showRefund, setShowRefund] = useState(false)
   const [refundReason, setRefundReason] = useState('')
+
+  // ── 花名册搜索状态 ──
+  const [designerQuery, setDesignerQuery] = useState('')
+  const [designerResults, setDesignerResults] = useState([])
+  const [designerSearching, setDesignerSearching] = useState(false)
+  const [showDesignerDropdown, setShowDesignerDropdown] = useState(false)
+  const [assigningDesigner, setAssigningDesigner] = useState(false)
+  const [showNewDesignerForm, setShowNewDesignerForm] = useState(false)
+  const [newDesignerName, setNewDesignerName] = useState('')
+  const [newDesignerWechat, setNewDesignerWechat] = useState('')
+  const [newDesignerPhone, setNewDesignerPhone] = useState('')
+  const [newDesignerSpecialty, setNewDesignerSpecialty] = useState('')
+  const designerSearchRef = useRef(null)
+
+  // ── 佣金调整状态 ──
+  const [showCommissionModal, setShowCommissionModal] = useState(false)
+  const [commissionRate, setCommissionRate] = useState('')
+  const [commissionSubmitting, setCommissionSubmitting] = useState(false)
 
   const fetchDetail = useCallback(async () => {
     try {
@@ -73,6 +92,7 @@ export default function StaffOrderDetail() {
       ])
       setOrder(detailRes.data.order || detailRes.data || {})
       setPeople(detailRes.data.people || {})
+      setProfit(detailRes.data.profit || {})
       setTimeline(timelineRes.data.data || [])
     } catch (err) {
       toast('加载订单详情失败: ' + err.message, 'error')
@@ -117,6 +137,102 @@ export default function StaffOrderDetail() {
     }
   }
 
+  // ── 花名册搜索防抖 ──
+  useEffect(() => {
+    if (!designerQuery.trim()) {
+      setDesignerResults([])
+      setShowDesignerDropdown(false)
+      return
+    }
+    setDesignerSearching(true)
+    const timer = setTimeout(async () => {
+      try {
+        const res = await searchDesigners(designerQuery.trim())
+        const list = res.data.data || res.data.designers || []
+        setDesignerResults(list)
+        setShowDesignerDropdown(true)
+      } catch {
+        setDesignerResults([])
+      } finally {
+        setDesignerSearching(false)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [designerQuery])
+
+  // 点击外部关闭下拉
+  useEffect(() => {
+    const handler = (e) => {
+      if (designerSearchRef.current && !designerSearchRef.current.contains(e.target)) {
+        setShowDesignerDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const doAssignDesigner = async (designerId) => {
+    setAssigningDesigner(true)
+    try {
+      await assignDesigner(id, { freelance_designer_id: designerId })
+      toast('设计师关联成功', 'success')
+      setDesignerQuery('')
+      setShowDesignerDropdown(false)
+      fetchDetail()
+    } catch (err) {
+      toast('关联失败: ' + (err.response?.data?.error || err.message), 'error')
+    } finally {
+      setAssigningDesigner(false)
+    }
+  }
+
+  const doCreateAndAssignDesigner = async () => {
+    if (!newDesignerName.trim()) {
+      toast('设计师名字不能为空', 'error')
+      return
+    }
+    setAssigningDesigner(true)
+    try {
+      await assignDesigner(id, {
+        designer_name: newDesignerName.trim(),
+        wechat: newDesignerWechat,
+        phone: newDesignerPhone,
+        specialty: newDesignerSpecialty,
+      })
+      toast('新建设计师并关联成功', 'success')
+      setShowNewDesignerForm(false)
+      setNewDesignerName('')
+      setNewDesignerWechat('')
+      setNewDesignerPhone('')
+      setNewDesignerSpecialty('')
+      setDesignerQuery('')
+      fetchDetail()
+    } catch (err) {
+      toast('新建失败: ' + (err.response?.data?.error || err.message), 'error')
+    } finally {
+      setAssigningDesigner(false)
+    }
+  }
+
+  const doAdjustCommission = async () => {
+    const val = parseFloat(commissionRate)
+    if (isNaN(val) || val < 0 || val > 100) {
+      toast('请输入 0-100 之间的数值', 'error')
+      return
+    }
+    setCommissionSubmitting(true)
+    try {
+      await adjustCommission(id, { designer_commission_rate: val })
+      toast('佣金比例调整成功', 'success')
+      setShowCommissionModal(false)
+      fetchDetail()
+    } catch (err) {
+      toast('调整失败: ' + (err.response?.data?.error || err.message), 'error')
+    } finally {
+      setCommissionSubmitting(false)
+    }
+  }
+
   if (loading) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 16 }}>
@@ -133,29 +249,16 @@ export default function StaffOrderDetail() {
   const sc = STATUS_COLORS[order.status] || STATUS_COLORS.PENDING
   const isTerminal = ['COMPLETED', 'REFUNDED', 'CLOSED'].includes(order.status)
 
+  // v2.0 简化操作按钮
   const actions = []
-  if (!isTerminal) {
-    if (role === 'designer') {
-      if (order.status === 'CONFIRMED') {
-        actions.push({ label: '接手设计', status: 'DESIGNING', cls: 'action-btn-primary', icon: '🎨' })
-      }
-      if (order.status === 'DESIGNING' || order.status === 'REVISION') {
-        actions.push({ label: '标记交付', status: 'DELIVERED', cls: 'action-btn-success', icon: '📦' })
-      }
+  if (!isTerminal && (role === 'follow' || role === 'admin')) {
+    if (order.status === 'DESIGNING') {
+      actions.push({ label: '确认完成', status: 'COMPLETED', cls: 'action-btn-success', icon: '✨' })
     }
-    if (role === 'sales') {
-      if (order.status === 'GROUP_CREATED') {
-        actions.push({ label: '确认需求', status: 'CONFIRMED', cls: 'action-btn-primary', icon: '✅' })
-      }
+    if (order.status === 'COMPLETED') {
+      actions.push({ label: '退款', cls: 'action-btn-danger', icon: '💸', isRefund: true })
     }
-    if (role === 'follow') {
-      if (order.status === 'DELIVERED') {
-        actions.push({ label: '确认完成', status: 'COMPLETED', cls: 'action-btn-success', icon: '✨' })
-        actions.push({ label: '需要修改', status: 'REVISION', cls: 'action-btn-warning', icon: '🔄' })
-      }
-      if (['DESIGNING', 'DELIVERED'].includes(order.status)) {
-        actions.push({ label: '标记售后', status: 'AFTER_SALE', cls: 'action-btn-warning', icon: '🛠' })
-      }
+    if (order.status !== 'COMPLETED') {
       actions.push({ label: '退款', cls: 'action-btn-danger', icon: '💸', isRefund: true })
     }
   }
@@ -321,8 +424,8 @@ export default function StaffOrderDetail() {
                 <InfoRow
                   icon={<Zap className="w-3.5 h-3.5" style={{ color: '#EC4899' }} />}
                   label="设计师"
-                  value={people.designer_name || order.designer_id || '待分配'}
-                  valueStyle={!(people.designer_name || order.designer_id) ? { color: '#CBD5E1', fontStyle: 'italic' } : {}}
+                  value={order.freelance_designer_name || people.designer_name || '待分配'}
+                  valueStyle={!(order.freelance_designer_name || people.designer_name) ? { color: '#CBD5E1', fontStyle: 'italic' } : {}}
                 />
               </div>
               <div style={{ borderBottom: '1px solid #F8FAFC' }}>
@@ -381,6 +484,207 @@ export default function StaffOrderDetail() {
             )}
           </div>
         </div>
+
+        {/* ── 花名册 - 关联设计师 (follow/admin 可见) ── */}
+        {(role === 'follow' || role === 'admin') && !isTerminal && (
+          <div style={{
+            background: '#fff', border: '1px solid rgba(0,0,0,0.06)',
+            borderRadius: 20, overflow: 'hidden',
+            boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
+          }}>
+            <div style={{
+              padding: '18px 24px', borderBottom: '1px solid #F1F5F9',
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <div style={{
+                width: 34, height: 34, borderRadius: 10,
+                background: 'linear-gradient(135deg, #EDE9FE, #F5F3FF)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <User className="w-4 h-4" style={{ color: '#8B5CF6' }} />
+              </div>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#0F172A', fontFamily: "'Outfit', sans-serif" }}>关联设计师</span>
+              {order.freelance_designer_name && (
+                <span style={{
+                  marginLeft: 'auto', fontSize: 12, fontWeight: 600,
+                  background: '#DBEAFE', color: '#1E40AF', padding: '3px 12px',
+                  borderRadius: 999, border: '1px solid #BFDBFE',
+                }}>✓ 已关联: {order.freelance_designer_name}</span>
+              )}
+            </div>
+            <div style={{ padding: 24 }}>
+              {/* 搜索框 */}
+              <div ref={designerSearchRef} style={{ position: 'relative' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                  搜索花名册
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <Search className="w-4 h-4" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+                  <input
+                    type="text"
+                    value={designerQuery}
+                    onChange={(e) => setDesignerQuery(e.target.value)}
+                    onFocus={() => { if (designerResults.length > 0) setShowDesignerDropdown(true) }}
+                    placeholder="输入设计师名字搜索..."
+                    disabled={assigningDesigner}
+                    style={{
+                      width: '100%', paddingLeft: 40, paddingRight: 12, padding: '10px 12px 10px 40px',
+                      fontSize: 14, border: '2px solid #E5E7EB', borderRadius: 14,
+                      outline: 'none', transition: 'border-color 0.2s',
+                    }}
+                    onFocusCapture={e => e.target.style.borderColor = '#C4B5FD'}
+                    onBlurCapture={e => e.target.style.borderColor = '#E5E7EB'}
+                  />
+                  {designerSearching && (
+                    <Loader2 className="w-4 h-4 animate-spin" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#434FCF' }} />
+                  )}
+                </div>
+
+                {/* 搜索结果下拉 */}
+                {showDesignerDropdown && (
+                  <div style={{
+                    position: 'absolute', zIndex: 50, top: '100%', left: 0, right: 0, marginTop: 6,
+                    background: '#fff', border: '1px solid #E5E7EB', borderRadius: 14,
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.12)', maxHeight: 260, overflowY: 'auto',
+                  }}>
+                    {designerResults.length > 0 ? (
+                      designerResults.map((d) => (
+                        <button
+                          key={d.id}
+                          onClick={() => doAssignDesigner(d.id)}
+                          disabled={assigningDesigner}
+                          style={{
+                            width: '100%', textAlign: 'left', padding: '14px 18px',
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                            borderBottom: '1px solid #F5F5F5', cursor: 'pointer',
+                            background: 'none', border: 'none', borderBottom: '1px solid #F5F5F5',
+                            transition: 'background 0.15s',
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#111' }}>{d.name}</div>
+                            {d.specialty && <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2 }}>{d.specialty}</div>}
+                          </div>
+                          <span style={{ fontSize: 12, color: '#94A3B8', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{d.total_orders ?? 0} 单</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div style={{ padding: 20, textAlign: 'center' }}>
+                        <div style={{ fontSize: 13, color: '#94A3B8', marginBottom: 12 }}>未找到匹配的设计师</div>
+                        <button
+                          onClick={() => { setShowDesignerDropdown(false); setShowNewDesignerForm(true); setNewDesignerName(designerQuery) }}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            padding: '8px 16px', fontSize: 13, fontWeight: 600,
+                            color: '#434FCF', background: '#EDE9FE', border: '1px solid #DDD6FE',
+                            borderRadius: 10, cursor: 'pointer', transition: 'background 0.15s',
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#DDD6FE'}
+                          onMouseLeave={e => e.currentTarget.style.background = '#EDE9FE'}
+                        >
+                          <Plus className="w-3.5 h-3.5" /> 新建设计师
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* 新建设计师表单 */}
+              {showNewDesignerForm && (
+                <div style={{
+                  marginTop: 18, background: '#F5F3FF', border: '1px solid #DDD6FE',
+                  borderRadius: 16, padding: 22,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                    <Plus className="w-4 h-4" style={{ color: '#7C3AED' }} />
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#4C1D95' }}>新建设计师</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>名字 <span style={{ color: '#EF4444' }}>*</span></div>
+                      <input type="text" value={newDesignerName} onChange={e => setNewDesignerName(e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: '1.5px solid #DDD6FE', borderRadius: 10, outline: 'none', background: '#fff' }}
+                        placeholder="设计师名字"
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>微信号</div>
+                      <input type="text" value={newDesignerWechat} onChange={e => setNewDesignerWechat(e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: '1.5px solid #DDD6FE', borderRadius: 10, outline: 'none', background: '#fff' }}
+                        placeholder="选填"
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>手机号</div>
+                      <input type="text" value={newDesignerPhone} onChange={e => setNewDesignerPhone(e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: '1.5px solid #DDD6FE', borderRadius: 10, outline: 'none', background: '#fff' }}
+                        placeholder="选填"
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>擅长方向</div>
+                      <input type="text" value={newDesignerSpecialty} onChange={e => setNewDesignerSpecialty(e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: '1.5px solid #DDD6FE', borderRadius: 10, outline: 'none', background: '#fff' }}
+                        placeholder="如: PPT/海报/Logo"
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                    <button
+                      onClick={doCreateAndAssignDesigner} disabled={assigningDesigner}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 6, padding: '8px 20px',
+                        fontSize: 13, fontWeight: 700, color: '#fff', background: '#434FCF',
+                        border: 'none', borderRadius: 10, cursor: 'pointer',
+                        opacity: assigningDesigner ? 0.6 : 1,
+                      }}
+                    >
+                      {assigningDesigner ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                      {assigningDesigner ? '提交中...' : '新建并关联'}
+                    </button>
+                    <button
+                      onClick={() => setShowNewDesignerForm(false)} disabled={assigningDesigner}
+                      style={{
+                        padding: '8px 16px', fontSize: 13, fontWeight: 600,
+                        color: '#64748B', background: '#fff', border: '1.5px solid #E2E8F0',
+                        borderRadius: 10, cursor: 'pointer',
+                      }}
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 调整佣金按钮 */}
+              {order.freelance_designer_name && !isTerminal && (
+                <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <button
+                    onClick={() => { setCommissionRate(String(profit.designer_rate || 0)); setShowCommissionModal(true) }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px',
+                      fontSize: 13, fontWeight: 700, color: '#7C3AED', background: '#F5F3FF',
+                      border: '1.5px solid #DDD6FE', borderRadius: 10, cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#EDE9FE'; e.currentTarget.style.borderColor = '#C4B5FD' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = '#F5F3FF'; e.currentTarget.style.borderColor = '#DDD6FE' }}
+                  >
+                    <DollarSign className="w-3.5 h-3.5" /> 调整佣金比例
+                  </button>
+                  {order.commission_adjusted && (
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#F59E0B', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <AlertTriangle className="w-3.5 h-3.5" /> 佣金已调整
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── 截图/附件 ── */}
         {(order.screenshot_path || order.attachment_urls) && (
@@ -563,6 +867,51 @@ export default function StaffOrderDetail() {
               >
                 {actionLoading === 'REFUNDED' ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 确认退款
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 佣金调整弹窗 ── */}
+      {showCommissionModal && (
+        <div className="confirm-overlay" onClick={() => setShowCommissionModal(false)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="confirm-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <DollarSign className="w-5 h-5" style={{ color: '#7C3AED' }} />
+              调整设计师佣金比例
+            </div>
+            <div className="confirm-message" style={{ marginBottom: 8 }}>
+              当前设计师: <strong>{order.freelance_designer_name}</strong>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>设计师佣金比例 (%)</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="number" step="1" min="0" max="100"
+                  value={commissionRate}
+                  onChange={(e) => setCommissionRate(e.target.value)}
+                  className="confirm-input"
+                  style={{ flex: 1, marginBottom: 0 }}
+                  placeholder="如: 30"
+                  autoFocus
+                />
+                <span style={{ fontSize: 16, fontWeight: 700, color: '#64748B' }}>%</span>
+              </div>
+              <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>
+                当前设计师比例: {profit.designer_rate || 0}% · 当前金额: ¥{fmtYuan(order.price)}
+              </div>
+            </div>
+            <div className="confirm-actions">
+              <button className="action-btn action-btn-outline" onClick={() => setShowCommissionModal(false)}>取消</button>
+              <button
+                className="action-btn action-btn-primary"
+                onClick={doAdjustCommission}
+                disabled={commissionSubmitting}
+                style={{ background: '#7C3AED', borderColor: '#7C3AED' }}
+              >
+                {commissionSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {commissionSubmitting ? '提交中...' : '确认调整'}
               </button>
             </div>
           </div>

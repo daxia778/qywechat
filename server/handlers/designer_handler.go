@@ -35,6 +35,116 @@ func SearchDesigners(c *gin.Context) {
 	respondList(c, designers, len(designers))
 }
 
+// DesignerStats 设计师花名册聚合统计结构
+type DesignerStats struct {
+	models.FreelanceDesigner
+	DesigningOrders int     `json:"designing_orders"`
+	CompletedOrders int     `json:"completed_orders"`
+	RefundedOrders  int     `json:"refunded_orders"`
+	TotalRevenue    int     `json:"total_revenue"`
+	AvgPrice        int     `json:"avg_price"`
+	CompletionRate  float64 `json:"completion_rate"`
+	RefundRate      float64 `json:"refund_rate"`
+	LastOrderAt     *string `json:"last_order_at"`
+}
+
+
+// ListDesignersWithStats 设计师花名册列表（带聚合统计，使用连表优化）
+// GET /api/v1/orders/designers/list
+func ListDesignersWithStats(c *gin.Context) {
+	keyword := c.Query("keyword")
+
+	// 1. 使用 LEFT JOIN 和 GROUP BY 避免 N+1 查询
+	query := models.DB.Table("freelance_designers d").
+		Select(`
+			d.*,
+			COUNT(o.id) as calc_total,
+			SUM(CASE WHEN o.status = 'DESIGNING' THEN 1 ELSE 0 END) as designing_orders,
+			SUM(CASE WHEN o.status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_orders,
+			SUM(CASE WHEN o.status = 'REFUNDED' THEN 1 ELSE 0 END) as refunded_orders,
+			COALESCE(SUM(o.price), 0) as total_revenue,
+			COALESCE(SUM(o.designer_commission), 0) as calc_commission,
+			MAX(o.created_at) as last_order_at
+		`).
+		Joins("LEFT JOIN orders o ON o.freelance_designer_id = d.id")
+
+	if keyword != "" {
+		like := "%" + escapeLike(keyword) + "%"
+		query = query.Where("d.name LIKE ? ESCAPE '\\'", like)
+	}
+
+	query = query.Group("d.id").Order("calc_total DESC, d.id DESC")
+
+	type RawResult struct {
+		models.FreelanceDesigner
+		CalcTotal        int     `gorm:"column:calc_total"`
+		DesigningOrders  int     `gorm:"column:designing_orders"`
+		CompletedOrders  int     `gorm:"column:completed_orders"`
+		RefundedOrders   int     `gorm:"column:refunded_orders"`
+		TotalRevenue     int     `gorm:"column:total_revenue"`
+		CalcCommission   int     `gorm:"column:calc_commission"`
+		LastOrderAt      *string `gorm:"column:last_order_at"`
+	}
+
+	var rawResults []RawResult
+	if err := query.Find(&rawResults).Error; err != nil {
+		log.Printf("ListDesignersWithStats 查询失败: %v", err)
+		internalError(c, "查询设计师聚合统计失败")
+		return
+	}
+
+	// 2. 在 Go 中计算衍生指标，避免复杂的 SQL Math
+	results := make([]DesignerStats, 0, len(rawResults))
+	for _, r := range rawResults {
+		var completionRate, refundRate float64
+		totalDone := r.CompletedOrders + r.RefundedOrders
+		
+		if r.CalcTotal > 0 {
+			completionRate = float64(r.CompletedOrders) / float64(r.CalcTotal) * 100
+		}
+		if totalDone > 0 {
+			refundRate = float64(r.RefundedOrders) / float64(totalDone) * 100
+		}
+		
+		avgPrice := 0
+		if r.CalcTotal > 0 {
+			avgPrice = r.TotalRevenue / r.CalcTotal
+		}
+
+		ds := DesignerStats{
+			FreelanceDesigner: r.FreelanceDesigner,
+			DesigningOrders:   r.DesigningOrders,
+			CompletedOrders:   r.CompletedOrders,
+			RefundedOrders:    r.RefundedOrders,
+			TotalRevenue:      r.TotalRevenue,
+			AvgPrice:          avgPrice,
+			CompletionRate:    math.Round(completionRate*10) / 10,
+			RefundRate:        math.Round(refundRate*10) / 10,
+			LastOrderAt:       r.LastOrderAt,
+		}
+		
+		// 统一使用实时聚合的订单数与佣金
+		ds.TotalOrders = r.CalcTotal
+		ds.TotalCommission = r.CalcCommission 
+		
+		results = append(results, ds)
+	}
+
+	// 3. 汇总当前活跃情况
+	var activeThisMonth int64
+	models.DB.Model(&models.Order{}).
+		Where("freelance_designer_id > 0 AND created_at >= date('now', 'start of month')").
+		Distinct("freelance_designer_id").Count(&activeThisMonth)
+
+	respondOK(c, gin.H{
+		"summary": gin.H{
+			"total_designers":      len(results),
+			"active_this_month":    activeThisMonth,
+		},
+		"designers": results,
+	})
+}
+
 // CreateDesigner 新建设计师（跟单客服/管理员权限）
 // POST /api/v1/orders/designers
 func CreateDesigner(c *gin.Context) {
@@ -295,6 +405,7 @@ func AdjustCommission(c *gin.Context) {
 			"sales_commission":   salesCommission,
 			"follow_commission":  followCommission,
 			"net_profit":         netProfit,
+			"commission_adjusted": true,
 		}
 		if err := tx.Model(&order).Updates(updates).Error; err != nil {
 			return err

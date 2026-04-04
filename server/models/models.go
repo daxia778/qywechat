@@ -7,12 +7,12 @@ import (
 	"gorm.io/gorm"
 )
 
-// Employee 员工（谈单客服/设计师/跟单客服/管理员）
+// Employee 员工（v2.0: 谈单客服/跟单客服/管理员，设计师通过花名册管理不进系统）
 type Employee struct {
 	ID               uint           `gorm:"primaryKey" json:"id"`
 	WecomUserID      string         `gorm:"column:wecom_userid;uniqueIndex;size:64" json:"wecom_userid"`
 	Name             string         `gorm:"column:name;size:64;not null" json:"name"`
-	Role             string         `gorm:"column:role;size:16;not null" json:"role"` // sales / designer / follow / admin
+	Role             string         `gorm:"column:role;size:16;not null" json:"role"` // sales / follow / admin
 	Username         string         `gorm:"column:username;uniqueIndex;size:64" json:"username,omitempty"`       // 所有角色登录用户名
 	PasswordHash     string         `gorm:"column:password_hash;size:128" json:"-"`                             // bcrypt 哈希密码
 	MachineID        string         `gorm:"column:machine_id;index;size:128" json:"machine_id,omitempty"`       // 复合设备指纹哈希 (桌面端设备绑定)

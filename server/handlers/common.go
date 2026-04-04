@@ -28,7 +28,7 @@ func safeGo(tag string, fn func()) {
 	}()
 }
 
-// filterByRole 根据角色对查询施加数据权限过滤（公共函数，避免各 handler 重复 switch）
+// filterByRole 根据角色对查询施加数据权限过滤（v2.0: admin/follow/sales 三角色）
 // 返回 false 表示角色未知 / 无权限，由调用方决定具体的 HTTP 错误码
 func filterByRole(query *gorm.DB, role, userID string) (*gorm.DB, bool) {
 	switch role {
@@ -39,8 +39,6 @@ func filterByRole(query *gorm.DB, role, userID string) (*gorm.DB, bool) {
 		return query.Where("operator_id = ? OR follow_operator_id = ?", userID, userID), true
 	case "sales":
 		return query.Where("operator_id = ?", userID), true
-	case "designer":
-		return query.Where("designer_id = ?", userID), true
 	default:
 		return query, false
 	}

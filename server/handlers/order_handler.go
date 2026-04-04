@@ -259,17 +259,13 @@ func UpdateOrderStatus(c *gin.Context) {
 		return
 	}
 
-	// 3. 属主权限校验 (对于设计师，只能操作自己的单子；客服也只能操作自己录的单子，除非是admin)
+	// 3. 属主权限校验 (客服只能操作自己的单子，除非是admin)
 	var order models.Order
 	if err := models.DB.First(&order, uint(id)).Error; err != nil {
 		notFound(c, "订单不存在")
 		return
 	}
 
-	if roleStr == "designer" && order.DesignerID != uidStr {
-		forbidden(c, "只能操作指派给自己的订单")
-		return
-	}
 	if roleStr == "sales" && order.OperatorID != uidStr {
 		forbidden(c, "只能操作自己录入的订单")
 		return
@@ -405,11 +401,6 @@ func BatchUpdateOrderStatus(c *gin.Context) {
 		result.OrderSN = order.OrderSN
 
 		// 属主权限校验
-		if roleStr == "designer" && order.DesignerID != uidStr {
-			result.Error = "只能操作指派给自己的订单"
-			results = append(results, result)
-			continue
-		}
 		if roleStr == "sales" && order.OperatorID != uidStr {
 			result.Error = "只能操作自己录入的订单"
 			results = append(results, result)
@@ -983,9 +974,7 @@ func ListFollowStaff(c *gin.Context) {
 	respondOK(c, gin.H{"data": result})
 }
 
-// ─── 个人统计 (所有角色可用) ──────────────────────────────────
-
-// GetMyStats 返回当前用户角色相关的订单统计数据（非管理员仪表盘）
+// GetMyStats 返回当前用户角色相关的订单统计数据（v2.0 简化版）
 func GetMyStats(c *gin.Context) {
 	roleVal, _ := c.Get("role")
 	uidVal, _ := c.Get("wecom_userid")
@@ -1007,21 +996,17 @@ func GetMyStats(c *gin.Context) {
 		return q
 	}
 
-	var totalOrders, pendingOrders, designingOrders, deliveredOrders, completedOrders, todayOrders int64
+	var totalOrders, pendingOrders, designingOrders, completedOrders, todayOrders int64
 	var totalRevenue, todayRevenue int64
-	var afterSaleOrders, revisionOrders int64
 
 	baseQ().Count(&totalOrders)
-	baseQ().Where("status IN ?", []string{"PENDING", "GROUP_CREATED", "CONFIRMED"}).Count(&pendingOrders)
+	baseQ().Where("status = ?", "PENDING").Count(&pendingOrders)
 	baseQ().Where("status = ?", "DESIGNING").Count(&designingOrders)
-	baseQ().Where("status = ?", "DELIVERED").Count(&deliveredOrders)
 	baseQ().Where("status = ?", "COMPLETED").Count(&completedOrders)
-	baseQ().Where("status = ?", "AFTER_SALE").Count(&afterSaleOrders)
-	baseQ().Where("status = ?", "REVISION").Count(&revisionOrders)
 	baseQ().Where("created_at >= ?", todayStart).Count(&todayOrders)
 
 	// 营收统计
-	baseQ().Where("status IN ?", []string{"COMPLETED", "DELIVERED", "DESIGNING"}).
+	baseQ().Where("status IN ?", []string{"COMPLETED", "DESIGNING"}).
 		Select("COALESCE(SUM(price), 0)").Scan(&totalRevenue)
 	baseQ().Where("created_at >= ?", todayStart).
 		Select("COALESCE(SUM(price), 0)").Scan(&todayRevenue)
@@ -1029,8 +1014,6 @@ func GetMyStats(c *gin.Context) {
 	// ── 佣金统计 ──────────────────────────────────
 	var commissionField string
 	switch role {
-	case "designer":
-		commissionField = "designer_commission"
 	case "sales":
 		commissionField = "sales_commission"
 	case "follow":
@@ -1052,28 +1035,17 @@ func GetMyStats(c *gin.Context) {
 	q.Find(&recentOrders)
 
 	result := gin.H{
-		"role":              role,
-		"total_orders":      totalOrders,
-		"pending_orders":    pendingOrders,
-		"designing_orders":  designingOrders,
-		"delivered_orders":  deliveredOrders,
-		"completed_orders":  completedOrders,
-		"after_sale_orders": afterSaleOrders,
-		"revision_orders":   revisionOrders,
-		"today_orders":      todayOrders,
-		"total_revenue":     totalRevenue,
-		"today_revenue":     todayRevenue,
-		"total_commission":  totalCommission,
-		"month_commission":  monthCommission,
-		"recent_orders":     recentOrders,
-	}
-
-	// ── 设计师专属: 可抢单队列 ──────────────────────────────────
-	if role == "designer" {
-		var grabQueue []models.Order
-		models.DB.Where("status = ? AND designer_id = ''", "CONFIRMED").
-			Order("created_at ASC").Limit(10).Find(&grabQueue)
-		result["grab_queue"] = grabQueue
+		"role":             role,
+		"total_orders":     totalOrders,
+		"pending_orders":   pendingOrders,
+		"designing_orders": designingOrders,
+		"completed_orders": completedOrders,
+		"today_orders":     todayOrders,
+		"total_revenue":    totalRevenue,
+		"today_revenue":    todayRevenue,
+		"total_commission": totalCommission,
+		"month_commission": monthCommission,
+		"recent_orders":    recentOrders,
 	}
 
 	respondOK(c, result)

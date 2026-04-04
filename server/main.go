@@ -199,6 +199,7 @@ func main() {
 			orderAuth.GET("/follow-staff", handlers.ListFollowStaff)
 			// 花名册
 			orderAuth.GET("/designers", handlers.SearchDesigners)
+			orderAuth.GET("/designers/list", handlers.ListDesignersWithStats)
 			orderAuth.POST("/designers", handlers.CreateDesigner)
 			// 跟单操作
 			orderAuth.PUT("/:id/assign-designer", handlers.AssignDesigner)
@@ -261,6 +262,7 @@ func main() {
 			admin.PUT("/employees/batch_toggle", handlers.BatchToggleEmployees)
 			admin.POST("/employees/batch_delete", handlers.BatchDeleteEmployees)
 			admin.GET("/team_workload", handlers.GetTeamWorkload)
+			admin.GET("/team_roster", handlers.GetTeamRoster)
 			admin.GET("/profit_breakdown", handlers.GetProfitBreakdown)
 			admin.GET("/audit_logs", handlers.ListAuditLogs)
 			admin.POST("/versions", handlers.CreateAppVersion)

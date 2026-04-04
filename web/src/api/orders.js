@@ -14,12 +14,13 @@ export const listPendingMatchOrders = (params) => client.get('/orders/pending-ma
 export const matchOrderContact = (id, data) => client.post(`/orders/${id}/match`, data);
 export const reassignOrder = (id, designerUserid) => client.put(`/orders/${id}/reassign`, { designer_userid: designerUserid });
 export const getMyStats = (config) => client.get('/orders/my-stats', config);
-export const grabOrder = (orderId) => client.post('/orders/grab', { order_id: orderId });
 
 // 花名册
 export const searchDesigners = (q) => client.get('/orders/designers', { params: { q } });
+export const listDesignerRoster = (params) => client.get('/orders/designers/list', { params });
 export const createDesigner = (data) => client.post('/orders/designers', data);
 
 // 跟单操作
 export const assignDesigner = (orderId, data) => client.put(`/orders/${orderId}/assign-designer`, data);
 export const adjustCommission = (orderId, data) => client.put(`/orders/${orderId}/adjust-commission`, data);
+export const listDesignersWithStats = () => client.get('/orders/designers/list');

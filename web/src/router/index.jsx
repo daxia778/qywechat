@@ -70,6 +70,7 @@ const EmployeesPage = lazyWithRetry(() => import('../pages/EmployeesPage'));
 const RevenuePage = lazyWithRetry(() => import('../pages/RevenuePage'));
 const CustomersPage = lazyWithRetry(() => import('../pages/CustomersPage'));
 const PaymentsPage = lazyWithRetry(() => import('../pages/PaymentsPage'));
+const DesignersRosterPage = lazyWithRetry(() => import('../pages/DesignersRosterPage'));
 
 // ── Staff Pages ──
 const StaffLayout = lazyWithRetry(() => import('../components/layout/StaffLayout'));
@@ -140,6 +141,7 @@ export default function AppRouter() {
                 <Route path="/employees" element={<EmployeesPage />} />
                 <Route path="/revenue" element={<RevenuePage />} />
                 <Route path="/payments" element={<PaymentsPage />} />
+                <Route path="/designers" element={<DesignersRosterPage />} />
               </Route>
             </Route>
 
@@ -150,6 +152,7 @@ export default function AppRouter() {
                 <Route path="dashboard" element={<StaffDashboard />} />
                 <Route path="orders" element={<MyOrdersPage />} />
                 <Route path="orders/:id" element={<StaffOrderDetail />} />
+                <Route path="designers" element={<DesignersRosterPage />} />
               </Route>
             </Route>
 

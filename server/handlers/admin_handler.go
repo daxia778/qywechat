@@ -275,7 +275,96 @@ func GetTeamWorkload(c *gin.Context) {
 	respondOK(c, gin.H{"data": result})
 }
 
-// ─── 抢单监控 ──────────────────────────────────────────
+// GetTeamRoster 客服绩效花名册 (admin only)
+// GET /api/v1/admin/team_roster
+func GetTeamRoster(c *gin.Context) {
+	var employees []models.Employee
+	models.DB.Where("is_active = ? AND role IN ?", true, []string{"sales", "follow"}).
+		Order("role ASC, name ASC").Find(&employees)
+
+	type StaffStats struct {
+		ID               uint    `json:"id"`
+		Name             string  `json:"name"`
+		Role             string  `json:"role"`
+		Username         string  `json:"username"`
+		TotalOrders      int     `json:"total_orders"`
+		DesigningOrders  int     `json:"designing_orders"`
+		CompletedOrders  int     `json:"completed_orders"`
+		RefundedOrders   int     `json:"refunded_orders"`
+		TotalRevenue     int     `json:"total_revenue"`
+		TotalCommission  int     `json:"total_commission"`
+		MonthOrders      int     `json:"month_orders"`
+		MonthRevenue     int     `json:"month_revenue"`
+		RefundRate       float64 `json:"refund_rate"`
+		IsOnline         bool    `json:"is_online"`
+	}
+
+	results := make([]StaffStats, 0, len(employees))
+	for _, emp := range employees {
+		var stats struct {
+			Total     int `gorm:"column:total"`
+			Designing int `gorm:"column:designing"`
+			Completed int `gorm:"column:completed"`
+			Refunded  int `gorm:"column:refunded"`
+			Revenue   int `gorm:"column:revenue"`
+			Comm      int `gorm:"column:comm"`
+		}
+
+		// 根据角色用不同字段关联查订单
+		orderField := "operator_id"
+		commField := "sales_commission"
+		if emp.Role == "follow" {
+			orderField = "follow_operator_id"
+			commField = "follow_commission"
+		}
+
+		models.DB.Model(&models.Order{}).
+			Where(orderField+" = ?", emp.WecomUserID).
+			Select(`
+				COUNT(*) as total,
+				SUM(CASE WHEN status = 'DESIGNING' THEN 1 ELSE 0 END) as designing,
+				SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
+				SUM(CASE WHEN status = 'REFUNDED' THEN 1 ELSE 0 END) as refunded,
+				COALESCE(SUM(price), 0) as revenue,
+				COALESCE(SUM(`+commField+`), 0) as comm
+			`).Scan(&stats)
+
+		// 当月统计
+		var monthStats struct {
+			Orders  int `gorm:"column:orders"`
+			Revenue int `gorm:"column:revenue"`
+		}
+		models.DB.Model(&models.Order{}).
+			Where(orderField+" = ? AND created_at >= date('now', 'start of month')", emp.WecomUserID).
+			Select("COUNT(*) as orders, COALESCE(SUM(price), 0) as revenue").
+			Scan(&monthStats)
+
+		var refundRate float64
+		totalDone := stats.Completed + stats.Refunded
+		if totalDone > 0 {
+			refundRate = float64(stats.Refunded) / float64(totalDone) * 100
+		}
+
+		results = append(results, StaffStats{
+			ID:              emp.ID,
+			Name:            emp.Name,
+			Role:            emp.Role,
+			Username:        emp.Username,
+			TotalOrders:     stats.Total,
+			DesigningOrders: stats.Designing,
+			CompletedOrders: stats.Completed,
+			RefundedOrders:  stats.Refunded,
+			TotalRevenue:    stats.Revenue,
+			TotalCommission: stats.Comm,
+			MonthOrders:     monthStats.Orders,
+			MonthRevenue:    monthStats.Revenue,
+			RefundRate:      refundRate,
+			IsOnline:        services.Hub.UserClientCount(emp.WecomUserID) > 0,
+		})
+	}
+
+	respondOK(c, gin.H{"data": results})
+}
 
 // GetGrabAlerts 获取当前超时抢单列表
 func GetGrabAlerts(c *gin.Context) {
