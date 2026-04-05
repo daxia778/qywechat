@@ -99,10 +99,10 @@ func RateLimitByIP(rps float64, burst int) gin.HandlerFunc {
 	}
 }
 
-// APIRateLimit 返回 API 通用限速中间件 (60 请求/分钟/IP)
+// APIRateLimit 返回 API 通用限速中间件 (120 请求/分钟/IP)
 func APIRateLimit() gin.HandlerFunc {
-	// 60 requests per minute = 1 request per second, burst 10
-	return RateLimitByIP(1.0, 10)
+	// 120 requests per minute = 2 requests per second, burst 30
+	return RateLimitByIP(2.0, 30)
 }
 
 // LoginRateLimit 返回登录端点限速中间件 (5 请求/分钟/IP)

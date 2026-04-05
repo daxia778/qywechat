@@ -239,6 +239,9 @@ func AssignDesigner(c *gin.Context) {
 	}
 
 	var designer models.FreelanceDesigner
+	isReassign := order.FreelanceDesignerID > 0
+	oldDesignerName := order.FreelanceDesignerName
+	oldDesignerID := order.FreelanceDesignerID
 
 	err = models.WriteTx(func(tx *gorm.DB) error {
 		if body.FreelanceDesignerID > 0 {
@@ -264,6 +267,11 @@ func AssignDesigner(c *gin.Context) {
 			"freelance_designer_name": designer.Name,
 		}
 
+		// cost_price 为 0（未手动指定）时，自动设为订单总价的 25%
+		if order.CostPrice == 0 {
+			updates["cost_price"] = (order.Price + order.ExtraPrice) * 25 / 100
+		}
+
 		// 如果订单是 PENDING，自动流转为 DESIGNING
 		if order.Status == models.StatusPending {
 			updates["status"] = models.StatusDesigning
@@ -273,16 +281,28 @@ func AssignDesigner(c *gin.Context) {
 			return err
 		}
 
-		// 更新花名册接单数
+		// 换人场景：旧设计师 total_orders 减一
+		if isReassign {
+			tx.Model(&models.FreelanceDesigner{}).
+				Where("id = ? AND total_orders > 0", oldDesignerID).
+				Update("total_orders", gorm.Expr("total_orders - 1"))
+		}
+
+		// 更新新设计师接单数
 		tx.Model(&designer).Update("total_orders", gorm.Expr("total_orders + 1"))
 
 		// 记录时间线
 		timeline := models.OrderTimeline{
 			OrderID:      order.ID,
-			EventType:    "designer_assigned",
 			OperatorID:   uidStr,
 			OperatorName: operatorName,
-			Remark:       fmt.Sprintf("关联设计师: %s", designer.Name),
+		}
+		if isReassign {
+			timeline.EventType = "designer_reassigned"
+			timeline.Remark = fmt.Sprintf("将设计师从 %s 更换为 %s", oldDesignerName, designer.Name)
+		} else {
+			timeline.EventType = "designer_assigned"
+			timeline.Remark = fmt.Sprintf("关联设计师: %s", designer.Name)
 		}
 		if order.Status == models.StatusPending {
 			timeline.FromStatus = models.StatusPending
@@ -296,6 +316,9 @@ func AssignDesigner(c *gin.Context) {
 		badRequest(c, err.Error())
 		return
 	}
+
+	// cost_price 变动时触发分润重算
+	services.TriggerProfitRecalculation(order.ID)
 
 	// 重新查询订单
 	models.DB.First(&order, uint(id))
@@ -338,7 +361,7 @@ func AssignDesigner(c *gin.Context) {
 	}
 }
 
-// AdjustCommission 修改设计师佣金比例（跟单客服/管理员权限）
+// AdjustCommission 修改设计师佣金金额（跟单客服/管理员权限）
 // PUT /api/v1/orders/:id/adjust-commission
 func AdjustCommission(c *gin.Context) {
 	role, _ := c.Get("role")
@@ -356,15 +379,15 @@ func AdjustCommission(c *gin.Context) {
 	}
 
 	var body struct {
-		DesignerCommissionRate int `json:"designer_commission_rate" binding:"required"` // 百分比, 如 30 表示 30%
+		DesignerCommission float64 `json:"designer_commission" binding:"required"` // 金额（元）
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		badRequest(c, "请提供 designer_commission_rate")
+		badRequest(c, "请提供 designer_commission（元）")
 		return
 	}
 
-	if body.DesignerCommissionRate < 0 || body.DesignerCommissionRate > 100 {
-		badRequest(c, "佣金比例必须在 0-100 之间")
+	if body.DesignerCommission < 0 {
+		badRequest(c, "佣金金额不能为负数")
 		return
 	}
 
@@ -383,10 +406,21 @@ func AdjustCommission(c *gin.Context) {
 		operatorName, _ = name.(string)
 	}
 
-	// 计算新的佣金金额
+	// 计算新的佣金金额（元转分）
 	totalAmount := order.Price + order.ExtraPrice
 	oldCommission := order.DesignerCommission
-	newCommission := int(math.Round(float64(totalAmount) * float64(body.DesignerCommissionRate) / 100.0))
+	newCommission := int(math.Round(body.DesignerCommission * 100)) // 元→分
+
+	if totalAmount > 0 && newCommission > totalAmount {
+		badRequest(c, "佣金金额不能超过订单总额")
+		return
+	}
+
+	// 反算佣金比例用于记录
+	var commissionRate float64
+	if totalAmount > 0 {
+		commissionRate = float64(newCommission) / float64(totalAmount) * 100
+	}
 
 	// 重算其他分润字段
 	platformRate := config.C.PlatformFeeRate
@@ -419,7 +453,7 @@ func AdjustCommission(c *gin.Context) {
 			NewValue:     strconv.Itoa(newCommission),
 			OperatorID:   uidStr,
 			OperatorName: operatorName,
-			Remark:       fmt.Sprintf("设计师佣金比例调整为 %d%%（%d分 -> %d分）", body.DesignerCommissionRate, oldCommission, newCommission),
+			Remark:       fmt.Sprintf("设计师佣金调整为 ¥%.2f（%.1f%%，%d分 -> %d分）", body.DesignerCommission, commissionRate, oldCommission, newCommission),
 		}).Error
 	})
 

@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { Outlet, useLocation, useNavigate, NavLink } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
+import { useWebSocket, WS_STATE } from '../../hooks/useWebSocket'
 import { ROLE_LABELS } from '../../utils/constants'
 
-const NAV_ITEMS = [
+const BASE_NAV_ITEMS = [
   {
     path: '/s/dashboard',
     title: '工作台',
@@ -20,6 +21,16 @@ const NAV_ITEMS = [
     icon: (
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15a2.25 2.25 0 012.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+      </svg>
+    ),
+  },
+  {
+    path: '/s/payments',
+    title: '收款流水',
+    roles: ['follow'],
+    icon: (
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 12V7H5a2 2 0 010-4h14v4" /><path d="M3 5v14a2 2 0 002 2h16v-5" /><path d="M18 12a2 2 0 000 4h4v-4h-4z" />
       </svg>
     ),
   },
@@ -47,6 +58,17 @@ export default function StaffLayout() {
 
   const roleLabel = ROLE_LABELS[user?.role] || user?.role || '员工'
   const userInitials = (user?.name || '员工').substring(0, 2)
+  const { connectionState, retry, connect } = useWebSocket()
+
+  const NAV_ITEMS = useMemo(() =>
+    BASE_NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(user?.role)),
+    [user?.role]
+  )
+
+  // Connect WebSocket
+  useEffect(() => {
+    connect()
+  }, [connect])
 
   const currentRouteName = NAV_ITEMS.find(
     (r) => r.path === location.pathname || location.pathname.startsWith(r.path)
@@ -143,7 +165,7 @@ export default function StaffLayout() {
         <div className="flex-1 overflow-y-auto py-3 scrollbar-hide">
           <nav className="px-3 space-y-0.5">
             {(!collapsed || mobileOpen) && (
-              <p className="px-3 mb-2 mt-2 text-[10px] font-semibold text-white/40 uppercase tracking-[0.12em]">菜单</p>
+              <p className="px-3 mb-2 mt-2 text-[13px] font-medium text-white/40 tracking-[0.06em]">菜单</p>
             )}
             {NAV_ITEMS.map((route) => {
               const isActive = location.pathname === route.path || (route.path !== '/' && location.pathname.startsWith(route.path))
@@ -206,6 +228,45 @@ export default function StaffLayout() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* WebSocket Connection Indicator */}
+            <div
+              className={`shrink-0 flex items-center gap-1.5 px-1.5 py-1 rounded-md ${
+                connectionState === WS_STATE.OFFLINE ? 'cursor-pointer hover:bg-slate-100' : 'cursor-default'
+              }`}
+              title={
+                connectionState === WS_STATE.CONNECTED
+                  ? '实时连接正常'
+                  : connectionState === WS_STATE.RECONNECTING
+                  ? '正在重新连接...'
+                  : connectionState === WS_STATE.OFFLINE
+                  ? '后端不可达，点击重试'
+                  : '连接已断开'
+              }
+              onClick={connectionState === WS_STATE.OFFLINE ? retry : undefined}
+            >
+              <span
+                className={`inline-block w-2 h-2 rounded-full transition-colors duration-300 ${
+                  connectionState === WS_STATE.CONNECTED
+                    ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.45)]'
+                    : connectionState === WS_STATE.RECONNECTING
+                    ? 'bg-amber-400 animate-breathe shadow-[0_0_6px_rgba(251,191,36,0.4)]'
+                    : connectionState === WS_STATE.OFFLINE
+                    ? 'bg-[#c8cad0]'
+                    : 'bg-red-500 animate-soft-pulse shadow-[0_0_6px_rgba(239,68,68,0.4)]'
+                }`}
+              />
+              <span className={`hidden lg:inline text-[12px] font-medium whitespace-nowrap ${
+                connectionState === WS_STATE.CONNECTED
+                  ? 'text-emerald-600'
+                  : connectionState === WS_STATE.RECONNECTING
+                  ? 'text-amber-500'
+                  : connectionState === WS_STATE.OFFLINE
+                  ? 'text-[#9a9bab]'
+                  : 'text-red-500'
+              }`}>
+                {connectionState === WS_STATE.CONNECTED ? '已连接' : connectionState === WS_STATE.RECONNECTING ? '重连中' : connectionState === WS_STATE.OFFLINE ? '离线' : '已断开'}
+              </span>
+            </div>
             {/* User Avatar + Name + Logout */}
             <div className="flex items-center gap-1.5 hover:bg-[#f3f4f5] p-1 pr-1.5 rounded-xl cursor-pointer transition-colors shrink-0">
               <div

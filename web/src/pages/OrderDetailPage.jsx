@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
-import { getOrderDetail, getOrderTimeline, updateOrderStatus, updateOrderAmount, searchDesigners, assignDesigner, adjustCommission } from '../api/orders';
+import { getOrderDetail, getOrderTimeline, updateOrderStatus, updateOrderAmount, searchDesigners, assignDesigner, adjustCommission, createOrderGroup } from '../api/orders';
 import { getCustomerDetail } from '../api/customers';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
@@ -88,6 +88,9 @@ export default function OrderDetailPage() {
   const [newDesignerWechat, setNewDesignerWechat] = useState('');
   const [newDesignerPhone, setNewDesignerPhone] = useState('');
   const [newDesignerSpecialty, setNewDesignerSpecialty] = useState('');
+
+  // 建群状态
+  const [creatingGroup, setCreatingGroup] = useState(false);
 
   // 调整佣金状态
   const [showCommissionModal, setShowCommissionModal] = useState(false);
@@ -222,16 +225,29 @@ export default function OrderDetailPage() {
     }
   };
 
+  const doCreateGroup = async () => {
+    setCreatingGroup(true);
+    try {
+      await createOrderGroup(id);
+      toast('企微群聊创建成功', 'success');
+      fetchDetail();
+    } catch (err) {
+      toast('建群失败: ' + (err.displayMessage || err.message), 'error');
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
+
   const doAdjustCommission = async () => {
     const val = parseFloat(commissionRate);
-    if (isNaN(val) || val < 0 || val > 100) {
-      toast('请输入 0-100 之间的数值', 'warning');
+    if (isNaN(val) || val < 0) {
+      toast('请输入有效的佣金金额', 'warning');
       return;
     }
     setCommissionSubmitting(true);
     try {
-      await adjustCommission(id, { designer_commission_rate: val });
-      toast('佣金比例调整成功', 'success');
+      await adjustCommission(id, { designer_commission: val });
+      toast('佣金调整成功', 'success');
       setShowCommissionModal(false);
       fetchDetail();
     } catch (err) {
@@ -409,9 +425,25 @@ export default function OrderDetailPage() {
                 doUpdateStatus('REFUNDED', reason);
               })} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-400 text-amber-600 hover:bg-amber-50 text-[12px] bg-white active:scale-[0.98]">退款</button>
             )}
-            {/* 调整佣金 (非终态时可用) */}
-            {!['COMPLETED'].includes(order.status) && canOperate('follow') && (
-              <button onClick={() => { setCommissionRate(String(profit.designer_rate || 0)); setShowCommissionModal(true); }} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-purple-400 text-purple-600 hover:bg-purple-50 text-[12px] bg-white active:scale-[0.98]">
+            {/* 创建企微群 (DESIGNING 状态 + 无群聊 + admin/follow) */}
+            {order.status === 'DESIGNING' && !order.wecom_chat_id && canOperate('follow') && (
+              <button
+                onClick={() => showModal({
+                  title: '创建企微群', message: `确认为订单 ${order.order_sn} 创建企微工作群？`,
+                  type: 'info', confirmText: '确认创建',
+                  detail: { '订单号': order.order_sn, '主题': order.topic || '-', '金额': `¥${((order.price ?? 0) / 100).toFixed(2)}` },
+                }, () => doCreateGroup())}
+                disabled={creatingGroup}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-blue-400 text-blue-600 hover:bg-blue-50 text-[12px] bg-white active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {creatingGroup && <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>}
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                {creatingGroup ? '创建中...' : '创建企微群'}
+              </button>
+            )}
+            {/* 调整佣金 (非终态时可用, admin/follow) */}
+            {!['REFUNDED', 'CLOSED'].includes(order.status) && canOperate('follow') && (
+              <button onClick={() => { setCommissionRate(String(profit.designer_commission ? (profit.designer_commission / 100) : '')); setShowCommissionModal(true); }} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-purple-400 text-purple-600 hover:bg-purple-50 text-[12px] bg-white active:scale-[0.98]">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 调整佣金
               </button>
@@ -772,7 +804,7 @@ export default function OrderDetailPage() {
                   <p className="text-lg font-bold text-red-600 font-[Outfit] tabular-nums truncate">&yen;{(profit.platform_fee / 100).toFixed(2)}</p>
                 </div>
                 <div className="bg-blue-50/60 rounded-xl p-3 text-center border border-blue-100 hover:border-blue-200 transition-colors overflow-hidden">
-                  <p className="text-[11px] text-slate-500 mb-1 font-medium truncate">设计师 ({profit.designer_rate}%)</p>
+                  <p className="text-[11px] text-slate-500 mb-1 font-medium truncate">设计师佣金</p>
                   <p className="text-lg font-bold text-blue-600 font-[Outfit] tabular-nums truncate">&yen;{(profit.designer_commission / 100).toFixed(2)}</p>
                 </div>
                 <div className="bg-purple-50/60 rounded-xl p-3 text-center border border-purple-100 hover:border-purple-200 transition-colors overflow-hidden">
@@ -947,7 +979,7 @@ export default function OrderDetailPage() {
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-purple-50">
                   <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
-                <h3 className="font-bold text-slate-800 text-lg font-[Outfit]">调整佣金比例</h3>
+                <h3 className="font-bold text-slate-800 text-lg font-[Outfit]">调整佣金</h3>
               </div>
               <button onClick={() => setShowCommissionModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer bg-transparent border-none">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -955,20 +987,20 @@ export default function OrderDetailPage() {
             </div>
             <div className="px-6 py-5">
               <div className="bg-slate-50 rounded-xl p-4 mb-5">
-                <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">当前设计师佣金比例</p>
-                <p className="text-2xl font-bold text-slate-800 font-[Outfit] tabular-nums">{profit.designer_rate || 0}%</p>
+                <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">当前设计师佣金</p>
+                <p className="text-2xl font-bold text-slate-800 font-[Outfit] tabular-nums">&yen;{((profit.designer_commission || 0) / 100).toFixed(2)}</p>
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">新佣金比例 (%)</label>
+                <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">设计师佣金金额 (元)</label>
                 <input
-                  type="number" step="1" min="0" max="100"
+                  type="number" step="1" min="0"
                   value={commissionRate}
                   onChange={(e) => setCommissionRate(e.target.value)}
                   className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all tabular-nums"
-                  placeholder="输入 0-100 之间的数值"
+                  placeholder="输入佣金金额（整数元）"
                   autoFocus
                 />
-                <p className="text-[11px] text-slate-400 mt-2">修改后将影响该订单的设计师佣金计算</p>
+                <p className="text-[11px] text-slate-400 mt-2">修改后将直接设置该订单的设计师佣金</p>
               </div>
             </div>
             <div className="px-6 pb-6 pt-2 flex items-center justify-end gap-3">

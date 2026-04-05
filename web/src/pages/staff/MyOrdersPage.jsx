@@ -6,7 +6,7 @@ import { useToast } from '../../hooks/useToast';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useOrderFilters } from '../../hooks/useOrderFilters';
 import { useOrderActions } from '../../hooks/useOrderActions';
-import { getOrderDetail, getOrderTimeline } from '../../api/orders';
+import { getOrderDetail, getOrderTimeline, adjustCommission } from '../../api/orders';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ORDER_TABS } from '../../utils/constants';
 import { formatTime } from '../../utils/formatters';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -138,6 +138,40 @@ export default function MyOrdersPage() {
   const [drawerData, setDrawerData] = useState({ order: {}, timeline: [], people: {} });
   const [drawerLoading, setDrawerLoading] = useState(false);
 
+  // ── Commission adjustment state ──
+  const [showCommissionModal, setShowCommissionModal] = useState(false);
+  const [commissionRate, setCommissionRate] = useState('');
+  const [commissionSubmitting, setCommissionSubmitting] = useState(false);
+
+  const doAdjustCommission = async () => {
+    const val = parseFloat(commissionRate);
+    if (isNaN(val) || val < 0) {
+      toast('请输入有效的佣金金额', 'warning');
+      return;
+    }
+    if (!drawerOrder) return;
+    setCommissionSubmitting(true);
+    try {
+      await adjustCommission(drawerOrder.id, { designer_commission: val });
+      toast('佣金调整成功', 'success');
+      setShowCommissionModal(false);
+      const [detailRes, timelineRes] = await Promise.all([
+        getOrderDetail(drawerOrder.id),
+        getOrderTimeline(drawerOrder.id),
+      ]);
+      setDrawerData({
+        order: detailRes.data.order || {},
+        timeline: timelineRes.data.data || [],
+        people: detailRes.data.people || {},
+      });
+      fetchOrders();
+    } catch (err) {
+      toast('调整失败: ' + (err.displayMessage || err.message), 'error');
+    } finally {
+      setCommissionSubmitting(false);
+    }
+  };
+
   const openDrawer = async (order) => {
     setDrawerOrder(order);
     setDrawerLoading(true);
@@ -183,18 +217,62 @@ export default function MyOrdersPage() {
 
   return (
     <div className="flex flex-col gap-5 w-full max-w-[1200px] mx-auto">
-      <ConfirmModal
-        visible={modal.show}
-        title={modal.title}
-        message={modal.message}
-        type={modal.type}
-        detail={modal.detail}
-        showInput={modal.showInput}
-        inputPlaceholder={modal.inputPlaceholder}
-        confirmText={modal.confirmText}
-        onConfirm={onModalConfirm}
-        onCancel={() => setModal((m) => ({ ...m, show: false }))}
-      />
+      {modal.show && createPortal(
+        <ConfirmModal
+          visible={modal.show}
+          title={modal.title}
+          message={modal.message}
+          type={modal.type}
+          detail={modal.detail}
+          showInput={modal.showInput}
+          inputPlaceholder={modal.inputPlaceholder}
+          confirmText={modal.confirmText}
+          onConfirm={onModalConfirm}
+          onCancel={() => setModal((m) => ({ ...m, show: false }))}
+        />,
+        document.body
+      )}
+
+      {/* Commission Adjustment Modal */}
+      {showCommissionModal && createPortal(
+        <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/40 backdrop-blur-[2px]" onClick={() => setShowCommissionModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 pt-6 pb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-purple-50">
+                  <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+                <h3 className="font-bold text-slate-800 text-lg font-[Outfit]">调整佣金</h3>
+              </div>
+              <button onClick={() => setShowCommissionModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer bg-transparent border-none">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="px-6 py-5">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">设计师佣金金额 (元)</label>
+                <input
+                  type="number" step="1" min="0"
+                  value={commissionRate}
+                  onChange={(e) => setCommissionRate(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && commissionRate) { e.preventDefault(); doAdjustCommission(); } }}
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all tabular-nums"
+                  placeholder="输入佣金金额（整数元）"
+                  autoFocus
+                />
+                <p className="text-[11px] text-slate-400 mt-2">修改后将直接设置该订单的设计师佣金</p>
+              </div>
+            </div>
+            <div className="px-6 pb-6 pt-2 flex items-center justify-end gap-3">
+              <button onClick={() => setShowCommissionModal(false)} disabled={commissionSubmitting} className="px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer bg-transparent border-none disabled:opacity-50">取消</button>
+              <button onClick={doAdjustCommission} disabled={commissionSubmitting} className="px-5 py-2.5 text-sm font-semibold text-white rounded-xl bg-purple-500 hover:bg-purple-600 transition-all cursor-pointer border-none shadow-sm disabled:opacity-50 active:scale-[0.97]">
+                {commissionSubmitting ? '调整中...' : '确认调整'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Image Lightbox (Portal to body with zoom/pan) */}
       {previewImage && createPortal(
@@ -256,7 +334,7 @@ export default function MyOrdersPage() {
       {/* Main Card */}
       <div className="bg-surface-container-lowest ghost-border rounded-xl flex flex-col overflow-hidden hover:border-[#434FCF]/20 transition-colors">
         {/* Tabs & Search */}
-        <div className="px-6 border-b border-slate-200 bg-white flex justify-between items-end gap-4">
+        <div className="px-6 border-b border-slate-200 bg-white flex justify-between items-center gap-4">
           <div className="flex gap-1 overflow-x-auto scrollbar-hide pt-3" role="tablist" aria-label="订单状态筛选">
             {ORDER_TABS.map((s) => (
               <button
@@ -279,7 +357,7 @@ export default function MyOrdersPage() {
               </button>
             ))}
           </div>
-          <div className="pb-3 shrink-0">
+          <div className="py-3 shrink-0">
             <div className="relative w-52">
               <input
                 value={searchKeyword}
@@ -287,15 +365,15 @@ export default function MyOrdersPage() {
                 type="text"
                 placeholder="搜索订单..."
                 aria-label="搜索订单"
-                className="w-full pl-9 pr-3 py-1.5 text-[13px] text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+                className="w-full pl-9 pr-3 py-1.5 text-[13px] text-slate-800 bg-slate-50 border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:bg-white focus:border-slate-300 focus:shadow-[0_0_0_3px_rgba(67,79,207,0.08)]"
               />
-              <svg className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             </div>
           </div>
         </div>
 
         {/* Table */}
-        <div className="w-full overflow-x-auto relative min-h-[450px]">
+        <div className="w-full overflow-hidden relative min-h-[450px]">
           {loading && orders.length === 0 && <LoadingSpinner />}
           <table className="w-full" style={{ tableLayout: 'fixed' }}>
             <colgroup>
@@ -308,7 +386,7 @@ export default function MyOrdersPage() {
             </colgroup>
             <thead>
               <tr>
-                <th className="text-left pl-4">订单信息</th>
+                <th className="text-left" style={{ paddingLeft: 36 }}>订单信息</th>
                 <th className="text-center">客户</th>
                 <th className="text-center">金额</th>
                 <th className="text-center">负责人</th>
@@ -465,6 +543,25 @@ export default function MyOrdersPage() {
                       </div>
                     </div>
 
+                    {/* 佣金调整入口 (follow/admin, 非退款状态) */}
+                    {(role === 'admin' || role === 'follow') && !['REFUNDED', 'CLOSED'].includes(drawerOrder?.status) && (
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <button
+                          onClick={() => { setCommissionRate(''); setShowCommissionModal(true); }}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-[12px] font-semibold rounded-xl border border-purple-200 text-purple-600 bg-white hover:bg-purple-50 hover:border-purple-300 transition-all cursor-pointer active:scale-[0.97]"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          调整佣金
+                        </button>
+                        {drawerData.order.commission_adjusted && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                            已调整
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     {/* Order info */}
                     <div>
                       <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">订单信息</h4>
@@ -542,9 +639,11 @@ export default function MyOrdersPage() {
 
 // ── Memoized Order Row ──
 const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirmComplete, onHandleRefund, onPreviewImage, onOpenDrawer }) {
+  const canRefund = ['DESIGNING', 'REVISION', 'AFTER_SALE', 'COMPLETED'].includes(order.status) && (role === 'admin' || role === 'follow');
+
   return (
-    <tr className="group transition-colors cursor-pointer hover:bg-[#FAFBFC]" onClick={() => onOpenDrawer(order)}>
-      <td className="pl-4 overflow-hidden">
+    <tr className="group relative transition-colors cursor-pointer hover:bg-[#FAFBFC]" onClick={() => onOpenDrawer(order)}>
+      <td className="overflow-hidden">
         <div className="flex items-center gap-2.5">
           {order.screenshot_path ? (
             <button
@@ -582,12 +681,10 @@ const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirm
             <span className="text-slate-400 text-[11px]">谈单</span>
             <span className="text-slate-700 font-medium text-[11px] truncate">{order.operator_id || '待分配'}</span>
           </div>
-          {order.follow_operator_id && (
-            <div className="flex items-center gap-1.5 text-slate-500">
-              <span className="text-slate-400 text-[11px]">跟单</span>
-              <span className="text-slate-700 font-medium text-[11px] truncate">{order.follow_operator_id}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-1.5 text-slate-500">
+            <span className="text-slate-400 text-[11px]">跟单</span>
+            <span className="text-slate-700 font-medium text-[11px] truncate">{order.follow_operator_id || '待分配'}</span>
+          </div>
           <div className="flex items-center gap-1.5 text-slate-500">
             <span className="text-slate-400 text-[11px]">设计</span>
             <span className="text-slate-700 font-medium text-[11px] truncate">{order.freelance_designer_name || order.designer_id || '待分配'}</span>
@@ -597,21 +694,21 @@ const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirm
       <td className="text-center">
         <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide whitespace-nowrap ${BADGE_VARIANT_CLASSES[STATUS_BADGE_MAP[order.status]] || BADGE_VARIANT_CLASSES.secondary}`}>{STATUS_MAP[order.status] || order.status}</span>
       </td>
-      <td className="text-center" onClick={(e) => e.stopPropagation()}>
-        <div className="text-[11px] text-slate-400 font-medium tabular-nums mb-1">{formatTime(order.created_at)}</div>
-        <div className="flex flex-wrap items-center justify-center gap-1">
-          {/* DESIGNING/REVISION/AFTER_SALE: 已完成 + 退款 */}
-          {['DESIGNING', 'REVISION', 'AFTER_SALE'].includes(order.status) && (role === 'admin' || role === 'follow') && (
-            <>
-              <button onClick={() => onConfirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg bg-white active:scale-[0.98]">已完成</button>
-              <button onClick={() => onHandleRefund(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-300 text-amber-600 hover:bg-amber-50 bg-white active:scale-[0.98]">退款</button>
-            </>
-          )}
-          {/* COMPLETED: 退款 */}
-          {order.status === 'COMPLETED' && (role === 'admin' || role === 'follow') && (
-            <button onClick={() => onHandleRefund(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-300 text-amber-600 hover:bg-amber-50 bg-white active:scale-[0.98]">退款</button>
-          )}
-        </div>
+      <td className="text-center relative" onClick={(e) => e.stopPropagation()}>
+          {/* 下一步操作按钮（每个状态只显示一个） */}
+          {(() => {
+            const canOperate = role === 'admin' || role === 'follow';
+            const btnBase = "inline-flex items-center justify-center w-[72px] py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-150 cursor-pointer active:scale-[0.97]";
+            if (!canOperate) return null;
+            // 待处理类（含旧状态 GROUP_CREATED / CONFIRMED）→ 接单
+            if (['PENDING', 'GROUP_CREATED', 'CONFIRMED'].includes(order.status)) return <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className={`${btnBase} border border-blue-200 text-blue-600 hover:bg-blue-50 bg-white`}>接单</button>;
+            // 进行中类（含旧状态 DELIVERED）→ 完成
+            if (['DESIGNING', 'REVISION', 'AFTER_SALE', 'DELIVERED'].includes(order.status)) return <button onClick={() => onConfirmComplete(order)} className={`${btnBase} border border-emerald-200 text-emerald-600 hover:bg-emerald-50 bg-white`}>完成</button>;
+            // 已完成 → 退款（需确认+填写原因）
+            if (order.status === 'COMPLETED') return <button onClick={() => onHandleRefund(order)} className={`${btnBase} border border-red-200 text-red-600 hover:bg-red-50 bg-white`}>退款</button>;
+            // 终态（REFUNDED / CLOSED）→ 无操作
+            return null;
+          })()}
       </td>
     </tr>
   );

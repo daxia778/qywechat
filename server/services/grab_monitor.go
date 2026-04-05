@@ -218,25 +218,90 @@ func (m *GrabMonitor) checkDesigningTimeout() {
 	}
 }
 
-// GetGrabAlerts 获取当前超时抢单列表
-func GetGrabAlerts() ([]map[string]any, error) {
-	threshold := time.Now().Add(-Monitor.TimeoutThreshold)
+// GrabAlertFilter 告警查询筛选参数
+type GrabAlertFilter struct {
+	AlertType string // "grab" | "designing" | "" (全部)
+	Dismissed string // "true" | "false" | "" (全部)
+	StartDate string // "2006-01-02"
+	EndDate   string // "2006-01-02"
+	Page      int
+	PageSize  int
+}
 
-	var orders []models.Order
-	err := models.DB.Where(
-		"status = ? AND assigned_at IS NOT NULL AND assigned_at < ?",
-		models.StatusGroupCreated, threshold,
-	).Find(&orders).Error
-	if err != nil {
-		return nil, err
+// GetGrabAlerts 获取当前超时抢单列表（保持向后兼容）
+func GetGrabAlerts() ([]map[string]any, error) {
+	result, _, err := GetGrabAlertsPaged(GrabAlertFilter{})
+	return result, err
+}
+
+// GetGrabAlertsPaged 获取超时告警列表（支持分页、筛选）
+func GetGrabAlertsPaged(filter GrabAlertFilter) ([]map[string]any, int64, error) {
+	grabThreshold := time.Now().Add(-Monitor.TimeoutThreshold)
+	designingThreshold := time.Now().Add(-Monitor.DesigningTimeoutThreshold)
+
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.PageSize <= 0 || filter.PageSize > 100 {
+		filter.PageSize = 20
 	}
 
-	// 批量查设计师姓名，避免 N+1
-	designerIDs := make([]string, 0, len(orders))
-	for _, o := range orders {
-		if o.DesignerID != "" {
-			designerIDs = append(designerIDs, o.DesignerID)
+	// 分别查两种告警类型的订单
+	var grabOrders, designingOrders []models.Order
+
+	if filter.AlertType == "" || filter.AlertType == "grab" {
+		q := models.DB.Where(
+			"status = ? AND assigned_at IS NOT NULL AND assigned_at < ?",
+			models.StatusGroupCreated, grabThreshold,
+		)
+		if filter.Dismissed == "true" {
+			q = q.Where("alert_dismissed = ?", true)
+		} else if filter.Dismissed == "false" {
+			q = q.Where("alert_dismissed = ? OR alert_dismissed IS NULL", false)
 		}
+		if filter.StartDate != "" {
+			q = q.Where("assigned_at >= ?", filter.StartDate)
+		}
+		if filter.EndDate != "" {
+			q = q.Where("assigned_at <= ?", filter.EndDate+" 23:59:59")
+		}
+		q.Order("assigned_at ASC").Find(&grabOrders)
+	}
+
+	if filter.AlertType == "" || filter.AlertType == "designing" {
+		q := models.DB.Where(
+			"status = ? AND updated_at < ?",
+			models.StatusDesigning, designingThreshold,
+		)
+		if filter.Dismissed == "true" {
+			q = q.Where("alert_dismissed = ?", true)
+		} else if filter.Dismissed == "false" {
+			q = q.Where("alert_dismissed = ? OR alert_dismissed IS NULL", false)
+		}
+		if filter.StartDate != "" {
+			q = q.Where("updated_at >= ?", filter.StartDate)
+		}
+		if filter.EndDate != "" {
+			q = q.Where("updated_at <= ?", filter.EndDate+" 23:59:59")
+		}
+		q.Order("updated_at ASC").Find(&designingOrders)
+	}
+
+	// 批量查设计师姓名
+	designerIDSet := make(map[string]struct{})
+	for _, o := range grabOrders {
+		if o.DesignerID != "" {
+			designerIDSet[o.DesignerID] = struct{}{}
+		}
+	}
+	for _, o := range designingOrders {
+		if o.DesignerID != "" {
+			designerIDSet[o.DesignerID] = struct{}{}
+		}
+	}
+	designerIDs := make([]string, 0, len(designerIDSet))
+	for id := range designerIDSet {
+		designerIDs = append(designerIDs, id)
 	}
 	nameMap := make(map[string]string)
 	if len(designerIDs) > 0 {
@@ -247,24 +312,138 @@ func GetGrabAlerts() ([]map[string]any, error) {
 		}
 	}
 
-	results := make([]map[string]any, 0, len(orders))
-	for _, o := range orders {
-		// 安全检查: AssignedAt 可能为 nil，跳过避免 panic
+	// 组装结果
+	var allResults []map[string]any
+	for _, o := range grabOrders {
 		if o.AssignedAt == nil {
 			continue
 		}
-		results = append(results, map[string]any{
-			"order_id":        o.ID,
-			"order_sn":        o.OrderSN,
-			"designer_id":     o.DesignerID,
-			"designer_name":   nameMap[o.DesignerID],
-			"assigned_at":     o.AssignedAt,
-			"timeout_minutes": int(time.Since(*o.AssignedAt).Minutes()),
-			"price":           o.Price,
-			"topic":           o.Topic,
+		allResults = append(allResults, map[string]any{
+			"order_id":          o.ID,
+			"order_sn":          o.OrderSN,
+			"alert_type":        "grab",
+			"designer_id":       o.DesignerID,
+			"designer_name":     nameMap[o.DesignerID],
+			"assigned_at":       o.AssignedAt,
+			"overdue_minutes":   int(time.Since(*o.AssignedAt).Minutes()),
+			"timeout_minutes":   int(time.Since(*o.AssignedAt).Minutes()),
+			"price":             o.Price,
+			"topic":             o.Topic,
+			"status":            o.Status,
+			"operator_id":       o.OperatorID,
+			"follow_operator_id": o.FollowOperatorID,
+			"alert_dismissed":   o.AlertDismissed,
+			"created_at":        o.CreatedAt,
 		})
 	}
-	return results, nil
+	for _, o := range designingOrders {
+		elapsedMin := int(time.Since(o.UpdatedAt).Minutes())
+		allResults = append(allResults, map[string]any{
+			"order_id":          o.ID,
+			"order_sn":          o.OrderSN,
+			"alert_type":        "designing",
+			"designer_id":       o.DesignerID,
+			"designer_name":     nameMap[o.DesignerID],
+			"assigned_at":       o.AssignedAt,
+			"overdue_minutes":   elapsedMin,
+			"timeout_minutes":   elapsedMin,
+			"price":             o.Price,
+			"topic":             o.Topic,
+			"status":            o.Status,
+			"operator_id":       o.OperatorID,
+			"follow_operator_id": o.FollowOperatorID,
+			"alert_dismissed":   o.AlertDismissed,
+			"created_at":        o.CreatedAt,
+		})
+	}
+
+	total := int64(len(allResults))
+
+	// 分页
+	offset := (filter.Page - 1) * filter.PageSize
+	end := offset + filter.PageSize
+	if offset >= int(total) {
+		return []map[string]any{}, total, nil
+	}
+	if end > int(total) {
+		end = int(total)
+	}
+
+	return allResults[offset:end], total, nil
+}
+
+// GetGrabAlertStats 获取告警统计数据
+func GetGrabAlertStats() map[string]any {
+	grabThreshold := time.Now().Add(-Monitor.TimeoutThreshold)
+	designingThreshold := time.Now().Add(-Monitor.DesigningTimeoutThreshold)
+	todayStart := time.Now().Truncate(24 * time.Hour)
+	weekStart := todayStart.AddDate(0, 0, -int(todayStart.Weekday()))
+
+	var grabTotal, grabUndismissed, grabToday int64
+	var designingTotal, designingUndismissed, designingToday int64
+	var weekTotal int64
+
+	// 抢单超时
+	models.DB.Model(&models.Order{}).Where(
+		"status = ? AND assigned_at IS NOT NULL AND assigned_at < ?",
+		models.StatusGroupCreated, grabThreshold,
+	).Count(&grabTotal)
+
+	models.DB.Model(&models.Order{}).Where(
+		"status = ? AND assigned_at IS NOT NULL AND assigned_at < ? AND (alert_dismissed = ? OR alert_dismissed IS NULL)",
+		models.StatusGroupCreated, grabThreshold, false,
+	).Count(&grabUndismissed)
+
+	models.DB.Model(&models.Order{}).Where(
+		"status = ? AND assigned_at IS NOT NULL AND assigned_at < ? AND assigned_at >= ?",
+		models.StatusGroupCreated, grabThreshold, todayStart,
+	).Count(&grabToday)
+
+	// 设计超时
+	models.DB.Model(&models.Order{}).Where(
+		"status = ? AND updated_at < ?",
+		models.StatusDesigning, designingThreshold,
+	).Count(&designingTotal)
+
+	models.DB.Model(&models.Order{}).Where(
+		"status = ? AND updated_at < ? AND (alert_dismissed = ? OR alert_dismissed IS NULL)",
+		models.StatusDesigning, designingThreshold, false,
+	).Count(&designingUndismissed)
+
+	models.DB.Model(&models.Order{}).Where(
+		"status = ? AND updated_at < ? AND updated_at >= ?",
+		models.StatusDesigning, designingThreshold, todayStart,
+	).Count(&designingToday)
+
+	// 本周告警总数
+	models.DB.Model(&models.Order{}).Where(
+		"(status = ? AND assigned_at IS NOT NULL AND assigned_at < ? AND assigned_at >= ?) OR (status = ? AND updated_at < ? AND updated_at >= ?)",
+		models.StatusGroupCreated, grabThreshold, weekStart,
+		models.StatusDesigning, designingThreshold, weekStart,
+	).Count(&weekTotal)
+
+	return map[string]any{
+		"total":            grabTotal + designingTotal,
+		"undismissed":      grabUndismissed + designingUndismissed,
+		"today":            grabToday + designingToday,
+		"week":             weekTotal,
+		"grab_total":       grabTotal,
+		"designing_total":  designingTotal,
+	}
+}
+
+// DismissGrabAlert 标记告警为已处理
+func DismissGrabAlert(orderID uint) error {
+	return models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Model(&models.Order{}).Where("id = ?", orderID).Update("alert_dismissed", true).Error
+	})
+}
+
+// BatchDismissGrabAlerts 批量标记告警为已处理
+func BatchDismissGrabAlerts(orderIDs []uint) error {
+	return models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Model(&models.Order{}).Where("id IN ?", orderIDs).Update("alert_dismissed", true).Error
+	})
 }
 
 // GetDesignerGrabStats 获取设计师抢单统计（含超时率）

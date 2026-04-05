@@ -20,9 +20,14 @@ export default function ConfirmModal({
     setInputValue('');
   }, [onCancel]);
 
-  // Focus trap and Escape key handler
+  // Focus trap and Escape key handler + body scroll lock
   useEffect(() => {
     if (!visible) return;
+
+    // Lock body scroll to prevent layout shift from scrollbar
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = 'hidden';
+    document.body.style.paddingRight = `${scrollbarWidth}px`;
 
     // Store the previously focused element to restore later
     previousActiveElement.current = document.activeElement;
@@ -74,6 +79,9 @@ export default function ConfirmModal({
     return () => {
       clearTimeout(timer);
       document.removeEventListener('keydown', handleKeyDown);
+      // Restore body scroll
+      document.body.style.overflow = '';
+      document.body.style.paddingRight = '';
       // Restore focus to previously focused element
       if (previousActiveElement.current && previousActiveElement.current.focus) {
         previousActiveElement.current.focus();
@@ -130,6 +138,7 @@ export default function ConfirmModal({
               <textarea
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && inputValue.trim()) { e.preventDefault(); handleConfirm(); } }}
                 placeholder={inputPlaceholder}
                 aria-label={inputPlaceholder || '请输入内容'}
                 rows="3"

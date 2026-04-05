@@ -116,73 +116,145 @@ export default function StaffDashboard() {
         </button>
       </PageHeader>
 
-      {/* ── 统一指标区：Pipeline + KPI 合并 ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5 mt-7 mb-7">
-        {[
-          // Pipeline
-          ...PIPELINE_STAGES.map((stage) => ({
-            label: stage.label, value: getPipelineCount(stage), type: 'pipeline',
-            gradient: stage.key === 'pending' ? 'from-amber-500 to-orange-500' : stage.key === 'designing' ? 'from-blue-500 to-indigo-500' : 'from-emerald-500 to-teal-500',
-            shadow: stage.key === 'pending' ? 'shadow-amber-500/25' : stage.key === 'designing' ? 'shadow-blue-500/25' : 'shadow-emerald-500/25',
-            icon: stage.key === 'pending' ? <Inbox size={18} className="text-white" /> : stage.key === 'designing' ? <Pencil size={18} className="text-white" /> : <CheckCircle size={18} className="text-white" />,
-            click: `/s/orders?status=${stage.status[0]}`,
-            suffix: '单',
-          })),
-          // KPI
-          {
-            label: '累计完成', value: kpiValues.completed, type: 'number',
-            gradient: 'from-emerald-500 to-green-600', shadow: 'shadow-emerald-500/25',
-            icon: <Star size={18} className="text-white" />,
-            click: '/s/orders?status=COMPLETED',
-          },
-          {
-            label: '本月佣金', value: monthCommission, type: 'currency',
-            gradient: 'from-violet-500 to-purple-600', shadow: 'shadow-violet-500/25',
-            icon: <DollarSign size={18} className="text-white" />,
-            extra: `累计 ¥${totalCommission}`,
-          },
-          {
-            label: '今日新增', value: kpiValues.today, type: 'number',
-            gradient: 'from-amber-500 to-orange-500', shadow: 'shadow-amber-500/25',
-            icon: <PlusCircle size={18} className="text-white" />,
-          },
-          {
-            label: '进行中', value: kpiValues.active, type: 'number',
-            gradient: 'from-blue-500 to-indigo-600', shadow: 'shadow-blue-500/25',
-            icon: <Zap size={18} className="text-white" />,
-            click: '/s/orders?status=DESIGNING',
-          },
-        ].map((card) => (
-          <div
-            key={card.label}
-            onClick={card.click ? () => navigate(card.click) : undefined}
-            className={`relative bg-white rounded-2xl p-4 flex items-center gap-3.5 border border-slate-200/60 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg ${card.click ? 'cursor-pointer' : ''}`}
-          >
-            <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${card.gradient} shadow-md ${card.shadow} flex items-center justify-center shrink-0`}>
-              {card.icon}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-semibold text-slate-400 tracking-wide">{card.label}</span>
-                {card.extra && <span className="text-[10px] text-slate-400 font-medium truncate">{card.extra}</span>}
+      {/* ── 指标区 ── */}
+      {user?.role === 'follow' ? (
+        /* ── 跟单客服：2×2 大卡片 ── */
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 lg:gap-6 mt-7 mb-7">
+          {[
+            {
+              title: '待处理', value: stats?.pending_orders || 0, suffix: '单',
+              icon: <Inbox size={20} className="text-white" />,
+              gradient: 'from-amber-500 to-orange-400', colorHex: '#F59E0B',
+              click: '/s/orders?status=PENDING',
+              subtitle: (stats?.after_sale_orders ? `含售后 ${stats.after_sale_orders} 单` : null),
+            },
+            {
+              title: '设计中', value: stats?.designing_orders || 0, suffix: '单',
+              icon: <Pencil size={20} className="text-white" />,
+              gradient: 'from-blue-500 to-indigo-500', colorHex: '#3B82F6',
+              click: '/s/orders?status=DESIGNING,REVISION,AFTER_SALE',
+              subtitle: (stats?.revision_orders ? `修改中 ${stats.revision_orders} 单` : null),
+            },
+            {
+              title: '已完成', value: stats?.completed_orders || 0, suffix: '单',
+              icon: <CheckCircle size={20} className="text-white" />,
+              gradient: 'from-emerald-500 to-teal-500', colorHex: '#10B981',
+              click: '/s/orders?status=COMPLETED',
+              subtitle: `累计交付 ${stats?.delivered_orders || 0} 单`,
+            },
+            {
+              title: '本月佣金', value: monthCommission, isCurrency: true,
+              icon: <DollarSign size={20} className="text-white" />,
+              gradient: 'from-violet-500 to-purple-500', colorHex: '#8B5CF6',
+              subtitle: `累计 ¥${totalCommission} · 跟单提成`,
+            },
+          ].map((card) => (
+            <div
+              key={card.title}
+              onClick={card.click ? () => navigate(card.click) : undefined}
+              className={`group relative bg-white border border-black/[0.06] rounded-2xl p-5 lg:p-6 flex flex-col gap-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_0_1.5px_var(--c-ring),0_8px_24px_var(--c-glow)] overflow-hidden ${card.click ? 'cursor-pointer' : ''}`}
+              style={{ '--c-ring': `${card.colorHex}30`, '--c-glow': `${card.colorHex}12` }}
+            >
+              {/* 装饰背景圆 */}
+              <div className={`absolute -top-6 -right-6 w-24 h-24 rounded-full bg-gradient-to-br ${card.gradient} opacity-[0.06] pointer-events-none transition-opacity duration-300 group-hover:opacity-[0.10]`} />
+
+              {/* 图标 */}
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-gradient-to-br ${card.gradient} text-white shadow-md`}
+                style={{ boxShadow: `0 4px 12px ${card.colorHex}25` }}
+              >
+                {card.icon}
               </div>
-              <div className="text-xl font-[Outfit] font-black text-slate-900 tabular-nums leading-tight mt-0.5">
-                {card.type === 'currency' ? (
+
+              {/* 标题 */}
+              <div className="text-[13px] font-medium text-slate-500 tracking-[0.01em]">{card.title}</div>
+
+              {/* 大数字 */}
+              <div className="font-['Outfit',sans-serif] text-[28px] lg:text-[32px] font-bold text-slate-900 leading-[1] tracking-tight tabular-nums">
+                {card.isCurrency ? (
                   <span>¥{card.value}</span>
                 ) : (
                   <>
                     <AnimatedNumber value={card.value} />
-                    {card.suffix && <span className="text-xs font-semibold text-slate-400 ml-0.5">{card.suffix}</span>}
+                    {card.suffix && <span className="text-sm font-semibold text-slate-400 ml-0.5">{card.suffix}</span>}
                   </>
                 )}
               </div>
+
+              {/* 副标题 */}
+              {card.subtitle && (
+                <div className="text-[12px] text-slate-400 truncate">{card.subtitle}</div>
+              )}
             </div>
-            {card.click && (
-              <ChevronRight size={16} className="text-slate-300 shrink-0" />
-            )}
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        /* ── 其他角色：原始小卡片布局 ── */
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5 mt-7 mb-7">
+          {[
+            ...PIPELINE_STAGES.map((stage) => ({
+              label: stage.label, value: getPipelineCount(stage), type: 'pipeline',
+              gradient: stage.key === 'pending' ? 'from-amber-500 to-orange-500' : stage.key === 'designing' ? 'from-blue-500 to-indigo-500' : 'from-emerald-500 to-teal-500',
+              shadow: stage.key === 'pending' ? 'shadow-amber-500/25' : stage.key === 'designing' ? 'shadow-blue-500/25' : 'shadow-emerald-500/25',
+              icon: stage.key === 'pending' ? <Inbox size={18} className="text-white" /> : stage.key === 'designing' ? <Pencil size={18} className="text-white" /> : <CheckCircle size={18} className="text-white" />,
+              click: `/s/orders?status=${stage.status[0]}`,
+              suffix: '单',
+            })),
+            {
+              label: '累计完成', value: kpiValues.completed, type: 'number',
+              gradient: 'from-emerald-500 to-green-600', shadow: 'shadow-emerald-500/25',
+              icon: <Star size={18} className="text-white" />,
+              click: '/s/orders?status=COMPLETED',
+            },
+            {
+              label: '本月佣金', value: monthCommission, type: 'currency',
+              gradient: 'from-violet-500 to-purple-600', shadow: 'shadow-violet-500/25',
+              icon: <DollarSign size={18} className="text-white" />,
+              extra: `累计 ¥${totalCommission}`,
+            },
+            {
+              label: '今日新增', value: kpiValues.today, type: 'number',
+              gradient: 'from-amber-500 to-orange-500', shadow: 'shadow-amber-500/25',
+              icon: <PlusCircle size={18} className="text-white" />,
+            },
+            {
+              label: '进行中', value: kpiValues.active, type: 'number',
+              gradient: 'from-blue-500 to-indigo-600', shadow: 'shadow-blue-500/25',
+              icon: <Zap size={18} className="text-white" />,
+              click: '/s/orders?status=DESIGNING',
+            },
+          ].map((card) => (
+            <div
+              key={card.label}
+              onClick={card.click ? () => navigate(card.click) : undefined}
+              className={`relative bg-white rounded-2xl p-4 flex items-center gap-3.5 border border-slate-200/60 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg ${card.click ? 'cursor-pointer' : ''}`}
+            >
+              <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${card.gradient} shadow-md ${card.shadow} flex items-center justify-center shrink-0`}>
+                {card.icon}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-slate-400 tracking-wide">{card.label}</span>
+                  {card.extra && <span className="text-[10px] text-slate-400 font-medium truncate">{card.extra}</span>}
+                </div>
+                <div className="text-xl font-[Outfit] font-black text-slate-900 tabular-nums leading-tight mt-0.5">
+                  {card.type === 'currency' ? (
+                    <span>¥{card.value}</span>
+                  ) : (
+                    <>
+                      <AnimatedNumber value={card.value} />
+                      {card.suffix && <span className="text-xs font-semibold text-slate-400 ml-0.5">{card.suffix}</span>}
+                    </>
+                  )}
+                </div>
+              </div>
+              {card.click && (
+                <ChevronRight size={16} className="text-slate-300 shrink-0" />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── 最近订单 ── */}
       {stats?.recent_orders?.length > 0 && (

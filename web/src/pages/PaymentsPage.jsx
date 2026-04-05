@@ -1,12 +1,21 @@
-import { useState, useCallback, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
 import { useToast } from '../hooks/useToast';
 import { useDebounce } from '../hooks/useDebounce';
-import { listPayments, createPayment, matchPayment, getPaymentSummary, syncWecom } from '../api/payments';
+import { listPayments, createPayment, getPaymentSummary, getPaymentReport, syncWecom } from '../api/payments';
+import { getOrderDetail } from '../api/orders';
 import { formatTime, formatCurrency } from '../utils/formatters';
+import { STATUS_MAP, STATUS_COLORS } from '../utils/constants';
 import LoadingSpinner from '../components/LoadingSpinner';
+import PaymentMatchModal from '../components/PaymentMatchModal';
 import PageHeader from '../components/ui/PageHeader';
 import { useAuth } from '../hooks/useAuth';
+import * as echarts from 'echarts/core';
+import { LineChart, BarChart } from 'echarts/charts';
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+
+echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
 
 const SOURCE_MAP = {
   pdd: '拼多多',
@@ -23,10 +32,13 @@ const SOURCE_STYLE = {
 export default function PaymentsPage() {
   const { toast } = useToast();
   const { role } = useAuth();
-  
+
+  // View mode: 'list' or 'report'
+  const [viewMode, setViewMode] = useState('list');
+
   // URL Params
   const [searchParams, setSearchParams] = useSearchParams();
-  
+
   // Data State
   const [payments, setPayments] = useState([]);
   const [summary, setSummary] = useState({ total_amount: 0, by_source: {} });
@@ -36,6 +48,16 @@ export default function PaymentsPage() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const pageSize = 20;
+
+  // Report State
+  const [reportData, setReportData] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportGranularity, setReportGranularity] = useState('day');
+  const [reportRange, setReportRange] = useState('30'); // '7', '30', 'custom'
+  const [reportStartDate, setReportStartDate] = useState('');
+  const [reportEndDate, setReportEndDate] = useState('');
+  const reportChartRef = useRef(null);
+  const reportChartInstanceRef = useRef(null);
 
   // Filter State
   const [filterOrderId, setFilterOrderId] = useState(searchParams.get('order_id') || '');
@@ -53,7 +75,31 @@ export default function PaymentsPage() {
 
   // Form State
   const [form, setForm] = useState({ order_id: '', amount: '', source: 'manual', remark: '', paid_at: '' });
-  const [matchOrderId, setMatchOrderId] = useState('');
+
+  // Expand State — 点击订单ID展开详情
+  const [expandedPaymentId, setExpandedPaymentId] = useState(null);
+  const [expandedOrder, setExpandedOrder] = useState(null);
+  const [expandLoading, setExpandLoading] = useState(false);
+
+  const toggleExpandOrder = async (paymentId, orderId) => {
+    if (expandedPaymentId === paymentId) {
+      setExpandedPaymentId(null);
+      setExpandedOrder(null);
+      return;
+    }
+    setExpandedPaymentId(paymentId);
+    setExpandedOrder(null);
+    setExpandLoading(true);
+    try {
+      const res = await getOrderDetail(orderId);
+      setExpandedOrder(res.data.order || res.data || {});
+    } catch {
+      setExpandedOrder(null);
+      toast('获取订单详情失败', 'error');
+    } finally {
+      setExpandLoading(false);
+    }
+  };
 
   const fetchSummary = useCallback(async () => {
     if (role !== 'admin') return; // Only admin can fetch summary
@@ -121,6 +167,155 @@ export default function PaymentsPage() {
     }
   };
 
+  // ── 报表数据获取 ──────────────────────────────
+  const fetchReport = useCallback(async () => {
+    if (role !== 'admin') return;
+    setReportLoading(true);
+    try {
+      const params = { granularity: reportGranularity };
+      if (reportRange === 'custom') {
+        if (reportStartDate) params.start_time = reportStartDate;
+        if (reportEndDate) params.end_time = reportEndDate;
+      } else {
+        const now = new Date();
+        const start = new Date(now);
+        start.setDate(start.getDate() - parseInt(reportRange, 10));
+        params.start_time = start.toISOString().split('T')[0];
+        params.end_time = now.toISOString().split('T')[0];
+      }
+      const res = await getPaymentReport(params);
+      setReportData(res.data);
+    } catch (err) {
+      toast('获取报表数据失败: ' + (err.displayMessage || err.message), 'error');
+    } finally {
+      setReportLoading(false);
+    }
+  }, [role, reportGranularity, reportRange, reportStartDate, reportEndDate, toast]);
+
+  useEffect(() => {
+    if (viewMode === 'report') fetchReport();
+  }, [viewMode, fetchReport]);
+
+  // ── ECharts 渲染 ──────────────────────────────
+  useEffect(() => {
+    if (viewMode !== 'report' || !reportData?.rows || !reportChartRef.current) return;
+
+    if (!reportChartInstanceRef.current) {
+      reportChartInstanceRef.current = echarts.init(reportChartRef.current);
+    }
+    const chart = reportChartInstanceRef.current;
+
+    const periods = reportData.rows.map((r) => r.period);
+    const amounts = reportData.rows.map((r) => r.total_amount / 100);
+    const counts = reportData.rows.map((r) => r.total_count);
+    const matchedAmounts = reportData.rows.map((r) => r.matched_amount / 100);
+    const unmatchedAmounts = reportData.rows.map((r) => (r.total_amount - r.matched_amount) / 100);
+
+    chart.setOption({
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross' },
+        backgroundColor: '#fff',
+        borderColor: '#e2e8f0',
+        borderWidth: 1,
+        textStyle: { color: '#334155', fontSize: 13 },
+        formatter: (params) => {
+          let html = `<div style="font-weight:700;margin-bottom:6px">${params[0].axisValue}</div>`;
+          params.forEach((p) => {
+            const val = p.seriesName.includes('笔数') ? `${p.value} 笔` : `¥${p.value.toFixed(2)}`;
+            html += `<div style="display:flex;align-items:center;gap:6px;margin:3px 0"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>${p.seriesName}: <b>${val}</b></div>`;
+          });
+          return html;
+        },
+      },
+      legend: {
+        data: ['收款总额', '已匹配', '未匹配', '笔数'],
+        top: 0,
+        textStyle: { fontSize: 12, color: '#64748b' },
+      },
+      grid: { left: 60, right: 60, top: 50, bottom: 30 },
+      xAxis: {
+        type: 'category',
+        data: periods,
+        axisLabel: { fontSize: 11, color: '#94a3b8' },
+        axisLine: { lineStyle: { color: '#e2e8f0' } },
+        axisTick: { show: false },
+      },
+      yAxis: [
+        {
+          type: 'value',
+          name: '金额 (元)',
+          nameTextStyle: { fontSize: 11, color: '#94a3b8' },
+          axisLabel: { fontSize: 11, color: '#94a3b8', formatter: (v) => v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v },
+          splitLine: { lineStyle: { color: '#f1f5f9' } },
+        },
+        {
+          type: 'value',
+          name: '笔数',
+          nameTextStyle: { fontSize: 11, color: '#94a3b8' },
+          axisLabel: { fontSize: 11, color: '#94a3b8' },
+          splitLine: { show: false },
+        },
+      ],
+      series: [
+        {
+          name: '收款总额',
+          type: 'line',
+          data: amounts,
+          smooth: true,
+          symbol: 'circle',
+          symbolSize: 6,
+          lineStyle: { width: 2.5, color: '#434FCF' },
+          itemStyle: { color: '#434FCF' },
+          areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(67,79,207,0.15)' }, { offset: 1, color: 'rgba(67,79,207,0.01)' }] } },
+        },
+        {
+          name: '已匹配',
+          type: 'bar',
+          stack: 'amount',
+          data: matchedAmounts,
+          itemStyle: { color: '#10b981', borderRadius: [0, 0, 0, 0] },
+          barMaxWidth: 24,
+        },
+        {
+          name: '未匹配',
+          type: 'bar',
+          stack: 'amount',
+          data: unmatchedAmounts,
+          itemStyle: { color: '#f59e0b', borderRadius: [4, 4, 0, 0] },
+          barMaxWidth: 24,
+        },
+        {
+          name: '笔数',
+          type: 'line',
+          yAxisIndex: 1,
+          data: counts,
+          smooth: true,
+          symbol: 'emptyCircle',
+          symbolSize: 5,
+          lineStyle: { width: 1.5, color: '#8b5cf6', type: 'dashed' },
+          itemStyle: { color: '#8b5cf6' },
+        },
+      ],
+    }, true);
+
+    const handleResize = () => chart.resize();
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [viewMode, reportData]);
+
+  // cleanup chart on unmount
+  useEffect(() => {
+    return () => {
+      if (reportChartInstanceRef.current) {
+        reportChartInstanceRef.current.dispose();
+        reportChartInstanceRef.current = null;
+      }
+    };
+  }, []);
+
   const handleCreateSubmit = async (e) => {
     e.preventDefault();
     if (!form.order_id || !form.amount) {
@@ -149,27 +344,8 @@ export default function PaymentsPage() {
     }
   };
 
-  const handleMatchSubmit = async (e) => {
-    e.preventDefault();
-    if (!matchOrderId || !selectedPayment) return;
-    setSubmitting(true);
-    try {
-      await matchPayment(selectedPayment.id, { order_id: parseInt(matchOrderId, 10) });
-      toast('流水关联成功', 'success');
-      setMatchModalVisible(false);
-      setSelectedPayment(null);
-      setMatchOrderId('');
-      fetchPayments();
-    } catch (err) {
-      toast('关联失败: ' + (err.displayMessage || err.message), 'error');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const openMatchModal = (payment) => {
     setSelectedPayment(payment);
-    setMatchOrderId('');
     setMatchModalVisible(true);
   };
 
@@ -179,6 +355,29 @@ export default function PaymentsPage() {
     <div className="flex flex-col gap-5 w-full max-w-[1400px] mx-auto">
       <PageHeader title="收款流水" subtitle="系统自动同步企微及跨平台对账单">
         <div className="flex items-center gap-2">
+          {/* 视图切换按钮 */}
+          {role === 'admin' && (
+            <div className="flex items-center bg-slate-100 rounded-xl p-0.5">
+              <button
+                onClick={() => setViewMode('list')}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-[12px] font-semibold rounded-lg transition-all duration-150 cursor-pointer border-none ${
+                  viewMode === 'list' ? 'bg-white text-slate-800 shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+                列表
+              </button>
+              <button
+                onClick={() => setViewMode('report')}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-[12px] font-semibold rounded-lg transition-all duration-150 cursor-pointer border-none ${
+                  viewMode === 'report' ? 'bg-white text-slate-800 shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                报表
+              </button>
+            </div>
+          )}
           {role === 'admin' && (
             <button
               onClick={handleSyncWecom}
@@ -205,32 +404,41 @@ export default function PaymentsPage() {
       {role === 'admin' && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
           <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center">
-            <span className="text-xs lg:text-[13px] font-medium text-slate-500 mb-1 block">历史总收款 (元)</span>
+            <span className="text-[11px] lg:text-[13px] font-semibold text-on-surface-variant/70 mb-1.5 block uppercase tracking-wider">历史总收款</span>
             {summaryLoading && !summary.total_amount ? (
-               <div className="h-8 w-24 bg-slate-100 rounded animate-pulse" />
+               <div className="h-8 w-24 bg-slate-100 rounded-lg animate-pulse" />
             ) : (
               <h4 className="text-2xl lg:text-[28px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
                 &yen;{(summary.total_amount / 100).toFixed(2)}
               </h4>
             )}
           </div>
-          <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center border-l-4 border-l-red-500">
-             <span className="text-xs lg:text-[13px] font-medium text-slate-500 mb-1 block">拼多多来源 (元)</span>
-             <h4 className="text-2xl lg:text-[24px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
+          <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center border-l-[3px] border-l-red-400">
+             <span className="text-[11px] lg:text-[13px] font-semibold text-on-surface-variant/70 mb-1.5 block uppercase tracking-wider">拼多多来源</span>
+             <h4 className="text-xl lg:text-[24px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
                 &yen;{((summary.by_source?.pdd?.total || 0) / 100).toFixed(2)}
              </h4>
+             {summary.by_source?.pdd?.count > 0 && (
+               <span className="text-[11px] text-slate-400 mt-1 tabular-nums">{summary.by_source.pdd.count} 笔</span>
+             )}
           </div>
-          <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center border-l-4 border-l-blue-500">
-             <span className="text-xs lg:text-[13px] font-medium text-slate-500 mb-1 block">企微来源 (元)</span>
-             <h4 className="text-2xl lg:text-[24px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
+          <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center border-l-[3px] border-l-blue-400">
+             <span className="text-[11px] lg:text-[13px] font-semibold text-on-surface-variant/70 mb-1.5 block uppercase tracking-wider">企微来源</span>
+             <h4 className="text-xl lg:text-[24px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
                 &yen;{((summary.by_source?.wecom?.total || 0) / 100).toFixed(2)}
              </h4>
+             {summary.by_source?.wecom?.count > 0 && (
+               <span className="text-[11px] text-slate-400 mt-1 tabular-nums">{summary.by_source.wecom.count} 笔</span>
+             )}
           </div>
-          <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center border-l-4 border-l-amber-500">
-             <span className="text-xs lg:text-[13px] font-medium text-slate-500 mb-1 block">人工录入 (元)</span>
-             <h4 className="text-2xl lg:text-[24px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
+          <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center border-l-[3px] border-l-amber-400">
+             <span className="text-[11px] lg:text-[13px] font-semibold text-on-surface-variant/70 mb-1.5 block uppercase tracking-wider">人工录入</span>
+             <h4 className="text-xl lg:text-[24px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
                 &yen;{((summary.by_source?.manual?.total || 0) / 100).toFixed(2)}
              </h4>
+             {summary.by_source?.manual?.count > 0 && (
+               <span className="text-[11px] text-slate-400 mt-1 tabular-nums">{summary.by_source.manual.count} 笔</span>
+             )}
           </div>
         </div>
       )}
@@ -238,22 +446,22 @@ export default function PaymentsPage() {
       {/* Main Table Card */}
       <div className="bg-surface-container-lowest ghost-border rounded-xl flex flex-col overflow-hidden">
         {/* Filters */}
-        <div className="px-6 py-4 border-b border-slate-200 bg-white flex flex-wrap gap-4 items-center">
-          <div className="flex-1 min-w-[200px] relative">
+        <div className="px-6 py-4 border-b border-slate-200/80 flex flex-wrap gap-3 items-center">
+          <div className="flex-1 min-w-[200px] max-w-[280px] relative">
             <input
               type="text"
               placeholder="搜索订单 ID..."
               value={filterOrderId}
               onChange={(e) => setFilterOrderId(e.target.value)}
-              className="w-full px-4 py-1.5 pl-9 text-[13px] text-slate-800 bg-slate-50/50 border border-slate-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 placeholder:text-slate-400"
+              className="w-full h-[34px] px-4 pl-9 text-[13px] text-slate-800 bg-slate-50/60 border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 placeholder:text-slate-400 transition-colors"
             />
-            <svg className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           </div>
           <div className="w-[140px]">
             <select
               value={filterSource}
               onChange={(e) => setFilterSource(e.target.value)}
-              className="w-full px-3 py-1.5 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+              className="w-full h-[34px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 transition-colors cursor-pointer"
             >
               <option value="">所有来源</option>
               <option value="pdd">拼多多</option>
@@ -266,14 +474,14 @@ export default function PaymentsPage() {
               type="date"
               value={filterStartTime}
               onChange={(e) => setFilterStartTime(e.target.value)}
-              className="px-3 py-1.5 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-lg outline-none focus:border-brand-500"
+              className="h-[34px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 transition-colors"
             />
-            <span className="text-slate-400 text-sm">-</span>
+            <span className="text-slate-300 text-sm select-none">~</span>
             <input
               type="date"
               value={filterEndTime}
               onChange={(e) => setFilterEndTime(e.target.value)}
-              className="px-3 py-1.5 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-lg outline-none focus:border-brand-500"
+              className="h-[34px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 transition-colors"
             />
           </div>
           <button
@@ -283,7 +491,7 @@ export default function PaymentsPage() {
               setFilterStartTime('');
               setFilterEndTime('');
             }}
-            className="px-3 py-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            className="h-[34px] px-3 text-[13px] font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
           >
             重置
           </button>
@@ -292,15 +500,23 @@ export default function PaymentsPage() {
         {/* Table */}
         <div className="w-full overflow-x-auto relative min-h-[400px]">
           {loading && payments.length === 0 && <LoadingSpinner />}
-          <table className="w-full">
+          <table className="w-full" style={{ tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: '28%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '16%' }} />
+              <col className="hidden lg:table-column" style={{ width: '16%' }} />
+              <col style={{ width: '16%' }} />
+            </colgroup>
             <thead>
-              <tr className="border-b border-slate-100">
-                <th className="text-left px-6 py-3.5 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">流水号 / 交易时间</th>
-                <th className="text-left px-6 py-3.5 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">来源</th>
-                <th className="text-right px-6 py-3.5 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">收款金额</th>
-                <th className="text-left px-6 py-3.5 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">关联订单</th>
-                <th className="hidden lg:table-cell text-left px-6 py-3.5 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">备注</th>
-                <th className="text-right px-6 py-3.5 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">匹配时间 / 操作</th>
+              <tr>
+                <th className="text-left" style={{ paddingLeft: 24 }}>流水号 / 交易时间</th>
+                <th className="text-center">来源</th>
+                <th className="text-right">收款金额</th>
+                <th className="text-center">关联订单</th>
+                <th className="hidden lg:table-cell text-left">备注</th>
+                <th className="text-center">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -310,62 +526,170 @@ export default function PaymentsPage() {
                     <div className="flex flex-col items-center justify-center text-slate-400">
                       <svg className="w-12 h-12 mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
                       <p className="font-medium text-slate-600">暂无收款记录</p>
+                      <p className="text-sm mt-0.5">当前筛选条件下没有匹配的流水。</p>
                     </div>
                   </td>
                 </tr>
               )}
-              {payments.map((p) => (
-                <tr key={p.id} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors group">
-                  <td className="px-6 py-3.5">
-                    <div className="text-[13px] font-medium text-slate-700 font-mono" title={p.transaction_id}>
+              {payments.map((p) => {
+                const isExpanded = expandedPaymentId === p.id;
+                return (
+                <React.Fragment key={p.id}>
+                <tr className={`border-b border-slate-50 hover:bg-slate-50/60 transition-colors group ${isExpanded ? 'bg-brand-50/30' : ''}`}>
+                  <td style={{ paddingLeft: 24 }}>
+                    <div className="text-[13px] font-medium text-slate-700 font-mono truncate" title={p.transaction_id}>
                       {p.transaction_id.length > 20 ? p.transaction_id.substring(0, 20) + '...' : p.transaction_id}
                     </div>
-                    <div className="text-[12px] text-slate-400 mt-1 tabular-nums">{formatTime(p.paid_at)}</div>
+                    <div className="text-[12px] text-slate-400 mt-0.5 tabular-nums">{formatTime(p.paid_at)}</div>
                   </td>
-                  <td className="px-6 py-3.5">
+                  <td className="text-center">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${SOURCE_STYLE[p.source] || SOURCE_STYLE.manual}`}>
                       {SOURCE_MAP[p.source] || p.source}
                     </span>
                   </td>
-                  <td className="px-6 py-3.5 text-right">
-                    <span className="text-[14px] font-bold text-slate-800 tabular-nums">
+                  <td className="text-right">
+                    <span className="text-[14px] font-bold text-slate-800 font-[Outfit] tabular-nums">
                       &yen;{formatCurrency(p.amount / 100)}
                     </span>
                   </td>
-                  <td className="px-6 py-3.5">
+                  <td className="text-center">
                     {p.order_id ? (
                       <div>
-                        <span className="text-[13px] font-bold text-brand-600">ID: {p.order_id}</span>
+                        <button
+                          onClick={() => toggleExpandOrder(p.id, p.order_id)}
+                          className={`inline-flex items-center gap-1.5 text-[13px] font-bold transition-colors cursor-pointer bg-transparent border-none p-0 ${isExpanded ? 'text-brand-700' : 'text-brand-600 hover:text-brand-700'}`}
+                        >
+                          <svg
+                            className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                          </svg>
+                          #{p.order_id}
+                        </button>
                         {p.customer_id > 0 && (
-                          <div className="text-[11px] text-slate-400 mt-1">顾客: {p.customer_id}</div>
+                          <div className="text-[11px] text-slate-400 mt-0.5">顾客 #{p.customer_id}</div>
                         )}
                       </div>
                     ) : (
-                      <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-red-500 bg-red-50 px-2 py-0.5 rounded-md border border-red-100">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-red-500 bg-red-50 px-2.5 py-1 rounded-lg border border-red-100">
                         <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse"></span>
                         未关联
                       </span>
                     )}
                   </td>
-                  <td className="hidden lg:table-cell px-6 py-3.5 max-w-[200px] truncate" title={p.remark}>
-                    <span className="text-[12px] text-slate-600">{p.remark || '-'}</span>
+                  <td className="hidden lg:table-cell truncate" title={p.remark}>
+                    <span className="text-[12px] text-slate-500">{p.remark || '-'}</span>
                   </td>
-                  <td className="px-6 py-3.5 text-right">
+                  <td className="text-center">
                     {p.order_id ? (
-                      <div className="text-[12px] text-slate-500 tabular-nums">
+                      <div className="text-[12px] text-slate-400 tabular-nums">
                         {p.matched_at ? formatTime(p.matched_at) : '已匹配'}
                       </div>
                     ) : (
                       <button
                         onClick={() => openMatchModal(p)}
-                        className="inline-flex items-center justify-center px-3 py-1.5 text-[12px] font-semibold text-brand-600 bg-brand-50 border border-brand-200 rounded-lg hover:bg-brand-100 transition-colors shadow-sm cursor-pointer"
+                        className="inline-flex items-center justify-center px-3 py-1.5 text-[12px] font-semibold text-brand-600 bg-brand-50 border border-brand-200 rounded-xl hover:bg-brand-100 transition-all shadow-sm cursor-pointer active:scale-[0.97]"
                       >
                         手动关联
                       </button>
                     )}
                   </td>
                 </tr>
-              ))}
+                {/* 展开的订单详情行 */}
+                {isExpanded && (
+                  <tr className="bg-brand-50/20">
+                    <td colSpan={6} style={{ padding: 0 }}>
+                      <div className="px-8 py-5 animate-fade-in-up">
+                        {expandLoading ? (
+                          <div className="flex items-center justify-center gap-2 py-6 text-slate-400">
+                            <svg className="w-5 h-5 animate-spin text-brand-400" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            <span className="text-sm font-medium">加载订单详情...</span>
+                          </div>
+                        ) : expandedOrder ? (() => {
+                          const sc = STATUS_COLORS[expandedOrder.status] || STATUS_COLORS.PENDING;
+                          return (
+                            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                              {/* 订单详情头部 */}
+                              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-brand-50">
+                                    <svg className="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                  </div>
+                                  <span className="text-[14px] font-bold text-slate-700">订单详情</span>
+                                  <span className="text-[12px] text-slate-400 font-mono">{expandedOrder.order_sn}</span>
+                                  <span
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border"
+                                    style={{ background: sc.bg, color: sc.text, borderColor: sc.border }}
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: sc.dot }} />
+                                    {STATUS_MAP[expandedOrder.status] || expandedOrder.status}
+                                  </span>
+                                </div>
+                                <Link
+                                  to={`/orders/${expandedOrder.id}`}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition-colors"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                  </svg>
+                                  查看完整详情
+                                </Link>
+                              </div>
+                              {/* 订单详情内容 */}
+                              <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-4">
+                                <div>
+                                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">订单金额</span>
+                                  <p className="text-[14px] font-bold text-slate-800 mt-0.5 tabular-nums">&yen;{formatCurrency((expandedOrder.price || 0) / 100)}</p>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">客户</span>
+                                  <p className="text-[13px] font-semibold text-slate-700 mt-0.5 truncate">{expandedOrder.customer_contact || '-'}</p>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">主题</span>
+                                  <p className="text-[13px] text-slate-700 mt-0.5 truncate" title={expandedOrder.topic}>{expandedOrder.topic || '-'}</p>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">页数</span>
+                                  <p className="text-[13px] text-slate-700 mt-0.5">{expandedOrder.pages ? `${expandedOrder.pages} 页` : '-'}</p>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">设计师</span>
+                                  <p className="text-[13px] text-slate-700 mt-0.5">{expandedOrder.freelance_designer_name || '待分配'}</p>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">创建时间</span>
+                                  <p className="text-[13px] text-slate-600 mt-0.5 tabular-nums">{formatTime(expandedOrder.created_at)}</p>
+                                </div>
+                                {expandedOrder.deadline && (
+                                  <div>
+                                    <span className="text-[10px] font-semibold text-red-400 uppercase tracking-wider">截止时间</span>
+                                    <p className="text-[13px] text-red-600 mt-0.5 tabular-nums">{formatTime(expandedOrder.deadline)}</p>
+                                  </div>
+                                )}
+                                {expandedOrder.remark && (
+                                  <div className="col-span-2 sm:col-span-4">
+                                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">备注</span>
+                                    <p className="text-[12px] text-slate-600 mt-0.5 bg-slate-50 rounded-lg p-2.5 whitespace-pre-wrap border border-slate-100">{expandedOrder.remark}</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })() : (
+                          <div className="text-center text-sm text-slate-400 py-6">订单详情加载失败</div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -438,36 +762,13 @@ export default function PaymentsPage() {
         </div>
       )}
 
-      {/* Manual Match Order Modal */}
-      {matchModalVisible && selectedPayment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => !submitting && setMatchModalVisible(false)} />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-scale-in">
-             <div className="px-6 py-4 border-b border-slate-100 bg-amber-50/50 flex justify-between items-center">
-               <h3 className="text-[16px] font-bold text-amber-800">关联流水到订单</h3>
-               <button disabled={submitting} onClick={() => setMatchModalVisible(false)} className="text-amber-500 hover:text-amber-700 bg-amber-100/50 p-1.5 rounded-lg transition-colors cursor-pointer">
-                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-               </button>
-             </div>
-             <form onSubmit={handleMatchSubmit} className="p-6">
-                <div className="mb-5 p-3 bg-slate-50 rounded-lg border border-slate-100 text-[13px] text-slate-600">
-                   <p className="mb-1"><strong>交易单号:</strong> <span className="font-mono">{selectedPayment.transaction_id}</span></p>
-                   <p><strong>收款金额:</strong> &yen;{formatCurrency(selectedPayment.amount / 100)}</p>
-                </div>
-                <div className="mb-6">
-                  <label className="block text-[13px] font-semibold text-slate-600 mb-2">目标订单 ID <span className="text-red-500">*</span></label>
-                  <input required type="number" min="1" value={matchOrderId} onChange={e => setMatchOrderId(e.target.value)} placeholder="输入关联的订单号，如: 1001" className="w-full px-3 py-2.5 text-[14px] bg-white border border-slate-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 placeholder:text-slate-300 transition-colors" />
-                </div>
-                <div className="flex gap-3">
-                  <button type="button" disabled={submitting} onClick={() => setMatchModalVisible(false)} className="flex-1 px-4 py-2 bg-white border border-slate-200 text-slate-700 font-semibold rounded-xl hover:bg-slate-50 transition-colors shadow-sm cursor-pointer">取消</button>
-                  <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-amber-500 text-white font-semibold rounded-xl hover:bg-amber-600 transition-colors shadow-sm border-none disabled:opacity-70 cursor-pointer">
-                    {submitting ? '提交中...' : '确认关联'}
-                  </button>
-                </div>
-             </form>
-          </div>
-        </div>
-      )}
+      {/* Match Order Modal */}
+      <PaymentMatchModal
+        visible={matchModalVisible}
+        payment={selectedPayment}
+        onClose={() => setMatchModalVisible(false)}
+        onMatched={() => { fetchPayments(); fetchSummary(); }}
+      />
 
     </div>
   );

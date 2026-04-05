@@ -21,7 +21,7 @@ func GenerateOrderSN() string {
 }
 
 // CreateOrder 创建订单
-func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshotPath, attachmentURLs, followUID string, price, pages int, deadline *time.Time) (*models.Order, error) {
+func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshotPath, screenshotHash, attachmentURLs, followUID string, price, pages int, deadline *time.Time) (*models.Order, error) {
 	if orderSN == "" {
 		orderSN = GenerateOrderSN()
 	}
@@ -49,6 +49,7 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 		Deadline:         deadline,
 		Remark:           remark,
 		ScreenshotPath:   screenshotPath,
+		ScreenshotHash:   screenshotHash,
 		AttachmentURLs:   attachmentURLs,
 		Status:           models.StatusPending,
 	}
@@ -498,6 +499,11 @@ type DashboardStats struct {
 	// Phase 5: 今日/昨日收款
 	TodayPaymentAmount     int `json:"today_payment_amount"`
 	YesterdayPaymentAmount int `json:"yesterday_payment_amount"`
+
+	// Phase 6: 周环比收款 + 完工时长对比
+	WeekPaymentAmount             int     `json:"week_payment_amount"`
+	LastWeekPaymentAmount         int     `json:"last_week_payment_amount"`
+	YesterdayAvgCompletionHours   float64 `json:"yesterday_avg_completion_hours"`
 }
 
 // DesignerRank 设计师绩效排名
@@ -760,6 +766,29 @@ func GetDashboardStats() *DashboardStats {
 		Where("trade_state = 'SUCCESS' AND paid_at >= ? AND paid_at < ?", yesterdayStart, todayStart).
 		Scan(&yesterdayPayment)
 	stats.YesterdayPaymentAmount = yesterdayPayment.Total
+
+	// ── Phase 6: 周环比收款 ──
+	var weekPayment AmountResult
+	models.DB.Model(&models.PaymentRecord{}).
+		Select("COALESCE(SUM(amount), 0) as total").
+		Where("trade_state = 'SUCCESS' AND paid_at >= ? AND paid_at < ?", thisWeekStart, now).
+		Scan(&weekPayment)
+	stats.WeekPaymentAmount = weekPayment.Total
+
+	var lastWeekPayment AmountResult
+	models.DB.Model(&models.PaymentRecord{}).
+		Select("COALESCE(SUM(amount), 0) as total").
+		Where("trade_state = 'SUCCESS' AND paid_at >= ? AND paid_at < ?", lastWeekStart, thisWeekStart).
+		Scan(&lastWeekPayment)
+	stats.LastWeekPaymentAmount = lastWeekPayment.Total
+
+	// ── Phase 6: 昨日平均完工时长 ──
+	var yesterdayAvgResult AvgCompletionResult
+	models.DB.Model(&models.Order{}).
+		Select(sqlAvgHoursDiff("completed_at", "created_at") + " as avg_hours").
+		Where("status = 'COMPLETED' AND completed_at IS NOT NULL AND created_at IS NOT NULL AND completed_at >= ? AND completed_at < ?", yesterdayStart, todayStart).
+		Scan(&yesterdayAvgResult)
+	stats.YesterdayAvgCompletionHours = yesterdayAvgResult.AvgHours
 
 	return stats
 }

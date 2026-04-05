@@ -294,13 +294,14 @@ func (a *App) GetEmployeeName() string {
 // ─── OCR 截图上传 ──────────────────────────
 
 type OCRResult struct {
-	OrderSN       string  `json:"order_sn"`
-	Price         int     `json:"price"`
-	RawPrice      string  `json:"raw_price"`
-	OrderTime     string  `json:"order_time"`
-	Confidence    float64 `json:"confidence"`
-	ScreenshotURL string  `json:"screenshot_url"`
-	Error         string  `json:"error,omitempty"`
+	OrderSN        string  `json:"order_sn"`
+	Price          int     `json:"price"`
+	RawPrice       string  `json:"raw_price"`
+	OrderTime      string  `json:"order_time"`
+	Confidence     float64 `json:"confidence"`
+	ScreenshotURL  string  `json:"screenshot_url"`
+	ScreenshotHash string  `json:"screenshot_hash"`
+	Error          string  `json:"error,omitempty"`
 }
 
 func (a *App) UploadScreenshot(filePath string) *OCRResult {
@@ -496,20 +497,20 @@ type SubmitResult struct {
 	OrderSN string `json:"order_sn"`
 }
 
-func (a *App) SubmitOrder(orderSN, customerContact, followStaffUID string, price int, attachmentURLs []string, screenshotPath string) *SubmitResult {
-	result := a.doSubmitOrder(orderSN, customerContact, followStaffUID, price, attachmentURLs, screenshotPath)
+func (a *App) SubmitOrder(orderSN, customerContact, followStaffUID string, price int, attachmentURLs []string, screenshotPath string, screenshotHash string) *SubmitResult {
+	result := a.doSubmitOrder(orderSN, customerContact, followStaffUID, price, attachmentURLs, screenshotPath, screenshotHash)
 	// 401 时自动刷新 token 重试一次
 	if !result.Success && strings.Contains(result.Message, "401") {
 		log.Println("⚠️ 提交订单 401，尝试刷新 token 重试")
 		a.deviceLogin()
 		if a.token != "" {
-			return a.doSubmitOrder(orderSN, customerContact, followStaffUID, price, attachmentURLs, screenshotPath)
+			return a.doSubmitOrder(orderSN, customerContact, followStaffUID, price, attachmentURLs, screenshotPath, screenshotHash)
 		}
 	}
 	return result
 }
 
-func (a *App) doSubmitOrder(orderSN, customerContact, followStaffUID string, price int, attachmentURLs []string, screenshotPath string) *SubmitResult {
+func (a *App) doSubmitOrder(orderSN, customerContact, followStaffUID string, price int, attachmentURLs []string, screenshotPath string, screenshotHash string) *SubmitResult {
 	payload := map[string]interface{}{
 		"order_sn":         orderSN,
 		"customer_contact": customerContact,
@@ -517,6 +518,7 @@ func (a *App) doSubmitOrder(orderSN, customerContact, followStaffUID string, pri
 		"follow_uid":       followStaffUID,
 		"attachment_urls":  attachmentURLs,
 		"screenshot_url":   screenshotPath,
+		"screenshot_hash":  screenshotHash,
 	}
 	body, _ := json.Marshal(payload)
 

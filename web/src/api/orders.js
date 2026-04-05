@@ -26,6 +26,9 @@ export const addOrderNote = async (orderId, note) => {
   return res.data;
 };
 
+// 建群
+export const createOrderGroup = (orderId) => client.post(`/orders/${orderId}/create-group`);
+
 // 跟单操作
 export const assignDesigner = (orderId, data) => client.put(`/orders/${orderId}/assign-designer`, data);
 export const adjustCommission = (orderId, data) => client.put(`/orders/${orderId}/adjust-commission`, data);

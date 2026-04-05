@@ -52,6 +52,7 @@ docker compose up -d               # Docker 部署
 
 ## 部署
 - **生产服务器**: `118.31.56.141`
+- **域名**: `https://zhiyuanshijue.ltd`
 - **前端部署路径**: `/opt/pdd-server/dist/`（注意：不是 `/opt/pdd-order-system/dist/`）
 - **前端部署命令**: `cd web && npm run build && scp -r dist/* root@118.31.56.141:/opt/pdd-server/dist/`
 - **后端服务**: systemd 管理，路径 `/opt/pdd-server/`

@@ -75,7 +75,7 @@ server/
 - 金额: **分**（Price/Commission 均为分）
 - 关联: OperatorID(谈单客服), FreelanceDesignerID(花名册外键), FollowOperatorID(跟单客服), CustomerID
 - 分润字段: PlatformFee, DesignerCommission, SalesCommission, FollowCommission, NetProfit
-- 附件: ScreenshotPath, AttachmentURLs(JSON)
+- 附件: ScreenshotPath, AttachmentURLs(JSON), ScreenshotHash(截图哈希，防重复提交)
 - 状态机:
 ```
 PENDING → DESIGNING → COMPLETED → REFUNDED
@@ -89,6 +89,7 @@ PENDING → DESIGNING → COMPLETED → REFUNDED
 - **Payment**: 手动录入 + 企微收款自动同步，可关联 OrderID
 - **FreelanceDesigner**: 自由设计师花名册
 - **WecomMember/GroupChat/WecomMessageLog**: 企微通讯录、客户群、消息日志
+- **ContactWay**: 企微「联系我」配置（关联员工、自动标签、欢迎语）
 - **AppVersion**: 客户端 OTA 版本
 - **TokenBlacklist**: JWT 黑名单（持久化，重启恢复）
 - **OrderTimeline**: 操作时间线（状态变更/金额修改审计链）
@@ -139,6 +140,8 @@ PENDING → DESIGNING → COMPLETED → REFUNDED
 | GET | `/orders/pending-match` | 待匹配订单 |
 | POST | `/orders/:id/match` | 匹配订单联系人 |
 | PUT | `/orders/:id/reassign` | 转派订单 |
+| POST | `/orders/:id/create-group` | 创建企微群 |
+| POST | `/orders/:id/note` | 添加备注 |
 | GET | `/orders/my-stats` | 个人统计 |
 
 ### 收款路由（JWT）
@@ -148,6 +151,7 @@ PENDING → DESIGNING → COMPLETED → REFUNDED
 | POST | `/payments` | 创建 |
 | PUT | `/payments/:id/match` | 关联订单 |
 | GET | `/payments/summary` | 汇总 |
+| GET | `/payments/report` | 对账报表 |
 | POST | `/payments/sync-wecom` | 企微同步 |
 
 ### 管理端路由（JWT + AdminOnly + IPWhitelist）
@@ -170,6 +174,9 @@ PENDING → DESIGNING → COMPLETED → REFUNDED
 | PUT | `/admin/activation_codes/:id/pause` | 暂停激活码 |
 | PUT | `/admin/activation_codes/:id/regenerate` | 重新生成 |
 | GET | `/admin/grab_alerts` | 抢单告警 |
+| GET | `/admin/grab_alerts/stats` | 告警统计 |
+| PUT | `/admin/grab_alerts/:id/dismiss` | 处理告警 |
+| PUT | `/admin/grab_alerts/batch_dismiss` | 批量处理告警 |
 | GET/PUT | `/admin/customers/:id` | 顾客详情/更新 |
 | GET | `/admin/customers` | 顾客列表 |
 | POST | `/admin/customers/merge` | 合并顾客 |

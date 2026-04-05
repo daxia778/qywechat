@@ -488,7 +488,46 @@ docker compose build
 
 ## Changelog
 
-### v1.2.0 (Latest)
+### v1.3.0 (Latest)
+
+**跟单客服模块增强**
+- 跟单客服新增「收款流水」模块（StaffPaymentsPage），支持查看/筛选/手动录入/关联订单
+- 收款汇总统计按角色过滤（admin 全局，follow 仅看自己关联订单）
+- 关联订单支持可视化选择（自动加载最近订单列表，搜索筛选）
+
+**订单流程完善**
+- 关联设计师时自动设置 cost_price = 订单总价 × 25%（默认设计师成本）
+- 换设计师逻辑完善：旧设计师接单数自动减一 + 时间线记录「从 ZZZ 换为 YYY」
+- 退款强制填写原因（后端校验 refund_reason 非空）
+
+**收款对账报表**
+- 新增 GET /payments/report 对账报表接口（按日/周/月聚合）
+- PaymentsPage 新增报表视图切换，ECharts 趋势图
+
+**抢单告警管理**
+- GrabAlertsPage 完整重构：统计卡片 + 筛选 + 批量处理 + 30s 轮询
+- 新增 3 个后端接口：告警统计/单条处理/批量处理
+
+**企微集成增强**
+- 订单详情页一键创建企微群（DESIGNING 状态 + 无群时显示）
+- 联系我管理页面（ContactWaysPage）：创建/列表/QR码展示
+- ContactWay 数据模型持久化到数据库
+
+**OCR 防篡改**
+- 截图上传时计算 SHA256 哈希，创建订单时校验哈希一致性
+- Order 模型新增 ScreenshotHash 字段
+- 桌面客服端同步支持哈希提交
+
+**分润引擎优化**
+- CalculateProfit 集成 PaymentRecord 实际收款数据
+- 有匹配收款记录时使用实际收款金额计算分润
+
+**UI/UX 改进**
+- Modal 弹窗使用 createPortal 渲染到 body，避免父容器 overflow-hidden 遮挡
+- 员工端导航按角色动态过滤显示
+- 域名部署：zhiyuanshijue.ltd（Nginx + Let's Encrypt SSL）
+
+### v1.2.0
 - Token 黑名单 + 刷新机制，密码重置即时注销
 - 管理员订单转派功能 (设计师重新分配)
 - 统一错误码响应格式，消除内部错误泄露

@@ -1,13 +1,15 @@
 import { useState, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useDebounce } from './useDebounce';
 import { usePolling } from './usePolling';
 import { listOrders } from '../api/orders';
 
 export function useOrderFilters({ toast, on, off, connected }) {
+  const [searchParams] = useSearchParams();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [currentStatus, setCurrentStatus] = useState('');
-  const [searchKeyword, setSearchKeyword] = useState('');
+  const [currentStatus, setCurrentStatus] = useState(() => searchParams.get('status') || '');
+  const [searchKeyword, setSearchKeyword] = useState(() => searchParams.get('keyword') || '');
   const debouncedKeyword = useDebounce(searchKeyword, 400);
   const [totalOrders, setTotalOrders] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);

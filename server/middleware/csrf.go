@@ -54,6 +54,7 @@ func generateCSRFToken() string {
 // CSRFMiddleware CSRF Token 防护中间件
 // GET 请求会在响应头 X-CSRF-Token 中返回新 token
 // POST/PUT/DELETE 请求需要在请求头 X-CSRF-Token 中携带有效 token
+// Token 在有效期内可多次使用（不再一次性消耗）
 func CSRFMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 跳过不需要 CSRF 保护的路径
@@ -114,7 +115,7 @@ func CSRFMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// 写操作: 验证 CSRF token
+		// 写操作: 验证 CSRF token（可复用，不消耗）
 		token := c.GetHeader("X-CSRF-Token")
 		if token == "" {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Missing CSRF token"})
@@ -122,17 +123,16 @@ func CSRFMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// 原子化 check-and-delete，防止 TOCTOU 竞态条件
-		csrf.mu.Lock()
+		csrf.mu.RLock()
 		created, exists := csrf.tokens[token]
-		if !exists || time.Since(created) > 30*time.Minute {
-			csrf.mu.Unlock()
+		expired := !exists || time.Since(created) > 30*time.Minute
+		csrf.mu.RUnlock()
+
+		if expired {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Invalid or expired CSRF token"})
 			c.Abort()
 			return
 		}
-		delete(csrf.tokens, token)
-		csrf.mu.Unlock()
 
 		c.Next()
 	}

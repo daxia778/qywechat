@@ -333,6 +333,26 @@ h6,
   to { transform: rotate(360deg); }
 }
 
+/* WS Indicator — Breathe (reconnecting amber) */
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* WS Indicator — Soft pulse (disconnected red) */
+@keyframes soft-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@utility animate-breathe {
+  animation: breathe 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@utility animate-soft-pulse {
+  animation: soft-pulse 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
 /* ══════════════════════════════════════════
    LOGIN PAGE — minimal style
    ══════════════════════════════════════════ */

@@ -71,12 +71,14 @@ const RevenuePage = lazyWithRetry(() => import('../pages/RevenuePage'));
 const CustomersPage = lazyWithRetry(() => import('../pages/CustomersPage'));
 const PaymentsPage = lazyWithRetry(() => import('../pages/PaymentsPage'));
 const DesignersRosterPage = lazyWithRetry(() => import('../pages/DesignersRosterPage'));
+const ContactWaysPage = lazyWithRetry(() => import('../pages/ContactWaysPage'));
 
 // ── Staff Pages ──
 const StaffLayout = lazyWithRetry(() => import('../components/layout/StaffLayout'));
 const StaffDashboard = lazyWithRetry(() => import('../pages/staff/StaffDashboard'));
 const MyOrdersPage = lazyWithRetry(() => import('../pages/staff/MyOrdersPage'));
 const StaffOrderDetail = lazyWithRetry(() => import('../pages/staff/StaffOrderDetail'));
+const StaffPaymentsPage = lazyWithRetry(() => import('../pages/staff/StaffPaymentsPage'));
 
 function LoadingFallback() {
   return (
@@ -142,6 +144,7 @@ export default function AppRouter() {
                 <Route path="/revenue" element={<RevenuePage />} />
                 <Route path="/payments" element={<PaymentsPage />} />
                 <Route path="/designers" element={<DesignersRosterPage />} />
+                <Route path="/contact-ways" element={<ContactWaysPage />} />
               </Route>
             </Route>
 
@@ -152,6 +155,7 @@ export default function AppRouter() {
                 <Route path="dashboard" element={<StaffDashboard />} />
                 <Route path="orders" element={<MyOrdersPage />} />
                 <Route path="orders/:id" element={<StaffOrderDetail />} />
+                <Route path="payments" element={<StaffPaymentsPage />} />
                 <Route path="designers" element={<DesignersRosterPage />} />
               </Route>
             </Route>

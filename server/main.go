@@ -213,6 +213,7 @@ func main() {
 			orderAuth.GET("/pending-match", handlers.ListPendingMatchOrders)
 			orderAuth.POST("/:id/match", handlers.MatchOrderContact)
 			orderAuth.POST("/:id/note", handlers.AddOrderNote)
+			orderAuth.POST("/:id/create-group", handlers.CreateOrderGroup)
 			orderAuth.PUT("/designers/:id", handlers.UpdateDesigner)
 
 		orderAuth.GET("/my-stats", handlers.GetMyStats)
@@ -246,6 +247,7 @@ func main() {
 			payments.POST("", handlers.CreatePayment)
 			payments.PUT("/:id/match", handlers.MatchPayment)
 			payments.GET("/summary", handlers.GetPaymentSummary)
+			payments.GET("/report", handlers.GetPaymentReport)
 			payments.POST("/sync-wecom", handlers.SyncWecomPayments)
 		}
 
@@ -269,11 +271,15 @@ func main() {
 			admin.GET("/audit_logs", handlers.ListAuditLogs)
 			admin.POST("/versions", handlers.CreateAppVersion)
 			admin.GET("/activation_codes", handlers.ListActivationCodes)
+			admin.POST("/activation_codes", handlers.CreateActivationCode)
 			admin.PUT("/activation_codes/:id/pause", handlers.PauseActivationCode)
 			admin.PUT("/activation_codes/:id/regenerate", handlers.RegenerateActivationCode)
 
 			// 抢单监控
 			admin.GET("/grab_alerts", handlers.GetGrabAlerts)
+			admin.GET("/grab_alerts/stats", handlers.GetGrabAlertStats)
+			admin.PUT("/grab_alerts/:id/dismiss", handlers.DismissGrabAlert)
+			admin.PUT("/grab_alerts/batch_dismiss", handlers.BatchDismissGrabAlerts)
 
 			// 顾客管理
 			admin.GET("/customers", handlers.ListCustomers)

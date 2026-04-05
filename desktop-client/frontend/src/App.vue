@@ -110,6 +110,7 @@ const state = reactive({
   uploading: false,
   ocrRetryCount: 0,     // OCR 重试计数
   screenshotUrl: '',    // OCR 截图 URL（上传后由后端返回）
+  screenshotHash: '',   // OCR 截图 SHA256 哈希（防篡改）
   previewUrl: '',       // 图片预览 URL
   showPreviewModal: false, // 是否显示大图弹窗
   
@@ -406,6 +407,7 @@ const handleOCRResponse = (res) => {
      state.price = res.price;
      state.orderTime = res.order_time || '';
      state.screenshotUrl = res.screenshot_url || '';
+     state.screenshotHash = res.screenshot_hash || '';
      state.ocrRetryCount = 0; // 成功后重置计数
      
      if (res.price === 0 && !res.order_sn) {
@@ -533,7 +535,8 @@ const submit = async () => {
       state.form.followStaffUID,
       state.price,
       state.attachments.map(a => a.url),
-      state.screenshotUrl
+      state.screenshotUrl,
+      state.screenshotHash
     );
 
     if (res.success) {
@@ -546,6 +549,7 @@ const submit = async () => {
       state.attachments = [];
       state.previewUrl = '';
       state.screenshotUrl = '';
+      state.screenshotHash = '';
       state.orderTime = '';
       state.ocrRetryCount = 0;
       state.form = { customerContact: '', followStaffUID: '' };

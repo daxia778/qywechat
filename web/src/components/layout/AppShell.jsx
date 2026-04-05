@@ -204,7 +204,7 @@ export default function AppShell() {
         <div className="flex-1 overflow-y-auto py-3 scrollbar-hide">
           <nav className="px-3 space-y-0.5" aria-label="主导航菜单">
             {(!collapsed || mobileOpen) && (
-              <p className="px-3 mb-2 mt-2 text-[10px] font-semibold text-white/40 uppercase tracking-[0.12em]">菜单</p>
+              <p className="px-3 mb-2 mt-2 text-[13px] font-medium text-white/40 tracking-[0.06em]">菜单</p>
             )}
             {filteredNavRoutes.map((route) => {
               const isActive = location.pathname === route.path || (route.path !== '/' && location.pathname.startsWith(route.path));
@@ -291,14 +291,14 @@ export default function AppShell() {
               onClick={connectionState === WS_STATE.OFFLINE ? retry : undefined}
             >
               <span
-                className={`inline-block w-2 h-2 rounded-full ${
+                className={`inline-block w-2 h-2 rounded-full transition-colors duration-300 ${
                   connectionState === WS_STATE.CONNECTED
-                    ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]'
+                    ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.45)]'
                     : connectionState === WS_STATE.RECONNECTING
-                    ? 'bg-amber-400 animate-pulse shadow-[0_0_6px_rgba(251,191,36,0.5)]'
+                    ? 'bg-amber-400 animate-breathe shadow-[0_0_6px_rgba(251,191,36,0.4)]'
                     : connectionState === WS_STATE.OFFLINE
                     ? 'bg-[#c8cad0]'
-                    : 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
+                    : 'bg-red-500 animate-soft-pulse shadow-[0_0_6px_rgba(239,68,68,0.4)]'
                 }`}
               />
               <span className={`hidden lg:inline text-[12px] font-medium whitespace-nowrap ${

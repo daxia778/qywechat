@@ -197,7 +197,7 @@ export default function DesignersRosterPage() {
               </colgroup>
               <thead>
                 <tr>
-                  <th className="pl-6 text-left">设计师</th>
+                  <th className="text-left" style={{ paddingLeft: 28 }}>设计师</th>
                   <SortHeader label="接单数" field="total_orders" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
                   <SortHeader label="退款数" field="refund_orders" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
                   <SortHeader label="累计金额" field="total_revenue" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
@@ -295,7 +295,7 @@ const DesignerRow = memo(function DesignerRow({ d, onEdit }) {
   return (
     <tr className="group transition-colors hover:bg-[#FAFBFC]">
       {/* Designer name + avatar + contact */}
-      <td className="pl-6">
+      <td style={{ paddingLeft: 28 }}>
         <div className="flex items-center gap-3">
           <div
             className="w-9 h-9 rounded-[10px] flex items-center justify-center text-white text-sm font-extrabold shrink-0"

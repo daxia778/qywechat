@@ -34,3 +34,31 @@ func sqlFormatMonth(col string) string {
 	}
 	return "strftime('%m', " + col + ")"
 }
+
+// sqlFormatYearMonth returns a SQL expression that formats a timestamp
+// column as 'YYYY-MM'.
+//   - SQLite:    strftime('%Y-%m', col)
+//   - PostgreSQL: TO_CHAR(col, 'YYYY-MM')
+func sqlFormatYearMonth(col string) string {
+	if config.C.DBType == "postgres" {
+		return "TO_CHAR(" + col + ", 'YYYY-MM')"
+	}
+	return "strftime('%Y-%m', " + col + ")"
+}
+
+// sqlFormatYearWeek returns a SQL expression that formats a timestamp
+// column as 'YYYY-Wxx' (ISO week).
+//   - SQLite:    strftime('%Y-W%W', col)
+//   - PostgreSQL: TO_CHAR(col, 'IYYY-"W"IW')
+func sqlFormatYearWeek(col string) string {
+	if config.C.DBType == "postgres" {
+		return "TO_CHAR(" + col + ", 'IYYY-\"W\"IW')"
+	}
+	return "strftime('%Y-W%W', " + col + ")"
+}
+
+// ─── 导出版本（供 handlers 包跨包调用）──────────────────
+
+func SqlFormatDate(col string) string      { return sqlFormatDate(col) }
+func SqlFormatYearMonth(col string) string  { return sqlFormatYearMonth(col) }
+func SqlFormatYearWeek(col string) string   { return sqlFormatYearWeek(col) }

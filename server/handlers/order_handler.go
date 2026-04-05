@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"slices"
@@ -35,9 +38,14 @@ func UploadOCR(c *gin.Context) {
 	}
 	defer src.Close()
 
-	buf := make([]byte, 512)
-	n, _ := src.Read(buf)
-	contentType := http.DetectContentType(buf[:n])
+	// 读取全部文件内容用于类型检测 + SHA256 哈希计算
+	fileBytes, err := io.ReadAll(src)
+	if err != nil {
+		badRequest(c, "无法读取文件内容")
+		return
+	}
+
+	contentType := http.DetectContentType(fileBytes[:min(512, len(fileBytes))])
 
 	allowedTypes := map[string]bool{
 		"image/jpeg": true,
@@ -49,6 +57,10 @@ func UploadOCR(c *gin.Context) {
 		badRequest(c, "仅支持 JPG/PNG/WebP/GIF 图片格式")
 		return
 	}
+
+	// 计算截图 SHA256 哈希（防篡改校验）
+	hashBytes := sha256.Sum256(fileBytes)
+	screenshotHash := hex.EncodeToString(hashBytes[:])
 
 	// 上传到 OSS 或本地磁盘 (取决于 OSS_PROVIDER 配置)
 	uploadResult, err := services.UploadFile(file, "ocr")
@@ -71,14 +83,15 @@ func UploadOCR(c *gin.Context) {
 		return
 	}
 
-	// 将 OCR 结果和截图 URL 一起返回
+	// 将 OCR 结果、截图 URL 和哈希一起返回
 	respondOK(c, gin.H{
-		"order_sn":       result.OrderSN,
-		"price":          result.Price,
-		"raw_price":      result.RawPrice,
-		"order_time":     result.OrderTime,
-		"confidence":     result.Confidence,
-		"screenshot_url": uploadResult.URL,
+		"order_sn":        result.OrderSN,
+		"price":           result.Price,
+		"raw_price":       result.RawPrice,
+		"order_time":      result.OrderTime,
+		"confidence":      result.Confidence,
+		"screenshot_url":  uploadResult.URL,
+		"screenshot_hash": screenshotHash,
 	})
 }
 
@@ -138,6 +151,7 @@ type CreateOrderReq struct {
 	Deadline        string   `json:"deadline"`
 	Remark          string   `json:"remark"`
 	ScreenshotURL   string   `json:"screenshot_url"`
+	ScreenshotHash  string   `json:"screenshot_hash"`
 	AttachmentURLs  []string `json:"attachment_urls"`
 	FollowUID       string   `json:"follow_uid"`
 }
@@ -191,6 +205,12 @@ func CreateOrder(c *gin.Context) {
 		}
 	}
 
+	// 截图哈希校验: 如果提交了 screenshot_hash，验证格式合法（64位hex SHA256）
+	if req.ScreenshotHash != "" && len(req.ScreenshotHash) != 64 {
+		badRequest(c, "screenshot_hash 格式无效")
+		return
+	}
+
 	// 序列化备注图片URL列表
 	attachmentURLsJSON := ""
 	if len(req.AttachmentURLs) > 0 {
@@ -201,7 +221,7 @@ func CreateOrder(c *gin.Context) {
 
 	order, err := services.CreateOrder(
 		operatorID, req.OrderSN, req.CustomerContact,
-		req.Topic, req.Remark, req.ScreenshotURL, attachmentURLsJSON, req.FollowUID, req.Price, req.Pages, deadline,
+		req.Topic, req.Remark, req.ScreenshotURL, req.ScreenshotHash, attachmentURLsJSON, req.FollowUID, req.Price, req.Pages, deadline,
 	)
 	if err != nil {
 		log.Printf("创建订单失败: %v", err)
@@ -272,6 +292,12 @@ func UpdateOrderStatus(c *gin.Context) {
 	}
 	if roleStr == "follow" && order.FollowOperatorID != uidStr && order.OperatorID != uidStr {
 		forbidden(c, "只能操作自己负责的订单")
+		return
+	}
+
+	// 3.5 退款必须填写原因
+	if body.Status == models.StatusRefunded && strings.TrimSpace(body.RefundReason) == "" {
+		badRequest(c, "退款必须填写原因")
 		return
 	}
 
@@ -1066,4 +1092,115 @@ func GetMyStats(c *gin.Context) {
 	}
 
 	respondOK(c, result)
+}
+
+// CreateOrderGroup POST /api/v1/orders/:id/create-group — 创建企微群聊
+func CreateOrderGroup(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		badRequest(c, "无效的订单ID")
+		return
+	}
+
+	// 权限: admin / follow
+	role, _ := c.Get("role")
+	roleStr, _ := role.(string)
+	userID, _ := c.Get("wecom_userid")
+	uidStr, _ := userID.(string)
+
+	if roleStr != "admin" && roleStr != "follow" {
+		forbidden(c, "当前角色无权创建群聊")
+		return
+	}
+
+	var order models.Order
+	if err := models.DB.First(&order, uint(id)).Error; err != nil {
+		notFound(c, "订单不存在")
+		return
+	}
+
+	// follow 只能操作自己负责的订单
+	if roleStr == "follow" && order.FollowOperatorID != uidStr && order.OperatorID != uidStr {
+		forbidden(c, "只能为自己负责的订单建群")
+		return
+	}
+
+	// 检查是否已有群聊
+	if order.WecomChatID != "" {
+		badRequest(c, "该订单已有企微群聊")
+		return
+	}
+
+	// 检查订单状态: 仅 DESIGNING 状态可建群
+	if order.Status != models.StatusDesigning {
+		badRequest(c, "仅进行中(DESIGNING)状态的订单可创建群聊")
+		return
+	}
+
+	// 检查企微是否已配置
+	if !services.Wecom.IsConfigured() {
+		badRequest(c, "企微未配置，无法创建群聊")
+		return
+	}
+
+	// 拼装截止时间字符串
+	deadlineStr := "未设置"
+	if order.Deadline != nil {
+		deadlineStr = order.Deadline.Format("2006-01-02 15:04")
+	}
+
+	chatID, err := services.Wecom.SetupOrderGroup(
+		order.OrderSN,
+		order.OperatorID,
+		order.FollowOperatorID,
+		order.Topic,
+		order.Pages,
+		order.Price,
+		deadlineStr,
+		order.Remark,
+	)
+	if err != nil {
+		log.Printf("CreateOrderGroup 建群失败: order_id=%d err=%v", id, err)
+		internalError(c, "创建企微群聊失败: "+err.Error())
+		return
+	}
+
+	if chatID == "" {
+		badRequest(c, "企微未配置或建群返回为空")
+		return
+	}
+
+	// 更新订单的 wecom_chat_id
+	operatorName := ""
+	if name, exists := c.Get("name"); exists {
+		operatorName, _ = name.(string)
+	}
+
+	err = models.WriteTx(func(tx *gorm.DB) error {
+		if err := tx.Model(&order).Update("wecom_chat_id", chatID).Error; err != nil {
+			return err
+		}
+		return tx.Create(&models.OrderTimeline{
+			OrderID:      order.ID,
+			EventType:    "group_created",
+			OperatorID:   uidStr,
+			OperatorName: operatorName,
+			Remark:       "创建企微群聊: " + chatID,
+		}).Error
+	})
+
+	if err != nil {
+		log.Printf("CreateOrderGroup 保存chatID失败: order_id=%d err=%v", id, err)
+		internalError(c, "群聊已创建但保存失败，请联系管理员")
+		return
+	}
+
+	models.DB.First(&order, uint(id))
+	respondOK(c, gin.H{"message": "企微群聊创建成功", "chat_id": chatID, "order": order})
+
+	services.Hub.Broadcast(services.WSEvent{
+		Type:    "order_updated",
+		Payload: order,
+	})
 }

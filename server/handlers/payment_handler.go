@@ -262,11 +262,13 @@ func MatchPayment(c *gin.Context) {
 
 // GetPaymentSummary GET /api/v1/payments/summary — 收款汇总统计
 func GetPaymentSummary(c *gin.Context) {
-	// 权限: 仅 admin
 	role, _ := c.Get("role")
 	roleStr, _ := role.(string)
-	if roleStr != "admin" {
-		forbidden(c, "仅管理员可查看汇总统计")
+	userID, _ := c.Get("wecom_userid")
+	uidStr, _ := userID.(string)
+
+	if roleStr != "admin" && roleStr != "follow" {
+		forbidden(c, "无权查看汇总统计")
 		return
 	}
 
@@ -274,6 +276,13 @@ func GetPaymentSummary(c *gin.Context) {
 	endTime := c.Query("end_time")
 
 	query := models.DB.Model(&models.PaymentRecord{}).Where("trade_state = ?", "SUCCESS")
+
+	// follow 角色只看自己相关订单的流水
+	if roleStr == "follow" {
+		query = query.Where("order_id IN (?)",
+			models.DB.Model(&models.Order{}).Select("id").Where("follow_operator_id = ? OR operator_id = ?", uidStr, uidStr),
+		)
+	}
 
 	if startTime != "" {
 		if t, err := time.Parse("2006-01-02", startTime); err == nil {
@@ -338,5 +347,108 @@ func SyncWecomPayments(c *gin.Context) {
 	respondOK(c, gin.H{
 		"message": "企微收款同步完成",
 		"result":  result,
+	})
+}
+
+// GetPaymentReport GET /api/v1/payments/report — 收款对账报表（按日/周/月聚合）
+func GetPaymentReport(c *gin.Context) {
+	role, _ := c.Get("role")
+	roleStr, _ := role.(string)
+	if roleStr != "admin" {
+		forbidden(c, "仅管理员可查看对账报表")
+		return
+	}
+
+	granularity := c.DefaultQuery("granularity", "day") // day / week / month
+	startTime := c.Query("start_time")
+	endTime := c.Query("end_time")
+
+	// 默认最近 30 天
+	now := time.Now()
+	var startDate, endDate time.Time
+	if startTime != "" {
+		if t, err := time.Parse("2006-01-02", startTime); err == nil {
+			startDate = t
+		}
+	}
+	if endTime != "" {
+		if t, err := time.Parse("2006-01-02", endTime); err == nil {
+			endDate = t.Add(24 * time.Hour)
+		}
+	}
+	if startDate.IsZero() {
+		startDate = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -30)
+	}
+	if endDate.IsZero() {
+		endDate = now.Add(24 * time.Hour)
+	}
+
+	// 根据粒度选择 SQL 分组表达式
+	var groupExpr string
+	switch granularity {
+	case "week":
+		groupExpr = services.SqlFormatYearWeek("paid_at")
+	case "month":
+		groupExpr = services.SqlFormatYearMonth("paid_at")
+	default:
+		granularity = "day"
+		groupExpr = services.SqlFormatDate("paid_at")
+	}
+
+	// 查询聚合数据
+	type ReportRow struct {
+		Period        string `json:"period"`
+		TotalAmount   int64  `json:"total_amount"`
+		TotalCount    int64  `json:"total_count"`
+		MatchedAmount int64  `json:"matched_amount"`
+		MatchedCount  int64  `json:"matched_count"`
+	}
+
+	var rows []ReportRow
+	err := models.DB.Model(&models.PaymentRecord{}).
+		Select(groupExpr+" AS period, "+
+			"COALESCE(SUM(amount), 0) AS total_amount, "+
+			"COUNT(*) AS total_count, "+
+			"COALESCE(SUM(CASE WHEN order_id > 0 THEN amount ELSE 0 END), 0) AS matched_amount, "+
+			"SUM(CASE WHEN order_id > 0 THEN 1 ELSE 0 END) AS matched_count").
+		Where("trade_state = ? AND paid_at >= ? AND paid_at < ?", "SUCCESS", startDate, endDate).
+		Group("period").
+		Order("period ASC").
+		Find(&rows).Error
+
+	if err != nil {
+		log.Printf("GetPaymentReport 查询失败: %v", err)
+		internalError(c, "查询对账报表失败")
+		return
+	}
+
+	// 汇总统计
+	var totalAmount, totalCount, matchedAmount, matchedCount int64
+	for _, r := range rows {
+		totalAmount += r.TotalAmount
+		totalCount += r.TotalCount
+		matchedAmount += r.MatchedAmount
+		matchedCount += r.MatchedCount
+	}
+
+	unmatchedAmount := totalAmount - matchedAmount
+	unmatchedCount := totalCount - matchedCount
+	var matchRate float64
+	if totalCount > 0 {
+		matchRate = float64(matchedCount) / float64(totalCount) * 100
+	}
+
+	respondOK(c, gin.H{
+		"granularity":      granularity,
+		"start_time":       startDate.Format("2006-01-02"),
+		"end_time":         endDate.Add(-24 * time.Hour).Format("2006-01-02"),
+		"rows":             rows,
+		"total_amount":     totalAmount,
+		"total_count":      totalCount,
+		"matched_amount":   matchedAmount,
+		"matched_count":    matchedCount,
+		"unmatched_amount": unmatchedAmount,
+		"unmatched_count":  unmatchedCount,
+		"match_rate":       matchRate,
 	})
 }

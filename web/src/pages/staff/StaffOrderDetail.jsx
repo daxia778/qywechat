@@ -242,14 +242,14 @@ export default function StaffOrderDetail() {
 
   const doAdjustCommission = async () => {
     const val = parseFloat(commissionRate)
-    if (isNaN(val) || val < 0 || val > 100) {
-      toast('请输入 0-100 之间的数值', 'error')
+    if (isNaN(val) || val < 0) {
+      toast('请输入有效的佣金金额', 'error')
       return
     }
     setCommissionSubmitting(true)
     try {
-      await adjustCommission(id, { designer_commission_rate: val })
-      toast('佣金比例调整成功', 'success')
+      await adjustCommission(id, { designer_commission: val })
+      toast('佣金调整成功', 'success')
       setShowCommissionModal(false)
       fetchDetail()
     } catch (err) {
@@ -758,11 +758,11 @@ export default function StaffOrderDetail() {
                 </div>
               )}
 
-              {/* 调整佣金按钮 */}
-              {order.freelance_designer_name && !isTerminal && (
+              {/* 调整佣金按钮 (仅 follow/admin, 非退款状态) */}
+              {order.freelance_designer_name && !['REFUNDED', 'CLOSED'].includes(order.status) && (role === 'follow' || role === 'admin') && (
                 <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
                   <button
-                    onClick={() => { setCommissionRate(String(profit.designer_rate || 0)); setShowCommissionModal(true) }}
+                    onClick={() => { setCommissionRate(String(profit.designer_commission ? (profit.designer_commission / 100) : '')); setShowCommissionModal(true) }}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px',
                       fontSize: 13, fontWeight: 700, color: '#7C3AED', background: '#F5F3FF',
@@ -978,27 +978,27 @@ export default function StaffOrderDetail() {
           <div className="confirm-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
             <div className="confirm-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <DollarSign className="w-5 h-5" style={{ color: '#7C3AED' }} />
-              调整设计师佣金比例
+              调整设计师佣金
             </div>
             <div className="confirm-message" style={{ marginBottom: 8 }}>
               当前设计师: <strong>{order.freelance_designer_name}</strong>
             </div>
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>设计师佣金比例 (%)</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>设计师佣金金额 (元)</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <input
-                  type="number" step="1" min="0" max="100"
+                  type="number" step="1" min="0"
                   value={commissionRate}
                   onChange={(e) => setCommissionRate(e.target.value)}
                   className="confirm-input"
                   style={{ flex: 1, marginBottom: 0 }}
-                  placeholder="如: 30"
+                  placeholder="输入佣金金额（整数元）"
                   autoFocus
                 />
-                <span style={{ fontSize: 16, fontWeight: 700, color: '#64748B' }}>%</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: '#64748B' }}>元</span>
               </div>
               <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>
-                当前设计师比例: {profit.designer_rate || 0}% · 当前金额: ¥{fmtYuan(order.price)}
+                修改后将直接设置该订单的设计师佣金
               </div>
             </div>
             <div className="confirm-actions">

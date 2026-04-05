@@ -9,7 +9,8 @@ export const unbindDevice = (id) => client.put(`/admin/employees/${id}/unbind`);
 export const getTeamWorkload = () => client.get('/admin/team_workload');
 export const getProfitSummary = (month, config) => client.get('/admin/profit_breakdown', { params: { month }, ...config });
 export const pauseActivationCode = (id) => client.put(`/admin/activation_codes/${id}/pause`);
-export const listActivationCodes = (status) => client.get('/admin/activation_codes', { params: status ? { status } : {} });
+export const listActivationCodes = (params = {}) => client.get('/admin/activation_codes', { params });
+export const createActivationCode = (employeeId) => client.post('/admin/activation_codes', { employee_id: employeeId });
 export const deleteEmployee = (id) => client.delete(`/admin/employees/${id}`);
 export const batchToggleEmployees = (ids, active) => client.put('/admin/employees/batch_toggle', { ids, active });
 export const batchDeleteEmployees = (ids) => client.post('/admin/employees/batch_delete', { ids });
@@ -51,5 +52,12 @@ export const exportExcel = async (params = {}) => {
 };
 
 export const regenerateActivationCode = (id) => client.put(`/admin/activation_codes/${id}/regenerate`);
-export const getGrabAlerts = () => client.get('/admin/grab_alerts');
+export const getGrabAlerts = (params) => client.get('/admin/grab_alerts', { params });
+export const getGrabAlertStats = () => client.get('/admin/grab_alerts/stats');
+export const dismissGrabAlert = (id) => client.put(`/admin/grab_alerts/${id}/dismiss`);
+export const batchDismissGrabAlerts = (ids) => client.put('/admin/grab_alerts/batch_dismiss', { ids });
 export const getTeamRoster = () => client.get('/admin/team_roster');
+
+// 联系我管理
+export const createContactWay = (data) => client.post('/admin/contact_way', data);
+export const listContactWays = () => client.get('/admin/contact_ways');

@@ -23,19 +23,12 @@ type ProfitResult struct {
 }
 
 // CalculateProfit 计算指定订单的分润（纯计算，不写库）
-// 1. 查询订单获取基础金额 (Price) 和加页费用 (ExtraPrice)
-// 2. 计算总金额 = Price + ExtraPrice
-// 3. 按费率计算各方分润（四舍五入）
-// 4. 返回结果
-//
-// 注意: PaymentRecord 模型尚未实现，待后续追加收款功能上线后在此处补充汇总逻辑
 func CalculateProfit(db *gorm.DB, orderID uint) (*ProfitResult, error) {
 	var order models.Order
 	if err := db.First(&order, orderID).Error; err != nil {
 		return nil, fmt.Errorf("订单不存在: %w", err)
 	}
 
-	// 退款订单不计入分润，全部清零
 	if order.Status == models.StatusRefunded {
 		return &ProfitResult{
 			OrderID:     orderID,
@@ -43,9 +36,23 @@ func CalculateProfit(db *gorm.DB, orderID uint) (*ProfitResult, error) {
 		}, nil
 	}
 
-	// 总金额 = 基础价格 + 加页费用
-	// TODO: 待 PaymentRecord 模型上线后，在此处汇总关联的追加收款金额
+	// 汇总已匹配的收款流水作为实际收款金额，无记录时 fallback 到订单价格
 	totalAmount := order.Price + order.ExtraPrice
+	var payments []models.PaymentRecord
+	if err := db.Where("order_id = ? AND matched_at IS NOT NULL", order.ID).Find(&payments).Error; err != nil {
+		log.Printf("⚠️ 查询收款流水失败 | orderID=%d err=%v，使用订单价格计算", orderID, err)
+	} else if len(payments) > 0 {
+		paymentTotal := 0
+		for _, p := range payments {
+			paymentTotal += p.Amount
+		}
+		orderTotal := order.Price + order.ExtraPrice
+		if paymentTotal != orderTotal {
+			log.Printf("📊 收款金额与订单价格不一致 | orderID=%d 收款=%d 订单=%d 差额=%d",
+				orderID, paymentTotal, orderTotal, paymentTotal-orderTotal)
+		}
+		totalAmount = paymentTotal
+	}
 
 	// 从配置读取费率（百分比整数，0-100）
 	platformRate := config.C.PlatformFeeRate

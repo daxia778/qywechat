@@ -63,6 +63,7 @@ type Order struct {
 	Deadline        *time.Time `gorm:"column:deadline" json:"deadline,omitempty"`
 	Remark          string     `gorm:"column:remark;type:text" json:"remark,omitempty"`
 	ScreenshotPath  string     `gorm:"column:screenshot_path;type:text" json:"screenshot_path,omitempty"`
+	ScreenshotHash  string     `gorm:"column:screenshot_hash;size:64" json:"screenshot_hash,omitempty"` // SHA256 哈希，OCR 防篡改
 	AttachmentURLs  string     `gorm:"column:attachment_urls;type:text" json:"attachment_urls,omitempty"` // JSON 数组，备注图片URL列表
 	Status          string     `gorm:"column:status;size:32;default:PENDING;index:idx_status_created,priority:1" json:"status"`
 	WecomChatID     string     `gorm:"column:wecom_chat_id;size:64" json:"wecom_chat_id,omitempty"`
@@ -87,6 +88,7 @@ type Order struct {
 	AssignRetryCount int       `gorm:"column:assign_retry_count;default:0" json:"assign_retry_count"`
 	GrabAlertSent        bool      `gorm:"column:grab_alert_sent;default:false" json:"grab_alert_sent"`
 	DesigningAlertSent   bool      `gorm:"column:designing_alert_sent;default:false" json:"designing_alert_sent"`
+	AlertDismissed       bool      `gorm:"column:alert_dismissed;default:false" json:"alert_dismissed"`
 }
 
 // OrderStatus 状态机常量
@@ -109,11 +111,14 @@ const (
 
 // ValidTransitions 合法状态转换
 var ValidTransitions = map[string][]string{
-	StatusPending:   {StatusDesigning},
-	StatusDesigning: {StatusCompleted, StatusRevision, StatusAfterSale, StatusRefunded},
-	StatusRevision:  {StatusDesigning},
-	StatusAfterSale: {StatusCompleted, StatusRefunded},
-	StatusCompleted: {StatusRefunded},
+	StatusPending:      {StatusDesigning},
+	StatusGroupCreated: {StatusDesigning},            // 旧状态，等同待处理
+	StatusConfirmed:    {StatusDesigning},             // 旧状态，等同待处理
+	StatusDesigning:    {StatusCompleted, StatusRevision, StatusAfterSale, StatusRefunded},
+	StatusRevision:     {StatusDesigning, StatusCompleted},
+	StatusAfterSale:    {StatusCompleted, StatusRefunded},
+	StatusDelivered:    {StatusCompleted, StatusRefunded}, // 旧状态，等同进行中
+	StatusCompleted:    {StatusRefunded},
 }
 
 // StatusChangePermission 定义每个目标状态所需的操作权限
@@ -133,6 +138,10 @@ func IsTerminalStatus(status string) bool {
 
 // ValidateStatusTransition 校验状态流转是否合法，返回 nil 表示合法，否则返回错误描述
 func ValidateStatusTransition(currentStatus, newStatus string) error {
+	// 幂等：相同状态不报错
+	if currentStatus == newStatus {
+		return nil
+	}
 	allowed, ok := ValidTransitions[currentStatus]
 	if !ok {
 		return fmt.Errorf("当前状态 %s 不支持转换", currentStatus)

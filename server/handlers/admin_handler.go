@@ -366,23 +366,75 @@ func GetTeamRoster(c *gin.Context) {
 	respondOK(c, gin.H{"data": results})
 }
 
-// GetGrabAlerts 获取当前超时抢单列表
+// GetGrabAlerts 获取当前超时抢单列表（支持分页、筛选）
 func GetGrabAlerts(c *gin.Context) {
-	alerts, err := services.GetGrabAlerts()
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	filter := services.GrabAlertFilter{
+		AlertType: c.Query("alert_type"),
+		Dismissed: c.Query("dismissed"),
+		StartDate: c.Query("start_date"),
+		EndDate:   c.Query("end_date"),
+		Page:      page,
+		PageSize:  pageSize,
+	}
+
+	alerts, total, err := services.GetGrabAlertsPaged(filter)
 	if err != nil {
 		log.Printf("获取抢单超时列表失败: %v", err)
 		internalError(c, "获取抢单超时列表失败，请稍后重试")
 		return
 	}
-	respondList(c, alerts, len(alerts))
+	respondOK(c, gin.H{"data": alerts, "total": total})
+}
+
+// GetGrabAlertStats 获取告警统计数据
+func GetGrabAlertStats(c *gin.Context) {
+	stats := services.GetGrabAlertStats()
+	respondOK(c, stats)
+}
+
+// DismissGrabAlert 标记单条告警为已处理
+func DismissGrabAlert(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		badRequest(c, "无效的订单ID")
+		return
+	}
+	if err := services.DismissGrabAlert(uint(id)); err != nil {
+		log.Printf("标记告警已处理失败: %v", err)
+		internalError(c, "操作失败，请稍后重试")
+		return
+	}
+	respondMessage(c, "已标记为已处理")
+}
+
+// BatchDismissGrabAlerts 批量标记告警为已处理
+func BatchDismissGrabAlerts(c *gin.Context) {
+	var body struct {
+		IDs []uint `json:"ids"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.IDs) == 0 {
+		badRequest(c, "参数错误")
+		return
+	}
+	if err := services.BatchDismissGrabAlerts(body.IDs); err != nil {
+		log.Printf("批量标记告警已处理失败: %v", err)
+		internalError(c, "操作失败，请稍后重试")
+		return
+	}
+	respondMessage(c, fmt.Sprintf("已批量标记 %d 条告警为已处理", len(body.IDs)))
 }
 
 // ─── 激活码管理 ──────────────────────────────────────────
 
 // ListActivationCodes 列出所有非 admin 员工的设备绑定状态
-// 查询参数: ?status=bound (已绑定) | unbound (未绑定) | 空=全部
+// 查询参数: ?status=bound|unbound|active|paused  &keyword=xxx
 func ListActivationCodes(c *gin.Context) {
 	status := c.Query("status")
+	keyword := c.Query("keyword")
 	var employees []models.Employee
 	query := models.DB.Where("role != 'admin'")
 	switch status {
@@ -390,6 +442,14 @@ func ListActivationCodes(c *gin.Context) {
 		query = query.Where("machine_id != ''")
 	case "unbound":
 		query = query.Where("machine_id = ''")
+	case "active":
+		query = query.Where("is_active = ?", true)
+	case "paused":
+		query = query.Where("is_active = ?", false)
+	}
+	if keyword != "" {
+		like := "%" + escapeLike(keyword) + "%"
+		query = query.Where("(name LIKE ? ESCAPE '\\' OR wecom_userid LIKE ? ESCAPE '\\')", like, like)
 	}
 	query.Order("created_at DESC").Find(&employees)
 
@@ -444,6 +504,70 @@ func ListActivationCodes(c *gin.Context) {
 		result = append(result, item)
 	}
 	respondList(c, result, len(result))
+}
+
+// CreateActivationCode 为指定员工创建/重置激活码
+// POST /api/v1/admin/activation_codes
+func CreateActivationCode(c *gin.Context) {
+	var req struct {
+		EmployeeID uint `json:"employee_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "请提供 employee_id")
+		return
+	}
+
+	var emp models.Employee
+	if err := models.DB.First(&emp, req.EmployeeID).Error; err != nil {
+		notFound(c, "员工不存在")
+		return
+	}
+	if emp.Role == "admin" {
+		badRequest(c, "管理员角色不使用激活码")
+		return
+	}
+
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	codeBytes := make([]byte, 8)
+	for i := range codeBytes {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			internalError(c, "生成激活码失败")
+			return
+		}
+		codeBytes[i] = chars[n.Int64()]
+	}
+	plainCode := string(codeBytes)
+
+	hashedCode, err := bcrypt.GenerateFromPassword([]byte(plainCode), bcrypt.DefaultCost)
+	if err != nil {
+		internalError(c, "加密激活码失败")
+		return
+	}
+
+	prefix := plainCode[:4]
+	updates := map[string]interface{}{
+		"activation_code":        string(hashedCode),
+		"activation_code_prefix": prefix,
+	}
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Model(&emp).Updates(updates).Error
+	}); err != nil {
+		internalError(c, "创建激活码失败，请稍后重试")
+		return
+	}
+
+	userID, _ := c.Get("wecom_userid")
+	userName, _ := c.Get("name")
+	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditActivationCodeRegen, emp.WecomUserID, "创建激活码: "+emp.Name, c.ClientIP())
+
+	log.Printf("激活码已创建 | 员工=%s", emp.Name)
+
+	respondOK(c, gin.H{
+		"activation_code_plain": plainCode,
+		"employee_name":         emp.Name,
+		"notice":                "激活码仅显示一次，请立即记录并告知员工！",
+	})
 }
 
 // PauseActivationCode 远程暂停或恢复激活码 (复用 toggleEmployeeActive)
