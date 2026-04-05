@@ -20,6 +20,12 @@ export const searchDesigners = (q) => client.get('/orders/designers', { params: 
 export const listDesignerRoster = (params) => client.get('/orders/designers/list', { params });
 export const createDesigner = (data) => client.post('/orders/designers', data);
 
+// 订单备注
+export const addOrderNote = async (orderId, note) => {
+  const res = await client.post(`/orders/${orderId}/note`, { note });
+  return res.data;
+};
+
 // 跟单操作
 export const assignDesigner = (orderId, data) => client.put(`/orders/${orderId}/assign-designer`, data);
 export const adjustCommission = (orderId, data) => client.put(`/orders/${orderId}/adjust-commission`, data);

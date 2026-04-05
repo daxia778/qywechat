@@ -7,7 +7,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useOrderFilters } from '../hooks/useOrderFilters';
 import { useOrderActions } from '../hooks/useOrderActions';
 import { getOrderDetail, getOrderTimeline } from '../api/orders';
-import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ORDER_STATUSES } from '../utils/constants';
+import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ORDER_TABS } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -201,16 +201,10 @@ export default function OrdersPage() {
 
   const selectedOrders = orders.filter((o) => selectedIds.has(o.id));
 
-  // Fix #4: Wrap batchActions in useMemo
+  // Fix #4: Wrap batchActions in useMemo (batch complete removed)
   const batchActions = useMemo(() => {
-    if (selectedOrders.length === 0) return [];
-    const actions = [];
-    const canComplete = selectedOrders.every((o) => o.status === 'DESIGNING');
-    if (canComplete && ['admin', 'sales', 'follow'].includes(role)) {
-      actions.push({ status: 'COMPLETED', label: '批量完成', type: 'primary' });
-    }
-    return actions;
-  }, [selectedOrders, role]);
+    return [];
+  }, []);
 
   return (
     <div className="flex flex-col gap-5 w-full max-w-[1400px] mx-auto">
@@ -368,14 +362,14 @@ export default function OrdersPage() {
         {/* Tabs & Search */}
         <div className="px-6 border-b border-slate-200 bg-white flex justify-between items-end gap-4">
           <div className="flex gap-1 overflow-x-auto scrollbar-hide pt-3" role="tablist" aria-label="订单状态筛选">
-            {ORDER_STATUSES.map((s) => (
+            {ORDER_TABS.map((s) => (
               <button
-                key={s.value}
+                key={s.key}
                 role="tab"
-                aria-selected={currentStatus === s.value}
-                onClick={() => { setCurrentStatus(s.value); setCurrentPage(0); }}
+                aria-selected={currentStatus === s.key}
+                onClick={() => { setCurrentStatus(s.key); setCurrentPage(0); }}
                 className={`pb-3 px-3 text-[13px] font-semibold border-b-2 transition-all whitespace-nowrap bg-transparent cursor-pointer rounded-t-md ${
-                  currentStatus === s.value
+                  currentStatus === s.key
                     ? 'border-brand-500 text-brand-500'
                     : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
                 }`}
@@ -824,13 +818,9 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
       <td className="text-center" onClick={(e) => e.stopPropagation()}>
         <div className="text-[11px] text-slate-400 font-medium tabular-nums mb-1">{formatTime(order.created_at)}</div>
         <div className="flex flex-wrap items-center justify-center gap-1">
-          {/* admin/follow: 开始设计 (PENDING -> DESIGNING) */}
-          {order.status === 'PENDING' && (role === 'admin' || role === 'follow') && (
-            <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm active:scale-[0.98]">开始设计</button>
-          )}
-          {/* admin/follow: 标记完成 (DESIGNING -> COMPLETED) */}
-          {order.status === 'DESIGNING' && (role === 'admin' || role === 'follow') && (
-            <button onClick={() => onConfirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg bg-white active:scale-[0.98]">标记完成</button>
+          {/* admin/follow: 已完成 (DESIGNING/REVISION/AFTER_SALE -> COMPLETED) */}
+          {['DESIGNING', 'REVISION', 'AFTER_SALE'].includes(order.status) && (role === 'admin' || role === 'follow') && (
+            <button onClick={() => onConfirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg bg-white active:scale-[0.98]">已完成</button>
           )}
           {hasMoreActions && (
             <div className="relative">
@@ -839,18 +829,11 @@ const OrderRow = memo(function OrderRow({ order, role, userId, selected, onToggl
               </button>
               {openMoreMenu === order.id && (
                 <div className="absolute right-0 top-8 w-40 bg-white rounded-xl shadow-xl border border-slate-200/80 z-50 overflow-hidden py-1" onClick={(e) => e.stopPropagation()}>
-                  {/* Refund - admin and sales */}
-                  {!['REFUNDED'].includes(order.status) && (role === 'admin' || role === 'sales') && (
+                  {/* Refund - admin and sales, only in DESIGNING/REVISION/AFTER_SALE/COMPLETED */}
+                  {['DESIGNING', 'REVISION', 'AFTER_SALE', 'COMPLETED'].includes(order.status) && (role === 'admin' || role === 'sales') && (
                     <button onClick={() => { onHandleRefund(order); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors flex items-center gap-2">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z" /></svg>
                       退款
-                    </button>
-                  )}
-                  {/* admin: 转派设计师 */}
-                  {order.status === 'DESIGNING' && order.designer_id && role === 'admin' && (
-                    <button onClick={() => { onReassign(order); onSetMoreMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
-                      转派设计师
                     </button>
                   )}
                 </div>

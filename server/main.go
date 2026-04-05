@@ -212,7 +212,9 @@ func main() {
 			orderAuth.GET("/:id/profit", handlers.GetOrderProfit)
 			orderAuth.GET("/pending-match", handlers.ListPendingMatchOrders)
 			orderAuth.POST("/:id/match", handlers.MatchOrderContact)
-			orderAuth.PUT("/:id/reassign", handlers.ReassignOrder)
+			orderAuth.POST("/:id/note", handlers.AddOrderNote)
+			orderAuth.PUT("/designers/:id", handlers.UpdateDesigner)
+
 		orderAuth.GET("/my-stats", handlers.GetMyStats)
 
 			// 上传文件访问（需 JWT 鉴权，防止未授权访问 OCR 截图等敏感文件）

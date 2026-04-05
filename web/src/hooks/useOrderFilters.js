@@ -19,7 +19,7 @@ export function useOrderFilters({ toast, on, off, connected }) {
     if (manual) setLoading(true);
     try {
       const params = { limit: pageSize, offset: currentPage * pageSize };
-      if (currentStatus) params.status = currentStatus;
+      if (currentStatus) params.status = currentStatus; // 支持逗号分隔多状态，如 "DESIGNING,REVISION,AFTER_SALE"
       if (debouncedKeyword.trim()) params.keyword = debouncedKeyword.trim();
       const res = await listOrders(params, { signal });
       setOrders(res.data.data || []);

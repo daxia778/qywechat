@@ -487,7 +487,6 @@ export default function EmployeesPage() {
                   <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 appearance-none bg-white font-medium" required>
                     <option value="sales">谈单客服</option>
                     <option value="follow">跟单客服</option>
-                    <option value="designer">设计师</option>
                     <option value="admin">管理员</option>
                   </select>
                   <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-500">

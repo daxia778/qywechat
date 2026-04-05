@@ -30,24 +30,18 @@ export const ROLE_MAP = {
   admin: '系统管理员',
   sales: '谈单客服',
   follow: '跟单客服',
-  designer: '设计师',
-  operator: '客服管家', // 兼容旧数据
 };
 
 export const ROLE_CLASS_MAP = {
   sales: 'primary',
   follow: 'primary',
-  designer: 'secondary',
   admin: 'warning',
-  operator: 'primary', // 兼容旧数据
 };
 
 export const ROLE_AVATAR_CLASS_MAP = {
   sales: 'bg-[#434FCF]',
   follow: 'bg-[#2563EB]',
-  designer: 'bg-[#8B5CF6]',
   admin: 'bg-[#FF6B2C]',
-  operator: 'bg-[#434FCF]', // 兼容旧数据
 };
 
 export const BADGE_VARIANT_CLASSES = {
@@ -146,19 +140,16 @@ export const PIPELINE_STAGES = [
   { key: 'completed', status: ['COMPLETED'],   label: '已完成', icon: '✅', color: '#10B981' },
 ]
 
-// 订单列表 Tab（我的订单页用）
+// 订单列表 Tab（我的订单页用，进行中合并 3 个状态）
 export const ORDER_TABS = [
-  { key: '',           label: '全部' },
-  { key: 'PENDING',    label: '待处理' },
-  { key: 'DESIGNING',  label: '设计中' },
-  { key: 'REVISION',   label: '修改中' },
-  { key: 'AFTER_SALE', label: '售后中' },
-  { key: 'COMPLETED',  label: '已完成' },
-  { key: 'REFUNDED',   label: '已退款' },
+  { key: '',                              label: '全部' },
+  { key: 'PENDING',                       label: '待处理' },
+  { key: 'DESIGNING,REVISION,AFTER_SALE', label: '进行中' },
+  { key: 'COMPLETED',                     label: '已完成' },
+  { key: 'REFUNDED',                      label: '已退款' },
 ]
 
 export const ROLE_LABELS = {
-  designer: '设计师',
   sales: '谈单客服',
   follow: '跟单客服',
   admin: '系统管理员',

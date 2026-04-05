@@ -362,111 +362,6 @@ func ReassignOrder(orderID uint, newDesignerUserID, operatorID string) (*models.
 	return &order, nil
 }
 
-// GetIdleDesigners 获取空闲设计师
-func GetIdleDesigners() []models.Employee {
-	var designers []models.Employee
-	models.DB.Where("role = ? AND is_active = ? AND status = ?", "designer", true, "idle").Find(&designers)
-	return designers
-}
-
-// AssignToIdleDesigner 优先分配给空闲设计师（负载最低的idle设计师）
-func AssignToIdleDesigner(orderID uint) (*models.Order, error) {
-	var order models.Order
-	var designer models.Employee
-	now := time.Now()
-
-	err := models.WriteTx(func(tx *gorm.DB) error {
-		if err := tx.Where("id = ? AND status = ?", orderID, models.StatusPending).First(&order).Error; err != nil {
-			return fmt.Errorf("订单不存在或已非PENDING状态")
-		}
-
-		result := tx.Where("role = ? AND is_active = ? AND status = ?", "designer", true, "idle").
-			Order("active_order_count ASC").First(&designer)
-		if result.Error != nil {
-			return fmt.Errorf("无空闲设计师")
-		}
-
-		order.DesignerID = designer.WecomUserID
-		order.Status = models.StatusGroupCreated
-		order.AssignedAt = &now
-
-		designer.Status = "busy"
-		designer.ActiveOrderCount++
-
-		if err := tx.Save(&order).Error; err != nil {
-			return err
-		}
-		if err := tx.Save(&designer).Error; err != nil {
-			return err
-		}
-		return tx.Create(&models.OrderTimeline{
-			OrderID:      order.ID,
-			EventType:    "status_changed",
-			FromStatus:   models.StatusPending,
-			ToStatus:     models.StatusGroupCreated,
-			OperatorID:   designer.WecomUserID,
-			OperatorName: designer.Name,
-			Remark:       "系统自动指派(空闲设计师)",
-		}).Error
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	log.Printf("✅ 订单自动指派(空闲) | sn=%s | designer=%s", order.OrderSN, designer.Name)
-	return &order, nil
-}
-
-// ForceAssignOrder 强制派单（给负载最低的任意活跃设计师，不限idle状态）
-func ForceAssignOrder(orderID uint) (*models.Order, error) {
-	var order models.Order
-	var designer models.Employee
-	now := time.Now()
-
-	err := models.WriteTx(func(tx *gorm.DB) error {
-		if err := tx.Where("id = ? AND status = ?", orderID, models.StatusPending).First(&order).Error; err != nil {
-			return fmt.Errorf("订单不存在或已非PENDING状态")
-		}
-
-		result := tx.Where("role = ? AND is_active = ?", "designer", true).
-			Order("active_order_count ASC").First(&designer)
-		if result.Error != nil {
-			return fmt.Errorf("无可用设计师")
-		}
-
-		order.DesignerID = designer.WecomUserID
-		order.Status = models.StatusGroupCreated
-		order.AssignedAt = &now
-
-		designer.Status = "busy"
-		designer.ActiveOrderCount++
-
-		if err := tx.Save(&order).Error; err != nil {
-			return err
-		}
-		if err := tx.Save(&designer).Error; err != nil {
-			return err
-		}
-		return tx.Create(&models.OrderTimeline{
-			OrderID:      order.ID,
-			EventType:    "status_changed",
-			FromStatus:   models.StatusPending,
-			ToStatus:     models.StatusGroupCreated,
-			OperatorID:   designer.WecomUserID,
-			OperatorName: designer.Name,
-			Remark:       "系统超时自动指派",
-		}).Error
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	log.Printf("✅ 订单强制指派 | sn=%s | designer=%s", order.OrderSN, designer.Name)
-	return &order, nil
-}
-
 // Deprecated: v2.0 已移除自动抢单派单机制
 // StartOrderTimeoutWatcher 原用于超时未接单自动派发，现已废弃
 func StartOrderTimeoutWatcher(ctx context.Context) {
@@ -662,26 +557,6 @@ func GetDashboardStats() *DashboardStats {
 		Scan(&todayStats)
 	stats.TodayOrderCount = todayStats.Cnt
 	stats.TodayRevenue = todayStats.Total
-
-	// ── 设计师在线状态 (单次 GROUP BY 替代 2 次 COUNT) ──
-	type DesignerStatusCount struct {
-		Status string `gorm:"column:status"`
-		Cnt    int64  `gorm:"column:cnt"`
-	}
-	var designerStatusCounts []DesignerStatusCount
-	models.DB.Model(&models.Employee{}).
-		Select("status, COUNT(*) as cnt").
-		Where("role = ? AND is_active = ?", "designer", true).
-		Group("status").
-		Find(&designerStatusCounts)
-	for _, dsc := range designerStatusCounts {
-		switch dsc.Status {
-		case "busy":
-			stats.ActiveDesigners = dsc.Cnt
-		case "idle":
-			stats.IdleDesigners = dsc.Cnt
-		}
-	}
 
 	// ── Phase 2: 本周/上周对比 ──
 	now := time.Now()

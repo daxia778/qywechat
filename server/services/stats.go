@@ -40,8 +40,8 @@ func GetRevenueChart(days int) *RevenueChartResult {
 	}
 	var rows []aggRow
 	models.DB.Model(&models.Order{}).
-		Select(sqlFormatDate("created_at") + " as day, COALESCE(SUM(price), 0) as revenue, COUNT(*) as order_count").
-		Where("created_at >= ?", startDate).
+		Select(sqlFormatDate("completed_at") + " as day, COALESCE(SUM(price + extra_price), 0) as revenue, COUNT(*) as order_count").
+		Where("status = ? AND completed_at >= ?", models.StatusCompleted, startDate).
 		Group("day").
 		Order("day ASC").
 		Find(&rows)

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
-import { getOrderDetail, getOrderTimeline, updateOrderStatus, searchDesigners, assignDesigner, adjustCommission } from '../../api/orders'
+import { getOrderDetail, getOrderTimeline, updateOrderStatus, searchDesigners, assignDesigner, adjustCommission, addOrderNote } from '../../api/orders'
 import { STATUS_MAP, STATUS_COLORS, fmtYuan, formatTime } from '../../utils/constants'
 import { ArrowLeft, Loader2, Clock, FileText, Layers, Zap, User, Calendar, Hash, MessageSquare, AlertTriangle, Search, Plus, DollarSign } from 'lucide-react'
 
@@ -83,6 +83,14 @@ export default function StaffOrderDetail() {
   const [showCommissionModal, setShowCommissionModal] = useState(false)
   const [commissionRate, setCommissionRate] = useState('')
   const [commissionSubmitting, setCommissionSubmitting] = useState(false)
+
+  // ── 换人确认状态 ──
+  const [showReassignConfirm, setShowReassignConfirm] = useState(false)
+  const [pendingDesignerId, setPendingDesignerId] = useState(null)
+
+  // ── 添加备注状态 ──
+  const [noteText, setNoteText] = useState('')
+  const [noteSubmitting, setNoteSubmitting] = useState(false)
 
   const fetchDetail = useCallback(async () => {
     try {
@@ -172,6 +180,16 @@ export default function StaffOrderDetail() {
   }, [])
 
   const doAssignDesigner = async (designerId) => {
+    // 如果已有设计师，弹出换人确认
+    if (order.freelance_designer_name) {
+      setPendingDesignerId(designerId)
+      setShowReassignConfirm(true)
+      return
+    }
+    await executeAssignDesigner(designerId)
+  }
+
+  const executeAssignDesigner = async (designerId) => {
     setAssigningDesigner(true)
     try {
       await assignDesigner(id, { freelance_designer_id: designerId })
@@ -183,6 +201,14 @@ export default function StaffOrderDetail() {
       toast('关联失败: ' + (err.response?.data?.error || err.message), 'error')
     } finally {
       setAssigningDesigner(false)
+    }
+  }
+
+  const confirmReassign = async () => {
+    setShowReassignConfirm(false)
+    if (pendingDesignerId) {
+      await executeAssignDesigner(pendingDesignerId)
+      setPendingDesignerId(null)
     }
   }
 
@@ -233,6 +259,24 @@ export default function StaffOrderDetail() {
     }
   }
 
+  const doSubmitNote = async () => {
+    if (!noteText.trim()) {
+      toast('请输入备注内容', 'error')
+      return
+    }
+    setNoteSubmitting(true)
+    try {
+      await addOrderNote(id, noteText.trim())
+      toast('备注添加成功', 'success')
+      setNoteText('')
+      fetchDetail()
+    } catch (err) {
+      toast('添加备注失败: ' + (err.response?.data?.error || err.message), 'error')
+    } finally {
+      setNoteSubmitting(false)
+    }
+  }
+
   if (loading) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 16 }}>
@@ -249,16 +293,14 @@ export default function StaffOrderDetail() {
   const sc = STATUS_COLORS[order.status] || STATUS_COLORS.PENDING
   const isTerminal = ['COMPLETED', 'REFUNDED', 'CLOSED'].includes(order.status)
 
-  // v2.0 简化操作按钮
+  // v2.1 简化操作按钮: 已完成(进行中状态) + 退款(进行中+已完成)
   const actions = []
-  if (!isTerminal && (role === 'follow' || role === 'admin')) {
-    if (order.status === 'DESIGNING') {
-      actions.push({ label: '确认完成', status: 'COMPLETED', cls: 'action-btn-success', icon: '✨' })
+  const isInProgress = ['DESIGNING', 'REVISION', 'AFTER_SALE'].includes(order.status)
+  if (role === 'follow' || role === 'admin') {
+    if (isInProgress) {
+      actions.push({ label: '已完成', status: 'COMPLETED', cls: 'action-btn-success', icon: '✨' })
     }
-    if (order.status === 'COMPLETED') {
-      actions.push({ label: '退款', cls: 'action-btn-danger', icon: '💸', isRefund: true })
-    }
-    if (order.status !== 'COMPLETED') {
+    if (isInProgress || order.status === 'COMPLETED') {
       actions.push({ label: '退款', cls: 'action-btn-danger', icon: '💸', isRefund: true })
     }
   }
@@ -484,6 +526,63 @@ export default function StaffOrderDetail() {
             )}
           </div>
         </div>
+
+        {/* ── 添加备注 (follow/admin 可见) ── */}
+        {(role === 'follow' || role === 'admin') && !['REFUNDED', 'CLOSED'].includes(order.status) && (
+          <div style={{
+            background: '#fff', border: '1px solid rgba(0,0,0,0.06)',
+            borderRadius: 20, overflow: 'hidden',
+            boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
+          }}>
+            <div style={{
+              padding: '18px 24px', borderBottom: '1px solid #F1F5F9',
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <div style={{
+                width: 34, height: 34, borderRadius: 10,
+                background: 'linear-gradient(135deg, #FEF3C7, #FFFBEB)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <MessageSquare className="w-4 h-4" style={{ color: '#F59E0B' }} />
+              </div>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#0F172A', fontFamily: "'Outfit', sans-serif" }}>添加备注</span>
+            </div>
+            <div style={{ padding: 24 }}>
+              <textarea
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="输入备注内容..."
+                disabled={noteSubmitting}
+                rows={3}
+                style={{
+                  width: '100%', padding: '12px 16px', fontSize: 14,
+                  border: '2px solid #E5E7EB', borderRadius: 14,
+                  outline: 'none', transition: 'border-color 0.2s',
+                  resize: 'vertical', minHeight: 80, lineHeight: 1.6,
+                  fontFamily: 'inherit',
+                }}
+                onFocus={e => e.target.style.borderColor = '#C4B5FD'}
+                onBlur={e => e.target.style.borderColor = '#E5E7EB'}
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+                <button
+                  onClick={doSubmitNote}
+                  disabled={noteSubmitting || !noteText.trim()}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6, padding: '9px 20px',
+                    fontSize: 13, fontWeight: 700, color: '#fff', background: '#434FCF',
+                    border: 'none', borderRadius: 10, cursor: 'pointer',
+                    opacity: (noteSubmitting || !noteText.trim()) ? 0.5 : 1,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {noteSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  {noteSubmitting ? '提交中...' : '添加备注'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── 花名册 - 关联设计师 (follow/admin 可见) ── */}
         {(role === 'follow' || role === 'admin') && !isTerminal && (
@@ -912,6 +1011,33 @@ export default function StaffOrderDetail() {
               >
                 {commissionSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 {commissionSubmitting ? '提交中...' : '确认调整'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 换人确认弹窗 ── */}
+      {showReassignConfirm && (
+        <div className="confirm-overlay" onClick={() => { setShowReassignConfirm(false); setPendingDesignerId(null) }}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="confirm-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle className="w-5 h-5" style={{ color: '#F59E0B' }} />
+              更换设计师确认
+            </div>
+            <div className="confirm-message">
+              当前订单已关联设计师 <strong>{order.freelance_designer_name}</strong>，确定要更换吗？
+            </div>
+            <div className="confirm-actions">
+              <button className="action-btn action-btn-outline" onClick={() => { setShowReassignConfirm(false); setPendingDesignerId(null) }}>取消</button>
+              <button
+                className="action-btn action-btn-primary"
+                onClick={confirmReassign}
+                disabled={assigningDesigner}
+                style={{ background: '#F59E0B', borderColor: '#F59E0B' }}
+              >
+                {assigningDesigner ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {assigningDesigner ? '更换中...' : '确认更换'}
               </button>
             </div>
           </div>

@@ -439,3 +439,84 @@ func AdjustCommission(c *gin.Context) {
 		Payload: order,
 	})
 }
+
+// UpdateDesigner 编辑设计师花名册信息（跟单客服/管理员权限）
+// PUT /api/v1/orders/designers/:id
+func UpdateDesigner(c *gin.Context) {
+	role, _ := c.Get("role")
+	roleStr, _ := role.(string)
+	if roleStr != "admin" && roleStr != "follow" {
+		forbidden(c, "当前角色无权编辑设计师")
+		return
+	}
+
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		badRequest(c, "无效的设计师ID")
+		return
+	}
+
+	var body struct {
+		Name      *string `json:"name"`
+		WechatID  *string `json:"wechat_id"`
+		Mobile    *string `json:"mobile"`
+		Specialty *string `json:"specialty"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		badRequest(c, "请求参数格式错误")
+		return
+	}
+
+	var designer models.FreelanceDesigner
+	if err := models.DB.First(&designer, uint(id)).Error; err != nil {
+		notFound(c, "设计师不存在")
+		return
+	}
+
+	updates := map[string]any{}
+	if body.Name != nil && *body.Name != "" {
+		// 名字去重（排除自身）
+		var count int64
+		models.DB.Model(&models.FreelanceDesigner{}).Where("name = ? AND id != ?", *body.Name, id).Count(&count)
+		if count > 0 {
+			conflict(c, "该设计师名字已存在")
+			return
+		}
+		updates["name"] = *body.Name
+	}
+	if body.WechatID != nil {
+		updates["wechat_id"] = *body.WechatID
+	}
+	if body.Mobile != nil {
+		updates["mobile"] = *body.Mobile
+	}
+	if body.Specialty != nil {
+		updates["specialty"] = *body.Specialty
+	}
+
+	if len(updates) == 0 {
+		badRequest(c, "请至少提供一个要修改的字段")
+		return
+	}
+
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		if err := tx.Model(&designer).Updates(updates).Error; err != nil {
+			return err
+		}
+		// 如果修改了名字，同步更新所有关联订单的冗余字段
+		if newName, ok := updates["name"]; ok {
+			return tx.Model(&models.Order{}).
+				Where("freelance_designer_id = ?", designer.ID).
+				Update("freelance_designer_name", newName).Error
+		}
+		return nil
+	}); err != nil {
+		log.Printf("UpdateDesigner 失败: id=%d err=%v", id, err)
+		internalError(c, "更新设计师信息失败")
+		return
+	}
+
+	models.DB.First(&designer, uint(id))
+	respondOK(c, gin.H{"message": "设计师信息已更新", "designer": designer})
+}

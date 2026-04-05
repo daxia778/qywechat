@@ -74,11 +74,11 @@ func generateRandomPassword() string {
 	return string(b)
 }
 
-// ListEmployees 员工列表
+// ListEmployees 员工列表 (设计师走花名册 FreelanceDesigner，不在此列表展示)
 func ListEmployees(c *gin.Context) {
 	role := c.Query("role")
 	var employees []models.Employee
-	query := models.DB
+	query := models.DB.Where("role != ?", "designer")
 	if role != "" {
 		query = query.Where("role = ?", role)
 	}
@@ -95,9 +95,9 @@ func CreateEmployee(c *gin.Context) {
 		return
 	}
 
-	// 校验角色
-	if !models.IsValidRole(req.Role) {
-		badRequest(c, "角色必须是 sales/designer/follow/admin")
+	// 校验角色 (设计师走花名册 FreelanceDesigner，不走 Employee 表)
+	if !models.IsValidRole(req.Role) || req.Role == "designer" {
+		badRequest(c, "角色必须是 sales/follow/admin")
 		return
 	}
 

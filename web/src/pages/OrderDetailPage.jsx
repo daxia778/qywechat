@@ -391,20 +391,16 @@ export default function OrderDetailPage() {
         <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)]">
           <div className="px-6 py-4 flex items-center gap-3 flex-wrap">
             <span className="text-[13px] font-semibold text-slate-500 mr-auto">操作:</span>
-            {/* 开始设计 (PENDING → DESIGNING) */}
-            {order.status === 'PENDING' && canOperate('follow') && (
-              <button onClick={() => doUpdateStatus('DESIGNING')} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm text-[12px] active:scale-[0.98]">开始设计</button>
-            )}
-            {/* 标记完成 (DESIGNING → COMPLETED) */}
-            {order.status === 'DESIGNING' && canOperate('follow') && (
+            {/* 标记完成 (进行中状态 → COMPLETED) */}
+            {['DESIGNING', 'REVISION', 'AFTER_SALE'].includes(order.status) && canOperate('follow') && (
               <button onClick={() => showModal({
                 title: '完成订单', message: `确认已收到尾款并将订单 ${order.order_sn} 标记为完成？`,
                 type: 'info', confirmText: '确认完成',
                 detail: { '订单号': order.order_sn, '金额': `¥${((order.price ?? 0) / 100).toFixed(2)}` },
               }, () => doUpdateStatus('COMPLETED'))} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg text-[12px] bg-white active:scale-[0.98]">标记完成</button>
             )}
-            {/* 退款 (COMPLETED → REFUNDED 或其他非终态 → REFUNDED) */}
-            {!['REFUNDED'].includes(order.status) && canOperate('follow') && (
+            {/* 退款 (DESIGNING/REVISION/AFTER_SALE/COMPLETED → REFUNDED) */}
+            {['DESIGNING', 'REVISION', 'AFTER_SALE', 'COMPLETED'].includes(order.status) && canOperate('follow') && (
               <button onClick={() => showModal({
                 title: '退款', message: `请填写订单 ${order.order_sn} 的退款原因：`,
                 type: 'warning', showInput: true, inputPlaceholder: '退款原因（必填）', confirmText: '提交退款',

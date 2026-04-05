@@ -182,7 +182,7 @@ func setupE2ERouter(t *testing.T) (*httptest.Server, func()) {
 			orderAuth.GET("/:id/profit", handlers.GetOrderProfit)
 			orderAuth.GET("/pending-match", handlers.ListPendingMatchOrders)
 			orderAuth.POST("/:id/match", handlers.MatchOrderContact)
-			orderAuth.PUT("/:id/reassign", handlers.ReassignOrder)
+			orderAuth.POST("/:id/note", handlers.AddOrderNote)
 			orderAuth.GET("/my-stats", handlers.GetMyStats)
 		}
 

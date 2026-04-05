@@ -36,7 +36,6 @@ export default function DashboardPage() {
   const [stats, setStats] = useState({
     total_orders: 0, pending_orders: 0, designing_orders: 0,
     today_revenue: 0, today_order_count: 0,
-    active_designers: 0, idle_designers: 0,
     designer_rankings: [], monthly_data: [],
     week_revenue: 0, last_week_revenue: 0, avg_completion_hours: 0,
     // Phase 5 fields
@@ -50,12 +49,6 @@ export default function DashboardPage() {
   const chartInstanceRef = useRef(null);
   const pieChartRef = useRef(null);
   const pieInstanceRef = useRef(null);
-
-  const utilizationRate = useMemo(() => {
-    const total = stats.active_designers + stats.idle_designers;
-    if (total === 0) return 0;
-    return Math.round((stats.active_designers / total) * 100);
-  }, [stats.active_designers, stats.idle_designers]);
 
   const pendingTotal = useMemo(() => {
     return (stats.confirmed_count || 0) + (stats.after_sale_count || 0) + (stats.revision_count || 0);
@@ -591,52 +584,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Team Load + Order Status Distribution */}
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">
-            <div className="bg-surface-container-lowest ghost-border rounded-2xl xl:col-span-1 flex flex-col min-h-0 hover:border-[#434FCF]/25 transition-colors shadow-[0_1px_8px_rgba(0,0,0,0.05)]">
-              <div className="px-5 lg:px-7 py-5 border-b border-[#e1e3e4] flex items-center justify-between">
-                <div>
-                  <h2 style={{fontFamily:"'Outfit',sans-serif", fontSize:18, fontWeight:600, color:'#1d1d1f'}}>团队负载</h2>
-                  <p className="text-[13px] text-[#6e6e73] mt-0.5">实时运营容量</p>
-                </div>
-                <span className="flex h-2.5 w-2.5 relative shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-                </span>
-              </div>
-              <div className="p-5 lg:p-6 flex flex-col gap-4 flex-1">
-                <div className="flex items-center p-4 rounded-2xl border border-slate-100 bg-gradient-to-r from-brand-25 to-white hover:border-[#434FCF]/25 transition-colors">
-                  <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-sm mr-3.5">
-                    <span className="text-lg font-bold text-brand-500 tabular-nums">{stats.active_designers}</span>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-800">活跃成员</div>
-                    <div className="text-xs text-slate-500 mt-0.5">正在处理订单中</div>
-                  </div>
-                </div>
-                <div className="flex items-center p-4 rounded-2xl border border-slate-100 bg-gradient-to-r from-emerald-50/60 to-white hover:border-[#434FCF]/25 transition-colors">
-                  <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-sm mr-3.5">
-                    <span className="text-lg font-bold text-emerald-500 tabular-nums">{stats.idle_designers}</span>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-800">空闲 / 可用</div>
-                    <div className="text-xs text-slate-500 mt-0.5">可接受新任务分配</div>
-                  </div>
-                </div>
-                <div className="mt-auto pt-2">
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="font-medium text-slate-600">总体利用率</span>
-                    <span className="font-bold text-slate-800 tabular-nums">{utilizationRate}%</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                    <div className="bg-gradient-to-r from-brand-500 to-indigo-400 h-2 rounded-full transition-all duration-700 ease-out" style={{ width: `${utilizationRate}%` }} />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Order Status Distribution */}
-            <div className="bg-surface-container-lowest ghost-border rounded-2xl xl:col-span-2 flex flex-col min-h-0 hover:border-[#434FCF]/25 transition-colors shadow-[0_1px_8px_rgba(0,0,0,0.05)]">
+          {/* Order Status Distribution */}
+          <div className="grid grid-cols-1 gap-6 lg:gap-8">
+            <div className="bg-surface-container-lowest ghost-border rounded-2xl flex flex-col min-h-0 hover:border-[#434FCF]/25 transition-colors shadow-[0_1px_8px_rgba(0,0,0,0.05)]">
               <div className="px-5 lg:px-7 py-5 border-b border-[#e1e3e4]">
                 <h2 style={{fontFamily:"'Outfit',sans-serif", fontSize:18, fontWeight:600, color:'#1d1d1f'}}>订单状态分布</h2>
                 <p className="text-[13px] text-[#6e6e73] mt-0.5">当前各状态订单数量概览</p>

@@ -492,7 +492,12 @@ func ListOrders(c *gin.Context) {
 	}
 
 	if status != "" {
-		query = query.Where("status = ?", status)
+		statuses := strings.Split(status, ",")
+		if len(statuses) == 1 {
+			query = query.Where("status = ?", statuses[0])
+		} else {
+			query = query.Where("status IN ?", statuses)
+		}
 	}
 	if keyword != "" {
 		like := "%" + escapeLike(keyword) + "%"
@@ -716,24 +721,11 @@ func UpdateOrderAmount(c *gin.Context) {
 	})
 }
 
-// ─── 转派 ──────────────────────────────────────
+// ─── 备注 ──────────────────────────────────────
 
-type ReassignOrderReq struct {
-	DesignerUserID string `json:"designer_userid" binding:"required"`
-}
-
-// ReassignOrder 管理员转派订单给另一个设计师
-// PUT /api/v1/orders/:id/reassign
-func ReassignOrder(c *gin.Context) {
-	// 1. 权限校验: 仅 admin
-	role, _ := c.Get("role")
-	roleStr, _ := role.(string)
-	if roleStr != "admin" {
-		forbidden(c, "仅管理员可执行转派操作")
-		return
-	}
-
-	// 2. 解析订单 ID
+// AddOrderNote 追加订单备注
+// POST /api/v1/orders/:id/note
+func AddOrderNote(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
@@ -741,32 +733,57 @@ func ReassignOrder(c *gin.Context) {
 		return
 	}
 
-	// 3. 解析请求体
-	var req ReassignOrderReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("ReassignOrder 参数绑定失败: %v", err)
-		badRequest(c, "请提供目标设计师ID (designer_userid)")
+	var body struct {
+		Note string `json:"note" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		badRequest(c, "请提供备注内容 (note)")
 		return
 	}
 
-	// 4. 获取操作人
 	userID, _ := c.Get("wecom_userid")
 	uidStr, _ := userID.(string)
+	operatorName := ""
+	if name, exists := c.Get("name"); exists {
+		operatorName, _ = name.(string)
+	}
 
-	// 5. 调用 service
-	updatedOrder, err := services.ReassignOrder(uint(id), req.DesignerUserID, uidStr)
-	if err != nil {
-		badRequest(c, err.Error())
+	var order models.Order
+	if err := models.DB.First(&order, uint(id)).Error; err != nil {
+		notFound(c, "订单不存在")
 		return
 	}
 
-	respondOK(c, gin.H{"message": "订单已成功转派", "order": updatedOrder})
+	// 追加备注: 在已有备注后换行，带时间戳和操作人
+	timestamp := time.Now().Format("2006-01-02 15:04")
+	appendLine := fmt.Sprintf("[%s %s] %s", timestamp, operatorName, body.Note)
+	newRemark := order.Remark
+	if newRemark != "" {
+		newRemark += "\n"
+	}
+	newRemark += appendLine
 
-	// 6. WebSocket 广播
-	services.Hub.Broadcast(services.WSEvent{
-		Type:    "order_updated",
-		Payload: updatedOrder,
+	err = models.WriteTx(func(tx *gorm.DB) error {
+		if err := tx.Model(&order).Update("remark", newRemark).Error; err != nil {
+			return err
+		}
+		return tx.Create(&models.OrderTimeline{
+			OrderID:      order.ID,
+			EventType:    "note_added",
+			OperatorID:   uidStr,
+			OperatorName: operatorName,
+			Remark:       body.Note,
+		}).Error
 	})
+
+	if err != nil {
+		log.Printf("AddOrderNote 失败: order_id=%d err=%v", id, err)
+		internalError(c, "添加备注失败，请稍后重试")
+		return
+	}
+
+	models.DB.First(&order, uint(id))
+	respondOK(c, gin.H{"message": "备注已添加", "order": order})
 }
 
 // ─── 匹配好友 ──────────────────────────────────

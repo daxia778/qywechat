@@ -110,7 +110,7 @@ const (
 // ValidTransitions 合法状态转换
 var ValidTransitions = map[string][]string{
 	StatusPending:   {StatusDesigning},
-	StatusDesigning: {StatusCompleted, StatusRevision, StatusAfterSale},
+	StatusDesigning: {StatusCompleted, StatusRevision, StatusAfterSale, StatusRefunded},
 	StatusRevision:  {StatusDesigning},
 	StatusAfterSale: {StatusCompleted, StatusRefunded},
 	StatusCompleted: {StatusRefunded},

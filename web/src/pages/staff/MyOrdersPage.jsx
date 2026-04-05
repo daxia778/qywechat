@@ -7,7 +7,7 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import { useOrderFilters } from '../../hooks/useOrderFilters';
 import { useOrderActions } from '../../hooks/useOrderActions';
 import { getOrderDetail, getOrderTimeline } from '../../api/orders';
-import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ORDER_STATUSES } from '../../utils/constants';
+import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ORDER_TABS } from '../../utils/constants';
 import { formatTime } from '../../utils/formatters';
 import ConfirmModal from '../../components/ConfirmModal';
 import LoadingSpinner from '../../components/LoadingSpinner';
@@ -258,20 +258,20 @@ export default function MyOrdersPage() {
         {/* Tabs & Search */}
         <div className="px-6 border-b border-slate-200 bg-white flex justify-between items-end gap-4">
           <div className="flex gap-1 overflow-x-auto scrollbar-hide pt-3" role="tablist" aria-label="订单状态筛选">
-            {ORDER_STATUSES.map((s) => (
+            {ORDER_TABS.map((s) => (
               <button
-                key={s.value}
+                key={s.key}
                 role="tab"
-                aria-selected={currentStatus === s.value}
-                onClick={() => { setCurrentStatus(s.value); setCurrentPage(0); }}
+                aria-selected={currentStatus === s.key}
+                onClick={() => { setCurrentStatus(s.key); setCurrentPage(0); }}
                 className={`pb-3 px-3 text-[13px] font-semibold border-b-2 transition-all whitespace-nowrap bg-transparent cursor-pointer rounded-t-md ${
-                  currentStatus === s.value
+                  currentStatus === s.key
                     ? 'border-brand-500 text-brand-500'
                     : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
                 }`}
               >
                 {s.label}
-                {s.value === 'PENDING' && currentStatus === 'PENDING' && totalOrders > 0 && (
+                {s.key === 'PENDING' && currentStatus === 'PENDING' && totalOrders > 0 && (
                   <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-warning-bg text-warning text-[10px] font-bold" title={`共 ${totalOrders} 条待处理订单`}>
                     {totalOrders}
                   </span>
@@ -600,31 +600,14 @@ const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirm
       <td className="text-center" onClick={(e) => e.stopPropagation()}>
         <div className="text-[11px] text-slate-400 font-medium tabular-nums mb-1">{formatTime(order.created_at)}</div>
         <div className="flex flex-wrap items-center justify-center gap-1">
-          {/* follow/admin: Start design (PENDING -> DESIGNING) */}
-          {order.status === 'PENDING' && (role === 'admin' || role === 'follow') && (
-            <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm active:scale-[0.98]">开始设计</button>
+          {/* DESIGNING/REVISION/AFTER_SALE: 已完成 + 退款 */}
+          {['DESIGNING', 'REVISION', 'AFTER_SALE'].includes(order.status) && (role === 'admin' || role === 'follow') && (
+            <>
+              <button onClick={() => onConfirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg bg-white active:scale-[0.98]">已完成</button>
+              <button onClick={() => onHandleRefund(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-300 text-amber-600 hover:bg-amber-50 bg-white active:scale-[0.98]">退款</button>
+            </>
           )}
-          {/* follow/admin: Mark complete (DESIGNING -> COMPLETED) */}
-          {order.status === 'DESIGNING' && (role === 'admin' || role === 'follow') && (
-            <button onClick={() => onConfirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg bg-white active:scale-[0.98]">标记完成</button>
-          )}
-          {/* follow/admin: DESIGNING -> REVISION */}
-          {order.status === 'DESIGNING' && (role === 'admin' || role === 'follow') && (
-            <button onClick={() => onUpdateStatus(order, 'REVISION')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-300 text-amber-600 hover:bg-amber-50 bg-white active:scale-[0.98]">转修改</button>
-          )}
-          {/* follow/admin: DESIGNING -> AFTER_SALE */}
-          {order.status === 'DESIGNING' && (role === 'admin' || role === 'follow') && (
-            <button onClick={() => onUpdateStatus(order, 'AFTER_SALE')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-orange-300 text-orange-600 hover:bg-orange-50 bg-white active:scale-[0.98]">转售后</button>
-          )}
-          {/* follow/admin: REVISION -> DESIGNING */}
-          {order.status === 'REVISION' && (role === 'admin' || role === 'follow') && (
-            <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm active:scale-[0.98]">继续设计</button>
-          )}
-          {/* follow/admin: AFTER_SALE -> COMPLETED */}
-          {order.status === 'AFTER_SALE' && (role === 'admin' || role === 'follow') && (
-            <button onClick={() => onConfirmComplete(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-success text-success hover:bg-success-bg bg-white active:scale-[0.98]">标记完成</button>
-          )}
-          {/* follow/admin: Refund (COMPLETED -> REFUNDED) */}
+          {/* COMPLETED: 退款 */}
           {order.status === 'COMPLETED' && (role === 'admin' || role === 'follow') && (
             <button onClick={() => onHandleRefund(order)} className="inline-flex items-center justify-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-amber-300 text-amber-600 hover:bg-amber-50 bg-white active:scale-[0.98]">退款</button>
           )}
