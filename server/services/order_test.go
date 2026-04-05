@@ -33,6 +33,7 @@ func TestCreateOrder_Success(t *testing.T) {
 		"Annual Report", // topic
 		"urgent",        // remark
 		"",              // screenshotPath
+		"",              // screenshotHash
 		"",              // attachmentURLs
 		"",              // followUID
 		5000,            // price (cents)
@@ -77,7 +78,7 @@ func TestCreateOrder_Success(t *testing.T) {
 func TestCreateOrder_AutoGenerateSN(t *testing.T) {
 	setupOrderTest(t)
 
-	order, err := CreateOrder("sales01", "", "", "Auto SN Test", "", "", "", "", 1000, 5, nil)
+	order, err := CreateOrder("sales01", "", "", "Auto SN Test", "", "", "", "", "", 1000, 5, nil)
 	if err != nil {
 		t.Fatalf("CreateOrder returned error: %v", err)
 	}
@@ -93,14 +94,14 @@ func TestCreateOrder_AutoGenerateSN(t *testing.T) {
 func TestCreateOrder_DuplicateSN(t *testing.T) {
 	setupOrderTest(t)
 
-	_, err := CreateOrder("sales01", "DUP-SN-001", "", "First", "", "", "", "", 1000, 5, nil)
+	_, err := CreateOrder("sales01", "DUP-SN-001", "", "First", "", "", "", "", "", 1000, 5, nil)
 	if err != nil {
 		t.Fatalf("First CreateOrder failed: %v", err)
 	}
 	time.Sleep(200 * time.Millisecond)
 
 	// Second order with the same SN should fail.
-	order2, err2 := CreateOrder("sales01", "DUP-SN-001", "", "Duplicate", "", "", "", "", 2000, 10, nil)
+	order2, err2 := CreateOrder("sales01", "DUP-SN-001", "", "Duplicate", "", "", "", "", "", 2000, 10, nil)
 	if err2 == nil {
 		t.Fatal("Expected error for duplicate SN, got nil")
 	}

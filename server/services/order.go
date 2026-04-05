@@ -68,30 +68,6 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 	
 	log.Printf("✅ 订单创建 | sn=%s | operator=%s | price=%d", orderSN, operatorID, price)
 
-	// 创建首笔收款记录（拼多多）
-	if order.Price > 0 {
-		now := time.Now()
-		payment := models.PaymentRecord{
-			TransactionID: fmt.Sprintf("PDD-%s-%d", order.OrderSN, now.Unix()),
-			OrderID:       order.ID,
-			CustomerID:    order.CustomerID,
-			Amount:        order.Price,
-			Source:        "pdd",
-			PayeeUserID:   operatorID,
-			PaidAt:        now,
-			MatchedAt:     &now,
-			MatchMethod:   "auto",
-			TradeState:    "SUCCESS",
-		}
-		if pErr := models.WriteTx(func(tx *gorm.DB) error {
-			return tx.Create(&payment).Error
-		}); pErr != nil {
-			log.Printf("⚠️  创建首笔收款记录失败: sn=%s err=%v", orderSN, pErr)
-		} else {
-			log.Printf("✅ 首笔收款记录已创建 | txn=%s | amount=%d", payment.TransactionID, payment.Amount)
-		}
-	}
-
 	// 初始分润计算（异步，不阻塞订单创建响应）
 	TriggerProfitRecalculation(order.ID)
 
@@ -104,7 +80,70 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 		}()
 	}
 
+	// 异步通知跟单客服添加客户微信
+	if customerContact != "" {
+		go notifyFollowStaffToAddCustomer(order, customerContact)
+	}
+
 	return order, nil
+}
+
+// notifyFollowStaffToAddCustomer 通知跟单客服添加客户微信
+// 如果订单指定了跟单客服则只通知他，否则广播所有 follow 角色员工
+func notifyFollowStaffToAddCustomer(order *models.Order, customerContact string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("❌ notifyFollowStaffToAddCustomer panic: %v", r)
+		}
+	}()
+
+	if !Wecom.IsConfigured() {
+		return
+	}
+
+	// 确定通知目标
+	var targetIDs []string
+	if order.FollowOperatorID != "" {
+		targetIDs = []string{order.FollowOperatorID}
+	} else {
+		// 广播所有跟单客服
+		var follows []models.Employee
+		models.DB.Where("role = ? AND is_active = ?", "follow", true).Find(&follows)
+		for _, f := range follows {
+			if f.WecomUserID != "" {
+				targetIDs = append(targetIDs, f.WecomUserID)
+			}
+		}
+	}
+	if len(targetIDs) == 0 {
+		return
+	}
+
+	// 查询谈单客服姓名
+	salesName := order.OperatorID
+	var salesEmp models.Employee
+	if models.DB.Where("wecom_userid = ?", order.OperatorID).First(&salesEmp).Error == nil {
+		salesName = salesEmp.Name
+	}
+
+	priceYuan := fmt.Sprintf("%.2f", float64(order.Price)/100)
+	topicDisplay := order.Topic
+	if topicDisplay == "" {
+		topicDisplay = "未填写"
+	}
+
+	desc := fmt.Sprintf("谈单客服: %s\n客户联系方式: %s\n主题: %s\n金额: ¥%s\n\n请尽快添加客户微信，系统将自动完成后续流程",
+		salesName, customerContact, topicDisplay, priceYuan)
+
+	// 发送卡片消息
+	_ = Wecom.SendTextCardMessage(
+		targetIDs,
+		"新订单待处理 — 请添加客户微信",
+		desc,
+		fmt.Sprintf("https://zhiyuanshijue.ltd/orders?sn=%s", order.OrderSN),
+	)
+
+	log.Printf("📤 已通知跟单客服添加客户 | sn=%s | targets=%v | contact=%s", order.OrderSN, targetIDs, customerContact)
 }
 
 // GrabOrder 设计师抢单（先到先得，原子操作防并发冲突）
@@ -118,7 +157,7 @@ func GrabOrder(orderID uint, designerUserID string) (*models.Order, error) {
 			Where("id = ? AND status = ?", orderID, models.StatusPending).
 			Updates(map[string]any{
 				"designer_id": designerUserID,
-				"status":      models.StatusGroupCreated,
+				"status":      models.StatusDesigning,
 				"assigned_at": &now,
 			})
 
@@ -152,7 +191,7 @@ func GrabOrder(orderID uint, designerUserID string) (*models.Order, error) {
 			OrderID:      order.ID,
 			EventType:    "status_changed",
 			FromStatus:   models.StatusPending,
-			ToStatus:     models.StatusGroupCreated,
+			ToStatus:     models.StatusDesigning,
 			OperatorID:   designerUserID,
 			OperatorName: designerName,
 			Remark:       "设计师抢单",
@@ -223,10 +262,66 @@ func postStatusChangeEffects(order *models.Order, newStatus string) {
 	log.Printf("✅ 订单状态更新 | sn=%s | %s", order.OrderSN, newStatus)
 
 	switch newStatus {
+	case models.StatusDesigning:
+		// 自动建群: 订单已分配设计师，检查是否满足建群条件
+		go TriggerAutoGroupCreation(order.ID)
 	case models.StatusCompleted:
 		TriggerProfitRecalculation(order.ID)
-	case models.StatusRefunded:
+		// 订单完成时自动创建收款记录
 		go func() {
+			if order.Price > 0 {
+				// 检查是否已有同来源收款记录，避免重复
+				var pddCount int64
+				models.DB.Model(&models.PaymentRecord{}).Where("order_id = ? AND source = 'pdd'", order.ID).Count(&pddCount)
+				if pddCount > 0 {
+					return
+				}
+				// 检查该订单总收款记录数，最多2条
+				var totalCount int64
+				models.DB.Model(&models.PaymentRecord{}).Where("order_id = ?", order.ID).Count(&totalCount)
+				if totalCount >= 2 {
+					log.Printf("⚠️  订单已有%d条收款记录，跳过自动创建 | sn=%s", totalCount, order.OrderSN)
+					return
+				}
+				now := time.Now()
+				payment := models.PaymentRecord{
+					TransactionID: fmt.Sprintf("PDD-%s-%d", order.OrderSN, now.Unix()),
+					OrderID:       order.ID,
+					CustomerID:    order.CustomerID,
+					Amount:        order.Price,
+					Source:        "pdd",
+					PayeeUserID:   order.OperatorID,
+					PaidAt:        &now,
+					MatchedAt:     &now,
+					MatchMethod:   "auto",
+					TradeState:    "SUCCESS",
+				}
+				if err := models.WriteTx(func(tx *gorm.DB) error {
+					return tx.Create(&payment).Error
+				}); err != nil {
+					log.Printf("⚠️  完成订单创建收款记录失败: sn=%s err=%v", order.OrderSN, err)
+				} else {
+					log.Printf("✅ 订单完成，收款记录已创建 | txn=%s | amount=%d", payment.TransactionID, payment.Amount)
+				}
+			}
+		}()
+	case models.StatusRefunded:
+		// 退款时删除对应的自动收款记录
+		go func() {
+			if err := models.WriteTx(func(tx *gorm.DB) error {
+				return tx.Where("order_id = ? AND source = 'pdd' AND match_method = 'auto'", order.ID).Delete(&models.PaymentRecord{}).Error
+			}); err != nil {
+				log.Printf("⚠️  退款删除收款记录失败: orderID=%d err=%v", order.ID, err)
+			} else {
+				log.Printf("✅ 退款，已删除自动收款记录 | orderID=%d", order.ID)
+			}
+		}()
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("❌ 退款清零分润 panic | orderID=%d err=%v", order.ID, r)
+				}
+			}()
 			if err := models.WriteTx(func(tx *gorm.DB) error {
 				return ClearProfitFields(tx, order.ID)
 			}); err != nil {
@@ -234,6 +329,120 @@ func postStatusChangeEffects(order *models.Order, newStatus string) {
 			}
 		}()
 	}
+}
+
+// TriggerAutoGroupCreation 异步触发订单自动建群
+// 条件: 订单已关联跟单客服 + 已关联设计师 + 尚未建群
+func TriggerAutoGroupCreation(orderID uint) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("❌ TriggerAutoGroupCreation panic: orderID=%d err=%v", orderID, r)
+		}
+	}()
+
+	var order models.Order
+	if err := models.DB.First(&order, orderID).Error; err != nil {
+		log.Printf("⚠️ 自动建群: 订单不存在 | orderID=%d", orderID)
+		return
+	}
+
+	// 条件检查
+	if order.WecomChatID != "" {
+		log.Printf("ℹ️ 自动建群: 订单已有群聊，跳过 | sn=%s | chatID=%s", order.OrderSN, order.WecomChatID)
+		return
+	}
+	if order.FollowOperatorID == "" {
+		log.Printf("ℹ️ 自动建群: 缺少跟单客服，跳过 | sn=%s", order.OrderSN)
+		return
+	}
+	if !Wecom.IsConfigured() {
+		log.Printf("ℹ️ 自动建群: 企微未配置，跳过 | sn=%s", order.OrderSN)
+		return
+	}
+
+	// 查找关联客户信息
+	customerNickname := ""
+	if order.CustomerID > 0 {
+		var customer models.Customer
+		if models.DB.First(&customer, order.CustomerID).Error == nil {
+			customerNickname = customer.Nickname
+		}
+	}
+
+	// 格式化截止时间
+	deadlineStr := "未设置"
+	if order.Deadline != nil {
+		deadlineStr = order.Deadline.Format("2006-01-02 15:04")
+	}
+
+	// 调用建群（含客户信息播报）
+	chatID, err := Wecom.SetupCustomerOrderGroup(
+		order.OrderSN,
+		order.OperatorID,
+		order.FollowOperatorID,
+		order.Topic,
+		order.Pages,
+		order.Price+order.ExtraPrice,
+		deadlineStr,
+		order.Remark,
+		customerNickname,
+	)
+	if err != nil {
+		log.Printf("❌ 自动建群失败 | sn=%s | err=%v", order.OrderSN, err)
+		// 发送通知给管理员
+		notifyAutoGroupFailed(order.OrderSN, err)
+		return
+	}
+
+	if chatID == "" {
+		return
+	}
+
+	// 更新订单的群聊 ID
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Model(&order).Update("wecom_chat_id", chatID).Error
+	}); err != nil {
+		log.Printf("❌ 自动建群: 更新订单群聊ID失败 | sn=%s | err=%v", order.OrderSN, err)
+		return
+	}
+
+	// 如果客户有关联，也更新客户的 GroupChatID
+	if order.CustomerID > 0 {
+		_ = models.WriteTx(func(tx *gorm.DB) error {
+			return tx.Model(&models.Customer{}).Where("id = ?", order.CustomerID).Update("group_chat_id", chatID).Error
+		})
+	}
+
+	// 推送 WebSocket 通知
+	Hub.Broadcast(WSEvent{
+		Type: "order_group_created",
+		Payload: map[string]string{
+			"order_sn": order.OrderSN,
+			"chat_id":  chatID,
+		},
+	})
+
+	log.Printf("✅ 自动建群成功 | sn=%s | chatID=%s", order.OrderSN, chatID)
+}
+
+// notifyAutoGroupFailed 建群失败时通知管理员
+func notifyAutoGroupFailed(orderSN string, err error) {
+	var admins []models.Employee
+	if dbErr := models.DB.Where("role = ? AND is_active = ?", "admin", true).Find(&admins).Error; dbErr != nil {
+		return
+	}
+	adminIDs := make([]string, 0, len(admins))
+	for _, a := range admins {
+		if a.WecomUserID != "" {
+			adminIDs = append(adminIDs, a.WecomUserID)
+		}
+	}
+	if len(adminIDs) == 0 {
+		return
+	}
+
+	msg := fmt.Sprintf("⚠️ 自动建群失败\n━━━━━━━━━━━\n📦 订单: %s\n❌ 原因: %s\n━━━━━━━━━━━\n请手动建群或检查企微配置", orderSN, err.Error())
+	_ = Wecom.SendTextMessage(adminIDs, msg)
 }
 
 // UpdateOrderStatus 状态流转 (目前鉴权在 Handler 中进行)
@@ -290,11 +499,11 @@ func ReassignOrder(orderID uint, newDesignerUserID, operatorID string) (*models.
 			return fmt.Errorf("当前状态 %s 不允许转派", order.Status)
 		}
 
-		// 3. 校验新设计师存在且 is_active=true 且 role=designer
+		// 3. 校验目标员工存在且 is_active=true（v2.0: 设计师已移至花名册，此处仅校验员工有效性）
 		var newDesigner models.Employee
-		if err := tx.Where("wecom_userid = ? AND is_active = ? AND role = ?",
-			newDesignerUserID, true, "designer").First(&newDesigner).Error; err != nil {
-			return fmt.Errorf("目标设计师不存在或未激活")
+		if err := tx.Where("wecom_userid = ? AND is_active = ?",
+			newDesignerUserID, true).First(&newDesigner).Error; err != nil {
+			return fmt.Errorf("目标员工不存在或未激活")
 		}
 
 		// 4. 不能转派给自己

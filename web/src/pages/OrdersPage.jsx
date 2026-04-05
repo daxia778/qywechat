@@ -6,7 +6,7 @@ import { useToast } from '../hooks/useToast';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useOrderFilters } from '../hooks/useOrderFilters';
 import { useOrderActions } from '../hooks/useOrderActions';
-import { getOrderDetail, getOrderTimeline, adjustCommission } from '../api/orders';
+import { getOrderDetail, getOrderTimeline, adjustCommission, searchDesigners, assignDesigner } from '../api/orders';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ORDER_TABS } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
@@ -130,6 +130,13 @@ export default function OrdersPage() {
   const [drawerData, setDrawerData] = useState({ order: {}, timeline: [], people: {}, profit: {} });
   const [drawerLoading, setDrawerLoading] = useState(false);
 
+  // ── Designer assignment modal state ──
+  const [designerModal, setDesignerModal] = useState({ visible: false, order: null });
+  const [designerList, setDesignerList] = useState([]);
+  const [designerQuery, setDesignerQuery] = useState('');
+  const [designerLoading, setDesignerLoading] = useState(false);
+  const [assigningDesigner, setAssigningDesigner] = useState(false);
+
   // ── Commission adjustment state ──
   const [showCommissionModal, setShowCommissionModal] = useState(false);
   const [commissionRate, setCommissionRate] = useState('');
@@ -163,6 +170,41 @@ export default function OrdersPage() {
       toast('调整失败: ' + (err.displayMessage || err.message), 'error');
     } finally {
       setCommissionSubmitting(false);
+    }
+  };
+
+  // ── Designer assignment modal logic ──
+  const loadDesigners = async (q) => {
+    setDesignerLoading(true);
+    try {
+      const res = await searchDesigners(q || '');
+      const list = res.data.data || res.data.designers || [];
+      setDesignerList(list);
+    } catch {
+      setDesignerList([]);
+    } finally {
+      setDesignerLoading(false);
+    }
+  };
+
+  const openDesignerModal = (order) => {
+    setDesignerModal({ visible: true, order });
+    setDesignerQuery('');
+    setDesignerList([]);
+    loadDesigners('');
+  };
+
+  const handleAssignDesigner = async (designerId) => {
+    setAssigningDesigner(true);
+    try {
+      await assignDesigner(designerModal.order.id, { freelance_designer_id: designerId });
+      toast('设计师分配成功，订单已转为进行中', 'success');
+      setDesignerModal({ visible: false, order: null });
+      fetchOrders();
+    } catch (err) {
+      toast('分配失败: ' + (err.displayMessage || err.message), 'error');
+    } finally {
+      setAssigningDesigner(false);
     }
   };
 
@@ -274,6 +316,108 @@ export default function OrdersPage() {
               <button onClick={doAdjustCommission} disabled={commissionSubmitting} className="px-5 py-2.5 text-sm font-semibold text-white rounded-xl bg-purple-500 hover:bg-purple-600 transition-all cursor-pointer border-none shadow-sm disabled:opacity-50 active:scale-[0.97]">
                 {commissionSubmitting ? '调整中...' : '确认调整'}
               </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Designer Assignment Modal */}
+      {designerModal.visible && createPortal(
+        <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/40 backdrop-blur-[2px]" onClick={() => setDesignerModal({ visible: false, order: null })} role="dialog" aria-modal="true" aria-label="分配设计师" onKeyDown={(e) => { if (e.key === 'Escape') setDesignerModal({ visible: false, order: null }); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden animate-scale-in" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="px-6 pt-6 pb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-indigo-50">
+                  <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                </div>
+                <h3 className="font-bold text-slate-800 text-lg font-[Outfit]">分配设计师</h3>
+              </div>
+              <button onClick={() => setDesignerModal({ visible: false, order: null })} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer bg-transparent border-none">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            {/* Order Info */}
+            <div className="px-6 py-3">
+              <div className="bg-slate-50 rounded-xl p-3.5 space-y-1.5 text-[13px]">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">订单编号</span>
+                  <span className="font-semibold text-slate-700 font-mono">{designerModal.order?.order_sn}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">订单金额</span>
+                  <span className="font-semibold text-slate-700 tabular-nums">&yen;{designerModal.order?.price ? (designerModal.order.price / 100).toFixed(2) : '0.00'}</span>
+                </div>
+                {designerModal.order?.customer_contact && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">客户</span>
+                    <span className="font-semibold text-slate-700">{designerModal.order.customer_contact}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Search */}
+            <div className="px-6 pb-3">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={designerQuery}
+                  onChange={(e) => {
+                    setDesignerQuery(e.target.value);
+                    loadDesigners(e.target.value);
+                  }}
+                  className="w-full pl-9 pr-3 py-2.5 text-[13px] text-slate-800 bg-slate-50 border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:bg-white focus:border-slate-300 focus:shadow-[0_0_0_3px_rgba(67,79,207,0.08)]"
+                  placeholder="搜索设计师姓名..."
+                  autoFocus
+                />
+                <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              </div>
+            </div>
+
+            {/* Designer List */}
+            <div className="px-6 pb-2">
+              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                {designerLoading ? '加载中...' : `${designerList.length} 位设计师`}
+              </p>
+              <div className="space-y-1.5 max-h-[280px] overflow-y-auto">
+                {designerLoading && designerList.length === 0 && (
+                  <div className="flex items-center justify-center py-8 text-slate-400">
+                    <div className="w-5 h-5 border-2 border-slate-200 border-t-brand-500 rounded-full animate-spin" />
+                  </div>
+                )}
+                {!designerLoading && designerList.length === 0 && (
+                  <p className="text-[13px] text-slate-400 py-6 text-center">暂无匹配的设计师</p>
+                )}
+                {designerList.map((d) => (
+                  <button
+                    key={d.id}
+                    onClick={() => handleAssignDesigner(d.id)}
+                    disabled={assigningDesigner}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition-all cursor-pointer bg-white text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center text-white text-[12px] font-bold shrink-0">
+                      {(d.name || '?').charAt(0)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-semibold text-slate-800">{d.name}</div>
+                      {d.specialty && <div className="text-[11px] text-slate-400 truncate">{d.specialty}</div>}
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`w-1.5 h-1.5 rounded-full ${(d.active_order_count || 0) === 0 ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                      <span className="text-[11px] text-slate-500">{(d.active_order_count || 0) === 0 ? '空闲' : `${d.active_order_count}单`}</span>
+                    </div>
+                    <svg className="w-4 h-4 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 pb-6 pt-3 flex items-center justify-end">
+              <button onClick={() => setDesignerModal({ visible: false, order: null })} disabled={assigningDesigner} className="px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer bg-transparent border-none disabled:opacity-50">取消</button>
             </div>
           </div>
         </div>,
@@ -497,6 +641,7 @@ export default function OrdersPage() {
                   onHandleRefund={handleRefund}
                   onPreviewImage={openPreview}
                   onOpenDrawer={openDrawer}
+                  onAssignDesigner={openDesignerModal}
                 />
               ))}
             </tbody>
@@ -622,7 +767,13 @@ export default function OrdersPage() {
                     <div className="flex items-center gap-3">
                       <div className="flex-1 bg-gradient-to-br from-brand-500 to-brand-600 rounded-xl p-4 text-white shadow-sm">
                         <span className="text-[11px] font-medium opacity-80">订单金额</span>
-                        <p className="text-2xl font-bold font-[Outfit] tabular-nums mt-0.5">&yen;{((drawerData.order.price || 0) / 100).toFixed(2)}</p>
+                        <p className="text-2xl font-bold font-[Outfit] tabular-nums mt-0.5">&yen;{(((drawerData.order.price || 0) + (drawerData.order.extra_price || 0)) / 100).toFixed(2)}</p>
+                        {drawerData.order.extra_price > 0 && (
+                          <div className="flex items-center gap-2 mt-1.5 text-[11px] opacity-80">
+                            <span>首次: &yen;{((drawerData.order.price || 0) / 100).toFixed(2)}</span>
+                            <span className="text-amber-200 font-semibold">+补款: &yen;{(drawerData.order.extra_price / 100).toFixed(2)}</span>
+                          </div>
+                        )}
                       </div>
                       {role === 'admin' && drawerData.profit.total_price > 0 && (
                         <div className="flex-1 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-4 text-white shadow-sm">
@@ -769,12 +920,12 @@ export default function OrdersPage() {
 }
 
 // ── Memoized Order Row ──
-const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirmComplete, onHandleRefund, onPreviewImage, onOpenDrawer }) {
+const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirmComplete, onHandleRefund, onPreviewImage, onOpenDrawer, onAssignDesigner }) {
   const isCommissionAdjusted = order.commission_adjusted;
   const canRefund = ['DESIGNING', 'REVISION', 'AFTER_SALE', 'COMPLETED'].includes(order.status) && (role === 'admin' || role === 'sales');
 
   return (
-    <tr className={`group relative transition-colors cursor-pointer ${isCommissionAdjusted ? 'border-l-4 border-l-amber-500 bg-amber-500/5' : 'hover:bg-[#FAFBFC]'}`} onClick={() => onOpenDrawer(order)}>
+    <tr className={`group relative transition-colors cursor-pointer ${isCommissionAdjusted ? 'border-l-4 border-l-amber-400 bg-amber-100/70' : 'hover:bg-[#FAFBFC]'}`} onClick={() => onOpenDrawer(order)}>
       <td className="overflow-hidden">
         <div className="flex items-center gap-2.5">
           {order.screenshot_path ? (
@@ -802,7 +953,10 @@ const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirm
         ) : '-'}
       </td>
       <td className="text-center text-[14px] font-bold text-slate-800 tabular-nums whitespace-nowrap">
-        &yen;{order.price ? (order.price / 100).toFixed(2) : '0.00'}
+        &yen;{((order.price + (order.extra_price || 0)) / 100).toFixed(2)}
+        {order.extra_price > 0 && (
+          <span className="ml-1 text-[10px] font-medium text-indigo-500 bg-indigo-50 px-1 py-0.5 rounded">+补</span>
+        )}
         {order.commission_adjusted && (
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ml-1 -mt-1" title="佣金已调整" />
         )}
@@ -832,8 +986,8 @@ const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirm
             const canOperate = role === 'admin' || role === 'follow';
             const btnBase = "inline-flex items-center justify-center w-[72px] py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-150 cursor-pointer active:scale-[0.97]";
             if (!canOperate) return null;
-            // 待处理类（含旧状态 GROUP_CREATED / CONFIRMED）→ 接单
-            if (['PENDING', 'GROUP_CREATED', 'CONFIRMED'].includes(order.status)) return <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className={`${btnBase} border border-blue-200 text-blue-600 hover:bg-blue-50 bg-white`}>接单</button>;
+            // 待处理类（含旧状态 GROUP_CREATED / CONFIRMED）→ 分配设计师（打开设计师选择弹窗）
+            if (['PENDING', 'GROUP_CREATED', 'CONFIRMED'].includes(order.status)) return <button onClick={(e) => { e.stopPropagation(); onAssignDesigner(order); }} className={`${btnBase} w-[88px] border border-indigo-200 text-indigo-600 hover:bg-indigo-50 bg-white gap-1`}><svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>分配设计师</button>;
             // 进行中类（含旧状态 DELIVERED）→ 完成
             if (['DESIGNING', 'REVISION', 'AFTER_SALE', 'DELIVERED'].includes(order.status)) return <button onClick={() => onConfirmComplete(order)} className={`${btnBase} border border-emerald-200 text-emerald-600 hover:bg-emerald-50 bg-white`}>完成</button>;
             // 已完成 → 退款（需确认+填写原因）

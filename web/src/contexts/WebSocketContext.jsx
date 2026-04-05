@@ -202,7 +202,9 @@ export function WebSocketProvider({ children }) {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(data);
     } else {
-      messageQueueRef.current.push(data);
+      if (messageQueueRef.current.length < 100) {
+        messageQueueRef.current.push(data);
+      }
     }
   }, []);
 

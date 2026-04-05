@@ -17,8 +17,7 @@ type AuditLog struct {
 	TargetID  string         `gorm:"column:target_id;size:64" json:"target_id"`       // 被操作对象ID
 	Detail    string         `gorm:"column:detail;type:text" json:"detail,omitempty"` // 附加信息
 	IP        string         `gorm:"column:ip;size:45" json:"ip"`                     // 客户端IP
-	CreatedAt time.Time      `gorm:"index" json:"created_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	CreatedAt time.Time `gorm:"index" json:"created_at"`
 }
 
 // 审计日志操作类型常量
@@ -35,6 +34,7 @@ const (
 	AuditPasswordReset        = "PASSWORD_RESET"
 	AuditActivationCodeRegen  = "ACTIVATION_CODE_REGEN"
 	AuditEmployeeDelete       = "EMPLOYEE_DELETE"
+	AuditOrderDelete          = "ORDER_DELETE"
 )
 
 // WriteAuditLog 写入一条审计日志

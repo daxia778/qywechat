@@ -22,7 +22,13 @@ func ListCustomers(c *gin.Context) {
 		limit = 50
 	}
 
-	customers, total, err := services.ListCustomers(keyword, limit, offset)
+	filter := services.CustomerListFilter{
+		Keyword:      keyword,
+		FollowUserID: c.Query("follow_user_id"),
+		HasExternal:  c.Query("has_external"),
+		WelcomeSent:  c.Query("welcome_sent"),
+	}
+	customers, total, err := services.ListCustomers(filter, limit, offset)
 	if err != nil {
 		log.Printf("查询顾客列表失败: %v", err)
 		internalError(c, "查询顾客列表失败，请稍后重试")

@@ -184,6 +184,7 @@ PENDING → DESIGNING → COMPLETED → REFUNDED
 | POST | `/admin/customers/merge` | 合并顾客 |
 | POST | `/admin/contact_way` | 创建联系我 |
 | GET | `/admin/contact_ways` | 联系我列表 |
+| GET/POST/PUT/DELETE | `/admin/welcome_templates` 系列 | 欢迎语模板 CRUD |
 | GET | `/admin/wecom/members` | 企微成员 |
 | GET | `/admin/wecom/groups` | 企微群 |
 | GET | `/admin/wecom/groups/:chat_id/messages` | 群消息 |
@@ -209,6 +210,28 @@ PENDING → DESIGNING → COMPLETED → REFUNDED
 | StartTokenCleanup | 后台 | JWT 黑名单清理 |
 
 所有调度器通过 `context.WithCancel` 统一管理，优雅关闭时一并取消。
+
+## 企微私域自动化 (v1.4.0)
+
+### 自动化触发流程
+1. **客户添加好友** → 企微回调 `add_external_contact` → 自动创建 Customer 记录（含头像/性别/企业名） → 关联跟单客服 → 发送欢迎语
+2. **订单关联设计师** → 状态变为 DESIGNING → `TriggerAutoGroupCreation()` 异步建群 → 更新 Order.WecomChatID + Customer.GroupChatID → WebSocket 广播
+3. **客户删除好友** → 企微回调 `del_external_contact` → 标记客户记录 → WebSocket 通知员工
+
+### 新增 API
+- `GET/POST/PUT/DELETE /admin/welcome_templates` — 欢迎语模板 CRUD
+- Customer 列表新增筛选: `follow_user_id` / `has_external` / `welcome_sent`
+
+### 新增数据模型
+- **WelcomeTemplate**: 欢迎语模板（名称/内容/附件/渠道关联/默认标识）
+- **Customer 新字段**: FollowUserID, AddWay, ContactWayState, WelcomeSent, GroupChatID, Avatar, Gender, CorpName, AddedAt
+
+### 新增企微 API 封装 (services/wecom.go)
+- `SendWelcomeMessage()` — 发送欢迎语（20s 时效）
+- `UpdateExternalContactRemark()` — 更新客户备注
+- `CreateCustomerGroupChat()` — 创建客户群
+- `SetupCustomerOrderGroup()` — 带客户信息的建群+播报
+- `GetGroupChatDetail()` — 获取客户群详情
 
 ## 分润引擎（services/profit.go）
 - 默认费率: 平台 30% + 设计师 25% + 谈单客服 10% + 跟单客服 5% = 70%，净利润 30%

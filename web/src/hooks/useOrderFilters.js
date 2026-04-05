@@ -46,7 +46,7 @@ export function useOrderFilters({ toast, on, off, connected }) {
     setCurrentPage(0);
   }, [debouncedKeyword]);
 
-  usePolling(fetchOrders, connected ? 120000 : 60000);
+  usePolling(fetchOrders, 5000);
 
   useEffect(() => {
     const handler = () => fetchOrders();

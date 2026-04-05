@@ -123,6 +123,14 @@ func SendOrderStatusNotification(order *models.Order, newStatus string) {
 		title := fmt.Sprintf("订单 %s 状态更新", order.OrderSN)
 		content := fmt.Sprintf("订单 %s (%s) 状态变更为: %s", order.OrderSN, order.Topic, statusText)
 
+		// notifPayload 用于 WebSocket 广播，让前端实时刷新通知铃铛
+		notifPayload := map[string]any{
+			"title":    title,
+			"content":  content,
+			"category": "order",
+			"order_id": order.ID,
+		}
+
 		// 通知跟单客服 (所有状态变更)
 		if order.FollowOperatorID != "" {
 			models.WriteTx(func(tx *gorm.DB) error {
@@ -133,6 +141,10 @@ func SendOrderStatusNotification(order *models.Order, newStatus string) {
 					Category: "order",
 					RefID:    fmt.Sprintf("%d", order.ID),
 				}).Error
+			})
+			services.Hub.SendTo(order.FollowOperatorID, services.WSEvent{
+				Type:    "notification",
+				Payload: notifPayload,
 			})
 			if err := services.Wecom.SendTextMessage([]string{order.FollowOperatorID}, content); err != nil {
 				log.Printf("发送企微通知失败 (跟单客服 %s): %v", order.FollowOperatorID, err)
@@ -151,6 +163,10 @@ func SendOrderStatusNotification(order *models.Order, newStatus string) {
 					RefID:    fmt.Sprintf("%d", order.ID),
 				}).Error
 			})
+			services.Hub.SendTo(order.OperatorID, services.WSEvent{
+				Type:    "notification",
+				Payload: notifPayload,
+			})
 			if err := services.Wecom.SendTextMessage([]string{order.OperatorID}, content); err != nil {
 				log.Printf("发送企微通知失败 (谈单客服 %s): %v", order.OperatorID, err)
 			}
@@ -166,6 +182,10 @@ func SendOrderStatusNotification(order *models.Order, newStatus string) {
 					Category: "order",
 					RefID:    fmt.Sprintf("%d", order.ID),
 				}).Error
+			})
+			services.Hub.SendTo("admin", services.WSEvent{
+				Type:    "notification",
+				Payload: notifPayload,
 			})
 		}
 

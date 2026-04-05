@@ -27,24 +27,24 @@ build_server() {
 
   # 交叉编译: Linux amd64 (部署到服务器)
   info "  → Linux amd64"
-  GOOS=linux GOARCH=amd64 go build -o "$BUILD_DIR/pdd-server-linux-amd64" .
+  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o "$BUILD_DIR/pdd-server-linux-amd64" .
 
   # 本机 macOS arm64
   info "  → macOS arm64"
-  GOOS=darwin GOARCH=arm64 go build -o "$BUILD_DIR/pdd-server-darwin-arm64" .
+  CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$BUILD_DIR/pdd-server-darwin-arm64" .
 
   info "服务端构建完成 ✅"
 }
 
 # ─── 构建管理端前端 ───
 build_admin() {
-  info "构建管理端前端 (Vue3)..."
-  cd "$SCRIPT_DIR/admin-web"
+  info "构建管理端前端 (React/Vite)..."
+  cd "$SCRIPT_DIR/web"
 
   npm ci --silent 2>/dev/null || warn "npm ci 可能有警告"
   npm run build
 
-  info "管理端前端构建完成 ✅ → admin-web/dist/"
+  info "管理端前端构建完成 → web/dist/"
 }
 
 # ─── 构建桌面客服端 ───

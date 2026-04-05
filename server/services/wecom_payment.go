@@ -90,8 +90,8 @@ func SyncWecomPayments() (*WecomPaymentSyncResult, error) {
 			Limit:     wecomPaymentPageSize,
 		}
 
-		url := fmt.Sprintf("%s/externalpay/get_bill_list?access_token=%s", Wecom.baseURL, token)
-		respBody, err := Wecom.postJSONRaw(url, reqBody)
+		url := fmt.Sprintf("%s/externalpay/get_bill_list?access_token=%s", Wecom.BaseURL(), token)
+		respBody, err := Wecom.RawPostJSON(url, reqBody)
 		if err != nil {
 			return result, fmt.Errorf("调用企微收款 API 失败: %w", err)
 		}
@@ -131,7 +131,7 @@ func SyncWecomPayments() (*WecomPaymentSyncResult, error) {
 				PayeeUserID:    bill.PayeeUserID,
 				ExternalUserID: bill.ExternalUserID,
 				TradeState:     tradeState,
-				PaidAt:         paidAt,
+				PaidAt:         &paidAt,
 				Remark:         bill.Remark,
 			}
 

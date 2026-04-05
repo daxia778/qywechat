@@ -1,214 +1,382 @@
 package services
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"pdd-order-system/config"
 	"pdd-order-system/models"
+
+	"github.com/ArtisanCloud/PowerLibs/v3/cache"
+	"github.com/ArtisanCloud/PowerWeChat/v3/src/kernel/power"
+	"github.com/ArtisanCloud/PowerWeChat/v3/src/work"
+	cwReq "github.com/ArtisanCloud/PowerWeChat/v3/src/work/externalContact/contactWay/request"
+	mtReq "github.com/ArtisanCloud/PowerWeChat/v3/src/work/externalContact/messageTemplate/request"
+	ecReq "github.com/ArtisanCloud/PowerWeChat/v3/src/work/externalContact/request"
+	msgReq "github.com/ArtisanCloud/PowerWeChat/v3/src/work/message/request"
 )
 
-// WeComClient 企业微信 API 客户端
+// WeComClient 企业微信 API 客户端（基于 PowerWeChat SDK）
 type WeComClient struct {
+	workApp    *work.Work // corpSecret: 消息/群聊/部门
+	contactApp *work.Work // contactSecret: 外部联系人
+
 	corpID     string
-	corpSecret string
 	agentID    int
 	baseURL    string
-	token      string
-	expiresAt  time.Time
-	mu         sync.Mutex
-	client     *http.Client
+	httpClient *http.Client
 
-	// 客户联系专用 token（与自建应用 token 独立）
-	contactSecret      string
-	contactToken       string
-	contactTokenExpiry time.Time
-	contactTokenMu     sync.Mutex
+	appConfigured     bool
+	contactConfigured bool
+}
+
+// WelcomeAttachment 欢迎语附件
+type WelcomeAttachment struct {
+	MsgType string        `json:"msgtype"`
+	Image   *WelcomeImage `json:"image,omitempty"`
+	Link    *WelcomeLink  `json:"link,omitempty"`
+}
+
+type WelcomeImage struct {
+	MediaID string `json:"media_id"`
+	PicURL  string `json:"pic_url,omitempty"`
+}
+
+type WelcomeLink struct {
+	Title  string `json:"title"`
+	PicURL string `json:"picurl,omitempty"`
+	Desc   string `json:"desc,omitempty"`
+	URL    string `json:"url"`
+}
+
+// DiagResult 诊断结果
+type DiagResult struct {
+	Status  string `json:"status"`
+	ErrCode int    `json:"err_code,omitempty"`
+	ErrMsg  string `json:"err_msg,omitempty"`
 }
 
 var Wecom *WeComClient
 
 func InitWecom() {
-	Wecom = &WeComClient{
-		corpID:        config.C.WecomCorpID,
-		corpSecret:    config.C.WecomCorpSecret,
-		agentID:       config.C.WecomAgentID,
-		baseURL:       "https://qyapi.weixin.qq.com/cgi-bin",
-		client:        &http.Client{Timeout: 15 * time.Second},
-		contactSecret: config.C.WecomContactSecret,
+	corpID := config.C.WecomCorpID
+	agentID := config.C.WecomAgentID
+	corpSecret := config.C.WecomCorpSecret
+	contactSecret := config.C.WecomContactSecret
+	token := config.C.WecomToken
+	aesKey := config.C.WecomEncodingAESKey
+
+	w := &WeComClient{
+		corpID:     corpID,
+		agentID:    agentID,
+		baseURL:    "https://qyapi.weixin.qq.com/cgi-bin",
+		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
-	if Wecom.IsConfigured() {
-		log.Println("✅ 企微客户端初始化完成")
-	} else {
-		log.Println("⚠️  企微未配置 (WECOM_CORP_ID / WECOM_CORP_SECRET)")
+
+	// 初始化自建应用实例（消息/群聊/部门）
+	if corpID != "" && corpSecret != "" {
+		app, err := work.NewWork(&work.UserConfig{
+			CorpID:  corpID,
+			AgentID: agentID,
+			Secret:  corpSecret,
+			Token:   token,
+			AESKey:  aesKey,
+			Cache:   cache.NewMemCache("pdd-work", 0, ""),
+		})
+		if err != nil {
+			log.Printf("企微应用实例初始化失败: %v", err)
+		} else {
+			w.workApp = app
+			w.appConfigured = true
+		}
 	}
-	if Wecom.IsContactConfigured() {
-		log.Println("✅ 企微客户联系功能已启用")
+
+	// 初始化客户联系实例（外部联系人/联系我/欢迎语/客户群）
+	if corpID != "" && contactSecret != "" {
+		app, err := work.NewWork(&work.UserConfig{
+			CorpID:  corpID,
+			AgentID: agentID,
+			Secret:  contactSecret,
+			Token:   token,
+			AESKey:  aesKey,
+			Cache:   cache.NewMemCache("pdd-contact", 0, ""),
+		})
+		if err != nil {
+			log.Printf("企微客户联系实例初始化失败: %v", err)
+		} else {
+			w.contactApp = app
+			w.contactConfigured = true
+		}
+	}
+
+	Wecom = w
+
+	if w.appConfigured {
+		log.Println("企微客户端初始化完成")
 	} else {
-		log.Println("⚠️  企微客户联系未配置 (WECOM_CONTACT_SECRET)，相关功能已跳过")
+		log.Println("企微未配置 (WECOM_CORP_ID / WECOM_CORP_SECRET)")
+	}
+	if w.contactConfigured {
+		log.Println("企微客户联系功能已启用")
+	} else {
+		log.Println("企微客户联系未配置 (WECOM_CONTACT_SECRET)，相关功能已跳过")
 	}
 }
+
+// ─── 配置检查 ──────────────────────────
 
 func (w *WeComClient) IsConfigured() bool {
-	return w.corpID != "" && w.corpSecret != ""
+	return w.appConfigured
 }
 
-// IsContactConfigured 客户联系功能是否已配置
 func (w *WeComClient) IsContactConfigured() bool {
-	return w.corpID != "" && w.contactSecret != ""
+	return w.contactConfigured
 }
+
+// ─── Token 获取（给 raw HTTP 调用方用） ──────────────────────────
 
 func (w *WeComClient) GetAccessToken() (string, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.token != "" && time.Now().Before(w.expiresAt) {
-		return w.token, nil
+	if !w.appConfigured {
+		return "", fmt.Errorf("企微应用未配置")
 	}
-
-	url := fmt.Sprintf("%s/gettoken?corpid=%s&corpsecret=%s", w.baseURL, w.corpID, w.corpSecret)
-	resp, err := w.client.Get(url)
+	ctx := context.Background()
+	tokenResp, err := w.workApp.GetAccessToken().GetToken(ctx, false)
 	if err != nil {
 		return "", fmt.Errorf("获取企微token失败: %w", err)
 	}
-	defer resp.Body.Close()
-
-	var result struct {
-		ErrCode     int    `json:"errcode"`
-		ErrMsg      string `json:"errmsg"`
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int    `json:"expires_in"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
-	}
-	if result.ErrCode != 0 {
-		return "", fmt.Errorf("企微token错误: %d %s", result.ErrCode, result.ErrMsg)
-	}
-
-	w.token = result.AccessToken
-	w.expiresAt = time.Now().Add(time.Duration(result.ExpiresIn-300) * time.Second)
-	log.Println("✅ 企微 access_token 获取成功")
-	return w.token, nil
+	return tokenResp.AccessToken, nil
 }
 
-// SendTextMessage 发送文本消息
+func (w *WeComClient) GetContactAccessToken() (string, error) {
+	if !w.contactConfigured {
+		return "", fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
+	}
+	ctx := context.Background()
+	tokenResp, err := w.contactApp.GetAccessToken().GetToken(ctx, false)
+	if err != nil {
+		return "", fmt.Errorf("获取客户联系token失败: %w", err)
+	}
+	return tokenResp.AccessToken, nil
+}
+
+// ─── 消息发送 ──────────────────────────
+
 func (w *WeComClient) SendTextMessage(userIDs []string, content string) error {
-	if !w.IsConfigured() {
+	if !w.appConfigured {
 		return nil
 	}
-	token, err := w.GetAccessToken()
-	if err != nil {
-		return err
-	}
-
-	payload := map[string]any{
-		"touser":  strings.Join(userIDs, "|"),
-		"msgtype": "text",
-		"agentid": w.agentID,
-		"text":    map[string]string{"content": content},
-	}
-	return w.postJSON(fmt.Sprintf("%s/message/send?access_token=%s", w.baseURL, token), payload)
-}
-
-// SendTextCardMessage 发送卡片消息（抢单用）
-func (w *WeComClient) SendTextCardMessage(userIDs []string, title, desc, url string) error {
-	if !w.IsConfigured() {
-		return nil
-	}
-	token, err := w.GetAccessToken()
-	if err != nil {
-		return err
-	}
-
-	payload := map[string]any{
-		"touser":  strings.Join(userIDs, "|"),
-		"msgtype": "textcard",
-		"agentid": w.agentID,
-		"textcard": map[string]string{
-			"title":       title,
-			"description": desc,
-			"url":         url,
-			"btntxt":      "立即接单",
+	ctx := context.Background()
+	_, err := w.workApp.Message.SendText(ctx, &msgReq.RequestMessageSendText{
+		RequestMessageSend: msgReq.RequestMessageSend{
+			ToUser:  strings.Join(userIDs, "|"),
+			MsgType: "text",
+			AgentID: w.agentID,
 		},
+		Text: &msgReq.RequestText{Content: content},
+	})
+	if err != nil {
+		return fmt.Errorf("发送文本消息失败: %w", err)
 	}
-	return w.postJSON(fmt.Sprintf("%s/message/send?access_token=%s", w.baseURL, token), payload)
+	return nil
 }
 
-// CreateGroupChat 创建群聊
+func (w *WeComClient) SendTextCardMessage(userIDs []string, title, desc, url string) error {
+	if !w.appConfigured {
+		return nil
+	}
+	ctx := context.Background()
+	_, err := w.workApp.Message.SendTextCard(ctx, &msgReq.RequestMessageSendTextCard{
+		RequestMessageSend: msgReq.RequestMessageSend{
+			ToUser:  strings.Join(userIDs, "|"),
+			MsgType: "textcard",
+			AgentID: w.agentID,
+		},
+		TextCard: &msgReq.RequestTextCard{
+			Title:       title,
+			Description: desc,
+			Url:         url,
+			BtnTXT:      "立即接单",
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("发送卡片消息失败: %w", err)
+	}
+	return nil
+}
+
+// ─── 群聊 ──────────────────────────
+
 func (w *WeComClient) CreateGroupChat(name, ownerID string, memberIDs []string) (string, error) {
-	if !w.IsConfigured() {
+	if !w.appConfigured {
 		return "", nil
 	}
 	token, err := w.GetAccessToken()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("创建群聊获取token失败: %w", err)
 	}
-
-	payload := map[string]any{
-		"name":     name,
-		"owner":    ownerID,
-		"userlist": memberIDs,
+	url := fmt.Sprintf("%s/appchat/create?access_token=%s", w.baseURL, token)
+	reqBody := map[string]any{
+		"name":            name,
+		"owner":           ownerID,
+		"userlist":        memberIDs,
+		"chat_add_friend": 0, // 禁止群内互加好友
 	}
-
-	body, err := w.postJSONRaw(fmt.Sprintf("%s/appchat/create?access_token=%s", w.baseURL, token), payload)
+	respBytes, err := w.postJSONRaw(url, reqBody)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("创建群聊失败: %w", err)
 	}
-
 	var result struct {
 		ErrCode int    `json:"errcode"`
+		ErrMsg  string `json:"errmsg"`
 		ChatID  string `json:"chatid"`
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		log.Printf("wecom API response unmarshal error (CreateGroupChat): %v", err)
+	if err := json.Unmarshal(respBytes, &result); err != nil {
 		return "", fmt.Errorf("解析创建群聊响应失败: %w", err)
 	}
 	if result.ErrCode != 0 {
-		return "", fmt.Errorf("创建群聊失败: errcode=%d", result.ErrCode)
+		return "", fmt.Errorf("创建群聊失败: errcode=%d errmsg=%s", result.ErrCode, result.ErrMsg)
 	}
-	log.Printf("✅ 企微群聊创建成功 | chatid=%s", result.ChatID)
-
-	// TODO: 企微应用群聊API(/cgi-bin/appchat/create)不支持直接设置"禁止互加好友"
-	// 方案1: 在企微管理后台 → 客户联系 → 权限配置中全局设置"禁止通过群聊加好友"
-	// 方案2: 使用客户群API(/cgi-bin/externalcontact/groupchat)替代应用群聊API，支持更多群管理选项
-	// 方案3: 建群后调用 /cgi-bin/appchat/update 修改群设置（但该接口也不支持互加好友开关）
-	// 当前结论: 需要在企微管理后台全局配置，API层面暂无法控制
-
+	log.Printf("企微群聊创建成功 | chatid=%s | chat_add_friend=0(禁止互加)", result.ChatID)
 	return result.ChatID, nil
 }
 
-// SendGroupMessage 群聊发消息
 func (w *WeComClient) SendGroupMessage(chatID, content string) error {
-	if !w.IsConfigured() {
+	if !w.appConfigured {
 		return nil
 	}
-	token, err := w.GetAccessToken()
-	if err != nil {
-		return err
-	}
-
-	payload := map[string]any{
+	ctx := context.Background()
+	_, err := w.workApp.MessageAppChat.Send(ctx, &power.HashMap{
 		"chatid":  chatID,
 		"msgtype": "text",
-		"text":    map[string]string{"content": content},
+		"text":    power.HashMap{"content": content},
+		"safe":    0,
+	})
+	if err != nil {
+		return fmt.Errorf("群聊发消息失败: %w", err)
 	}
-	return w.postJSON(fmt.Sprintf("%s/appchat/send?access_token=%s", w.baseURL, token), payload)
+	return nil
 }
 
-// Deprecated: NotifyNewOrder 已废弃，v2.0 不再有设计师抢单机制
-// func (w *WeComClient) NotifyNewOrder(...) error { ... }
+// ─── 外部联系人 ──────────────────────────
+
+func (w *WeComClient) CreateContactWay(state string, userIDs []string) (configID, qrCode string, err error) {
+	if !w.contactConfigured {
+		return "", "", fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
+	}
+	ctx := context.Background()
+	resp, err := w.contactApp.ExternalContactContactWay.Add(ctx, &cwReq.RequestAddContactWay{
+		Type:  2,
+		Scene: 2,
+		Style: 1,
+		State: state,
+		User:  userIDs,
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("创建联系我失败: %w", err)
+	}
+	log.Printf("创建「联系我」渠道成功 | config_id=%s", resp.ConfigID)
+	return resp.ConfigID, resp.QRCode, nil
+}
+
+func (w *WeComClient) GetExternalContactList(userID string) ([]string, error) {
+	if !w.contactConfigured {
+		return nil, fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
+	}
+	ctx := context.Background()
+	resp, err := w.contactApp.ExternalContact.List(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("获取外部联系人列表失败: %w", err)
+	}
+	return resp.ExternalUserID, nil
+}
+
+func (w *WeComClient) GetExternalContactDetail(externalUserID string) (map[string]any, error) {
+	if !w.contactConfigured {
+		return nil, fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
+	}
+	ctx := context.Background()
+	resp, err := w.contactApp.ExternalContact.Get(ctx, externalUserID, "")
+	if err != nil {
+		return nil, fmt.Errorf("获取外部联系人详情失败: %w", err)
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return nil, fmt.Errorf("序列化外部联系人数据失败: %w", err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("反序列化外部联系人数据失败: %w", err)
+	}
+	return result, nil
+}
+
+func (w *WeComClient) SendWelcomeMessage(ctx context.Context, welcomeCode string, text string, attachments []WelcomeAttachment) error {
+	if !w.contactConfigured {
+		return fmt.Errorf("客户联系功能未配置")
+	}
+	req := &mtReq.RequestSendWelcomeMsg{
+		WelcomeCode: welcomeCode,
+	}
+	if text != "" {
+		req.Text = &mtReq.TextOfMessage{Content: text}
+	}
+	// attachments 暂时忽略（SDK 的 attachment 接口类型不同）
+	_, err := w.contactApp.ExternalContactMessageTemplate.SendWelcomeMsg(ctx, req)
+	if err != nil {
+		return fmt.Errorf("发送欢迎语失败: %w", err)
+	}
+	return nil
+}
+
+func (w *WeComClient) UpdateExternalContactRemark(userID, externalUserID string, remark, description, remarkCompany string) error {
+	if !w.contactConfigured {
+		return fmt.Errorf("客户联系功能未配置")
+	}
+	ctx := context.Background()
+	_, err := w.contactApp.ExternalContact.Remark(ctx, &ecReq.RequestExternalContactRemark{
+		UserID:         userID,
+		ExternalUserID: externalUserID,
+		Remark:         remark,
+		Description:    description,
+		RemarkCompany:  remarkCompany,
+	})
+	if err != nil {
+		return fmt.Errorf("更新外部联系人备注失败: %w", err)
+	}
+	return nil
+}
+
+func (w *WeComClient) GetGroupChatDetail(chatID string) (map[string]any, error) {
+	if !w.contactConfigured {
+		return nil, fmt.Errorf("客户联系功能未配置")
+	}
+	ctx := context.Background()
+	resp, err := w.contactApp.ExternalContactGroupChat.Get(ctx, chatID, 1)
+	if err != nil {
+		return nil, fmt.Errorf("获取客户群详情失败: %w", err)
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return nil, fmt.Errorf("序列化客户群数据失败: %w", err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("反序列化客户群数据失败: %w", err)
+	}
+	return result, nil
+}
+
+// ─── 复合方法（调用已迁移的基础方法，逻辑不变） ──────────────────────────
 
 // SetupOrderGroup 建群 + 播报需求
-// v2.0: 群成员 = 跟单客服 + 谈单客服 + 主管/管理员（设计师后续手动拉入）
 func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID, topic string, pages int, priceFen int, deadlineStr, remark string) (string, error) {
-	// fallback: 如果没有跟单客服，使用谈单客服作为群主
 	if followOperatorID == "" {
 		followOperatorID = salesOperatorID
 	}
@@ -225,17 +393,14 @@ func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID
 		snShort = snShort[len(snShort)-6:]
 	}
 
-	// 构建群成员列表: 跟单客服 + 谈单客服 + 管理员/主管
-	// 用 map 去重，避免重复成员导致建群失败
 	memberSet := map[string]bool{followOperatorID: true}
 	if salesOperatorID != "" {
 		memberSet[salesOperatorID] = true
 	}
 
-	// 查询所有 admin 角色员工，自动拉入群聊（主管监督）
 	var admins []models.Employee
 	if err := models.DB.Where("role = ? AND is_active = ?", "admin", true).Find(&admins).Error; err != nil {
-		log.Printf("⚠️ 查询管理员列表失败: %v，建群将不包含管理员", err)
+		log.Printf("查询管理员列表失败: %v，建群将不包含管理员", err)
 	} else {
 		for _, admin := range admins {
 			if admin.WecomUserID != "" {
@@ -250,7 +415,6 @@ func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID
 	}
 
 	groupName := fmt.Sprintf("PPT-%s %s", snShort, topicShort)
-	// 群主设为跟单客服（项目经理角色）
 	chatID, err := w.CreateGroupChat(groupName, followOperatorID, members)
 	if err != nil {
 		return "", err
@@ -259,269 +423,121 @@ func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID
 		return "", nil
 	}
 
-	// 保存群聊快照到数据库
 	SaveGroupChatSnapshot(chatID, groupName, followOperatorID, members, orderSN)
 
 	priceYuan := float64(priceFen) / 100
 	if remark == "" {
 		remark = "无"
 	}
-	brief := fmt.Sprintf("📋 PPT 设计需求清单\n━━━━━━━━━━━━━━━━━\n📦 订单号: %s\n🎯 主题: %s\n📄 页数: %d页\n💰 金额: ¥%.2f\n⏰ 交付: %s\n📝 备注: %s\n━━━━━━━━━━━━━━━━━\n请跟进设计进度，确保按时交付！",
+	brief := fmt.Sprintf("PPT 设计需求清单\n━━━━━━━━━━━━━━━━━\n订单号: %s\n主题: %s\n页数: %d页\n金额: ¥%.2f\n交付: %s\n备注: %s\n━━━━━━━━━━━━━━━━━\n请跟进设计进度，确保按时交付！",
 		orderSN, topic, pages, priceYuan, deadlineStr, remark)
 	_ = w.SendGroupMessage(chatID, brief)
 
-	// 记录消息日志
 	SaveMessageLog(chatID, "system", "text", brief, orderSN, "out")
 
 	return chatID, nil
 }
 
-// GetContactAccessToken 获取客户联系专用 access_token
-// 客户联系 Secret 与普通自建应用 Secret 不同，需要单独获取 token
-func (w *WeComClient) GetContactAccessToken() (string, error) {
-	if !w.IsContactConfigured() {
-		return "", fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
-	}
-
-	w.contactTokenMu.Lock()
-	defer w.contactTokenMu.Unlock()
-
-	if w.contactToken != "" && time.Now().Before(w.contactTokenExpiry) {
-		return w.contactToken, nil
-	}
-
-	url := fmt.Sprintf("%s/gettoken?corpid=%s&corpsecret=%s", w.baseURL, w.corpID, w.contactSecret)
-	resp, err := w.client.Get(url)
+// CreateCustomerGroupChat 创建客户群（支持外部联系人入群）
+func (w *WeComClient) CreateCustomerGroupChat(name, ownerUserID string, userList []string, externalUserList []string) (string, error) {
+	chatID, err := w.CreateGroupChat(name, ownerUserID, userList)
 	if err != nil {
-		return "", fmt.Errorf("获取客户联系token失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		ErrCode     int    `json:"errcode"`
-		ErrMsg      string `json:"errmsg"`
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int    `json:"expires_in"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
 	}
-	if result.ErrCode != 0 {
-		return "", fmt.Errorf("客户联系token错误: %d %s", result.ErrCode, result.ErrMsg)
-	}
-
-	w.contactToken = result.AccessToken
-	w.contactTokenExpiry = time.Now().Add(time.Duration(result.ExpiresIn-300) * time.Second)
-	log.Println("✅ 企微客户联系 access_token 获取成功")
-	return w.contactToken, nil
+	log.Printf("客户服务群创建成功 | chatid=%s | 外部联系人需通过跟单客服邀请入群", chatID)
+	return chatID, nil
 }
 
-// CreateContactWay 创建「联系我」渠道
-// 返回 config_id 和 qr_code URL
-func (w *WeComClient) CreateContactWay(state string, userIDs []string) (configID, qrCode string, err error) {
-	if !w.IsContactConfigured() {
-		return "", "", fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
-	}
-
-	token, err := w.GetContactAccessToken()
+// SetupCustomerOrderGroup 为订单创建客户服务群
+func (w *WeComClient) SetupCustomerOrderGroup(orderSN, salesOperatorID, followOperatorID, topic string, pages int, priceFen int, deadlineStr, remark string, customerNickname string) (string, error) {
+	chatID, err := w.SetupOrderGroup(orderSN, salesOperatorID, followOperatorID, topic, pages, priceFen, deadlineStr, remark)
 	if err != nil {
-		return "", "", err
+		return "", err
+	}
+	if chatID == "" {
+		return "", nil
 	}
 
-	payload := map[string]any{
-		"type":  2, // 企业自定义渠道
-		"scene": 2, // 小程序/二维码
-		"style": 1,
-		"state": state,
-		"user":  userIDs,
+	if customerNickname != "" {
+		customerInfo := fmt.Sprintf("客户信息\n━━━━━━━━━━━━━━━━━\n昵称: %s\n━━━━━━━━━━━━━━━━━\n请跟单客服将客户拉入群聊，方便直接沟通！", customerNickname)
+		_ = w.SendGroupMessage(chatID, customerInfo)
+		SaveMessageLog(chatID, "system", "text", customerInfo, orderSN, "out")
 	}
 
-	body, err := w.postJSONRaw(fmt.Sprintf("%s/externalcontact/add_contact_way?access_token=%s", w.baseURL, token), payload)
-	if err != nil {
-		return "", "", err
-	}
-
-	var result struct {
-		ErrCode  int    `json:"errcode"`
-		ErrMsg   string `json:"errmsg"`
-		ConfigID string `json:"config_id"`
-		QRCode   string `json:"qr_code"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", "", fmt.Errorf("解析联系我响应失败: %w", err)
-	}
-	if result.ErrCode != 0 {
-		return "", "", fmt.Errorf("创建联系我失败: %d %s", result.ErrCode, result.ErrMsg)
-	}
-
-	log.Printf("✅ 创建「联系我」渠道成功 | config_id=%s", result.ConfigID)
-	return result.ConfigID, result.QRCode, nil
+	return chatID, nil
 }
 
-// GetExternalContactList 获取员工的外部联系人列表
-func (w *WeComClient) GetExternalContactList(userID string) ([]string, error) {
-	if !w.IsContactConfigured() {
-		return nil, fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
-	}
+// ─── 诊断/测试方法 ──────────────────────────
 
-	token, err := w.GetContactAccessToken()
+func (w *WeComClient) TestDepartmentList(token string) (*DiagResult, error) {
+	if !w.appConfigured {
+		return &DiagResult{Status: "error", ErrMsg: "企微应用未配置"}, nil
+	}
+	ctx := context.Background()
+	resp, err := w.workApp.Department.List(ctx, 0)
 	if err != nil {
-		return nil, err
+		return &DiagResult{Status: "error", ErrMsg: err.Error()}, nil
 	}
-
-	url := fmt.Sprintf("%s/externalcontact/list?access_token=%s&userid=%s", w.baseURL, token, userID)
-	resp, err := w.client.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("获取外部联系人列表失败: %w", err)
+	if resp.ErrCode != 0 {
+		return &DiagResult{Status: "error", ErrCode: resp.ErrCode, ErrMsg: resp.ErrMsg}, nil
 	}
-	defer resp.Body.Close()
-
-	var result struct {
-		ErrCode        int      `json:"errcode"`
-		ErrMsg         string   `json:"errmsg"`
-		ExternalUserID []string `json:"external_userid"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-	if result.ErrCode != 0 {
-		return nil, fmt.Errorf("获取外部联系人列表错误: %d %s", result.ErrCode, result.ErrMsg)
-	}
-
-	return result.ExternalUserID, nil
+	return &DiagResult{Status: "ok"}, nil
 }
 
-// GetExternalContactDetail 获取外部联系人详情
-func (w *WeComClient) GetExternalContactDetail(externalUserID string) (map[string]any, error) {
-	if !w.IsContactConfigured() {
-		return nil, fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
+func (w *WeComClient) TestSendMessage(token string) (*DiagResult, error) {
+	if !w.appConfigured {
+		return &DiagResult{Status: "error", ErrMsg: "企微应用未配置"}, nil
 	}
 
-	token, err := w.GetContactAccessToken()
+	// 查找管理员的 WecomUserID，诊断接口只发给管理员，禁止 @all
+	var admin models.Employee
+	if err := models.DB.Where("role = ? AND is_active = ? AND wecom_userid != ''", "admin", true).First(&admin).Error; err != nil {
+		return &DiagResult{Status: "skipped", ErrMsg: "未找到有效管理员，跳过发送测试"}, nil
+	}
+
+	ctx := context.Background()
+	resp, err := w.workApp.Message.SendText(ctx, &msgReq.RequestMessageSendText{
+		RequestMessageSend: msgReq.RequestMessageSend{
+			ToUser:  admin.WecomUserID,
+			MsgType: "text",
+			AgentID: w.agentID,
+		},
+		Text: &msgReq.RequestText{Content: "企微连通性测试 - PDD 派单系统诊断消息，请忽略"},
+	})
 	if err != nil {
-		return nil, err
+		return &DiagResult{Status: "error", ErrMsg: err.Error()}, nil
 	}
-
-	url := fmt.Sprintf("%s/externalcontact/get?access_token=%s&external_userid=%s", w.baseURL, token, externalUserID)
-	resp, err := w.client.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("获取外部联系人详情失败: %w", err)
+	if resp.ErrCode != 0 {
+		return &DiagResult{Status: "error", ErrCode: resp.ErrCode, ErrMsg: resp.ErrMsg}, nil
 	}
-	defer resp.Body.Close()
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var result map[string]any
-	if err := json.Unmarshal(bodyBytes, &result); err != nil {
-		return nil, err
-	}
-
-	if errCode, ok := result["errcode"].(float64); ok && int(errCode) != 0 {
-		errMsg, _ := result["errmsg"].(string)
-		return nil, fmt.Errorf("获取外部联系人详情错误: %d %s", int(errCode), errMsg)
-	}
-
-	return result, nil
+	return &DiagResult{Status: "ok"}, nil
 }
 
-func (w *WeComClient) postJSON(url string, payload any) error {
-	body, err := w.postJSONRaw(url, payload)
-	if err != nil {
-		return err
-	}
-	var result struct {
-		ErrCode int    `json:"errcode"`
-		ErrMsg  string `json:"errmsg"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		log.Printf("wecom API response unmarshal error (postJSON): %v", err)
-		return fmt.Errorf("解析企微API响应失败: %w", err)
-	}
-	if result.ErrCode != 0 {
-		return fmt.Errorf("企微API错误: %d %s", result.ErrCode, result.ErrMsg)
-	}
-	return nil
+// ─── 导出方法（给 wecom_sync.go / wecom_payment.go 用） ──────────────────────────
+
+func (w *WeComClient) BaseURL() string {
+	return w.baseURL
 }
+
+func (w *WeComClient) RawGet(url string) (*http.Response, error) {
+	return w.httpClient.Get(url)
+}
+
+func (w *WeComClient) RawPostJSON(url string, payload any) ([]byte, error) {
+	return w.postJSONRaw(url, payload)
+}
+
+// ─── 私有方法 ──────────────────────────
 
 func (w *WeComClient) postJSONRaw(url string, payload any) ([]byte, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("JSON序列化失败: %w", err)
 	}
-	resp, err := w.client.Post(url, "application/json", strings.NewReader(string(data)))
+	resp, err := w.httpClient.Post(url, "application/json", bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	return io.ReadAll(resp.Body)
 }
-
-// ─── 诊断/测试方法 ──────────────────────────
-
-// DiagResult 诊断结果
-type DiagResult struct {
-	Status  string `json:"status"` // "ok" | "error"
-	ErrCode int    `json:"err_code,omitempty"`
-	ErrMsg  string `json:"err_msg,omitempty"`
-}
-
-// TestDepartmentList 测试获取部门列表 (检测 IP 白名单)
-func (w *WeComClient) TestDepartmentList(token string) (*DiagResult, error) {
-	url := fmt.Sprintf("%s/department/list?access_token=%s", w.baseURL, token)
-	resp, err := w.client.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		ErrCode int    `json:"errcode"`
-		ErrMsg  string `json:"errmsg"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-
-	if result.ErrCode != 0 {
-		return &DiagResult{
-			Status:  "error",
-			ErrCode: result.ErrCode,
-			ErrMsg:  result.ErrMsg,
-		}, nil
-	}
-	return &DiagResult{Status: "ok"}, nil
-}
-
-// TestSendMessage 测试发送应用消息 (发送测试通知给全员)
-func (w *WeComClient) TestSendMessage(token string) (*DiagResult, error) {
-	payload := map[string]any{
-		"touser":  "@all",
-		"msgtype": "text",
-		"agentid": w.agentID,
-		"text":    map[string]string{"content": "🧪 企微连通性测试 — PDD 派单系统诊断消息，请忽略"},
-	}
-
-	body, err := w.postJSONRaw(fmt.Sprintf("%s/message/send?access_token=%s", w.baseURL, token), payload)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP请求失败: %w", err)
-	}
-
-	var result struct {
-		ErrCode int    `json:"errcode"`
-		ErrMsg  string `json:"errmsg"`
-	}
-	json.Unmarshal(body, &result)
-
-	if result.ErrCode != 0 {
-		return &DiagResult{
-			Status:  "error",
-			ErrCode: result.ErrCode,
-			ErrMsg:  result.ErrMsg,
-		}, nil
-	}
-	return &DiagResult{Status: "ok"}, nil
-}
-

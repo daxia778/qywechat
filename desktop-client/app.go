@@ -155,9 +155,25 @@ func (a *App) deviceLogin() {
 
 	var result map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&result)
-	a.token = result["token"].(string)
-	a.empName = result["employee_name"].(string)
-	a.wecomUID = result["wecom_userid"].(string)
+
+	token, ok := result["token"].(string)
+	if !ok {
+		log.Printf("⚠️ 静默登录响应缺少 token")
+		return
+	}
+	empName, ok := result["employee_name"].(string)
+	if !ok {
+		log.Printf("⚠️ 静默登录响应缺少 employee_name")
+		return
+	}
+	wecomUID, ok := result["wecom_userid"].(string)
+	if !ok {
+		log.Printf("⚠️ 静默登录响应缺少 wecom_userid")
+		return
+	}
+	a.token = token
+	a.empName = empName
+	a.wecomUID = wecomUID
 	a.saveSession()
 	log.Printf("✅ 设备指纹静默登录成功: %s", a.empName)
 }
@@ -263,14 +279,28 @@ func (a *App) DeviceLogin(activationCode string) *LoginResult {
 	if resp.StatusCode != 200 {
 		msg := "登录失败"
 		if e, ok := result["error"]; ok {
-			msg = e.(string)
+			if s, ok2 := e.(string); ok2 {
+				msg = s
+			}
 		}
 		return &LoginResult{Success: false, Message: msg}
 	}
 
-	a.token = result["token"].(string)
-	a.empName = result["employee_name"].(string)
-	a.wecomUID = result["wecom_userid"].(string)
+	token, ok := result["token"].(string)
+	if !ok {
+		return &LoginResult{Success: false, Message: "服务器响应异常: 缺少 token"}
+	}
+	empName, ok := result["employee_name"].(string)
+	if !ok {
+		return &LoginResult{Success: false, Message: "服务器响应异常: 缺少 employee_name"}
+	}
+	wecomUID, ok := result["wecom_userid"].(string)
+	if !ok {
+		return &LoginResult{Success: false, Message: "服务器响应异常: 缺少 wecom_userid"}
+	}
+	a.token = token
+	a.empName = empName
+	a.wecomUID = wecomUID
 
 	// 持久化会话到本地文件
 	a.saveSession()
@@ -555,7 +585,7 @@ func (a *App) doSubmitOrder(orderSN, customerContact, followStaffUID string, pri
 
 	sn := ""
 	if v, ok := result["order_sn"]; ok {
-		sn = v.(string)
+		sn, _ = v.(string)
 	}
 	return &SubmitResult{
 		Success: true,

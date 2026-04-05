@@ -118,7 +118,7 @@ func uploadToLocal(fh *multipart.FileHeader, subDir string) (*UploadResult, erro
 	}
 
 	return &UploadResult{
-		URL:      "/" + savePath, // 本地模式返回相对路径，匹配公开静态文件路由 /uploads/*
+		URL:      "/" + filepath.ToSlash(savePath), // ToSlash 确保 URL 始终使用正斜杠（Windows 兼容）
 		FilePath: savePath,
 	}, nil
 }

@@ -78,7 +78,7 @@ func InitDB() {
 	}
 
 	// 自动建表与迁移
-	if err := DB.AutoMigrate(&Employee{}, &Order{}, &Customer{}, &AuditLog{}, &WecomGroupChat{}, &WecomMember{}, &WecomMessageLog{}, &AppVersion{}, &Notification{}, &OrderTimeline{}, &PaymentRecord{}, &TokenBlacklist{}, &UserMinIssuedAtRecord{}, &FreelanceDesigner{}, &ContactWay{}); err != nil {
+	if err := DB.AutoMigrate(&Employee{}, &Order{}, &Customer{}, &AuditLog{}, &WecomGroupChat{}, &WecomMember{}, &WecomMessageLog{}, &AppVersion{}, &Notification{}, &OrderTimeline{}, &PaymentRecord{}, &TokenBlacklist{}, &UserMinIssuedAtRecord{}, &FreelanceDesigner{}, &ContactWay{}, &WelcomeTemplate{}); err != nil {
 		log.Fatalf("❌ 数据库迁移失败: %v", err)
 	}
 
@@ -105,6 +105,7 @@ func ensureIndexes() {
 		"CREATE UNIQUE INDEX IF NOT EXISTS idx_employees_username ON employees(username) WHERE username != ''",
 		"CREATE INDEX IF NOT EXISTS idx_orders_wecom_chat_id ON orders(wecom_chat_id) WHERE wecom_chat_id != ''",
 		"CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read)",
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_external_user_id ON customers(external_user_id) WHERE external_user_id != ''",
 	}
 	for _, sql := range indexes {
 		if err := DB.Exec(sql).Error; err != nil {

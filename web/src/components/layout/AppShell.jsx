@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useWebSocket, WS_STATE } from '../../hooks/useWebSocket';
 import { useToast } from '../../hooks/useToast';
 import { usePolling } from '../../hooks/usePolling';
+import useAudioAlert from '../../hooks/useAudioAlert';
 import { NAV_ROUTES, ROLE_MAP } from '../../utils/constants';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../../api/notifications';
 import { formatTime } from '../../utils/formatters';
@@ -14,6 +15,7 @@ export default function AppShell() {
   const { userName, role, logout } = useAuth();
   const { on, off, connect, connected, connectionState, retry } = useWebSocket();
   const { toast } = useToast();
+  const { play: playAlert, isMuted, toggleMute } = useAudioAlert();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -26,6 +28,7 @@ export default function AppShell() {
   const [currentTime, setCurrentTime] = useState('');
   const [matchModalVisible, setMatchModalVisible] = useState(false);
   const [matchContactInfo, setMatchContactInfo] = useState(null);
+  const lastFetchRef = useRef(0);
 
   const userInitials = (userName || 'AD').substring(0, 2).toUpperCase();
   const currentRoleName = ROLE_MAP[role] || '用户';
@@ -90,36 +93,59 @@ export default function AppShell() {
 
   usePolling(fetchNotifications, 30000);
 
-  // WS refresh notifications
+  // 节流版 fetchNotifications，防止多个 WS 事件同时触发 API 调用风暴
+  const fetchNotificationsThrottled = useCallback(() => {
+    const now = Date.now();
+    if (now - lastFetchRef.current < 1000) return;
+    lastFetchRef.current = now;
+    fetchNotifications();
+  }, [fetchNotifications]);
+
+  // WS refresh notifications + sound alert
   useEffect(() => {
-    const handler = () => fetchNotifications();
+    const handler = (payload, eventType) => {
+      fetchNotificationsThrottled();
+      playAlert('normal');
+    };
+    const urgentHandler = () => {
+      fetchNotificationsThrottled();
+      playAlert('urgent');
+    };
     on('order_updated', handler);
     on('notification', handler);
-    on('grab_alert', handler);
+    on('grab_alert', urgentHandler);
+    on('designing_timeout_alert', urgentHandler);
+    on('order_customer_matched', handler);
+    on('order_group_created', handler);
     return () => {
       off('order_updated', handler);
       off('notification', handler);
-      off('grab_alert', handler);
+      off('grab_alert', urgentHandler);
+      off('designing_timeout_alert', urgentHandler);
+      off('order_customer_matched', handler);
+      off('order_group_created', handler);
     };
-  }, [on, off, fetchNotifications]);
+  }, [on, off, fetchNotificationsThrottled, playAlert]);
 
-  // WS: new_external_contact triggers match modal
+  // WS: new_external_contact triggers match modal + urgent sound
   useEffect(() => {
     const handler = (payload) => {
       setMatchContactInfo(payload);
       setMatchModalVisible(true);
       toast('有新好友添加，请匹配对应订单', 'info', '好友匹配');
+      playAlert('urgent');
     };
     on('new_external_contact', handler);
     return () => off('new_external_contact', handler);
-  }, [on, off, toast]);
+  }, [on, off, toast, playAlert]);
 
-  // Close notif panel on outside click
+  // Close notif panel on outside click (仅在面板打开时注册监听器)
   useEffect(() => {
+    if (!showNotifPanel) return;
     const close = () => setShowNotifPanel(false);
     document.addEventListener('click', close);
     return () => document.removeEventListener('click', close);
-  }, []);
+  }, [showNotifPanel]);
 
   const handleMarkRead = async (n) => {
     if (!n.is_read) {
@@ -313,6 +339,20 @@ export default function AppShell() {
                 {connectionState === WS_STATE.CONNECTED ? '已连接' : connectionState === WS_STATE.RECONNECTING ? '重连中' : connectionState === WS_STATE.OFFLINE ? '离线' : '已断开'}
               </span>
             </div>
+
+            {/* Sound Toggle */}
+            <button
+              onClick={toggleMute}
+              className="w-[36px] h-[36px] flex items-center justify-center rounded-lg bg-[#f3f4f5] hover:bg-[#e7e8e9] text-[#454654] transition-colors shrink-0"
+              title={isMuted() ? '声音已关闭，点击开启' : '声音已开启，点击静音'}
+              aria-label={isMuted() ? '开启声音' : '关闭声音'}
+            >
+              {isMuted() ? (
+                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" /></svg>
+              ) : (
+                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
+              )}
+            </button>
 
             {/* Notification Bell */}
             <div className="relative shrink-0">

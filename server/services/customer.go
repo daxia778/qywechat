@@ -328,16 +328,37 @@ func UpdateCustomerStats(customerID uint) error {
 	return nil
 }
 
+// CustomerListFilter 顾客列表筛选条件
+type CustomerListFilter struct {
+	Keyword      string
+	FollowUserID string
+	HasExternal  string // "true" 筛选有 external_user_id 的
+	WelcomeSent  string // "true" / "false"
+}
+
 // ListCustomers 分页查询顾客列表
-func ListCustomers(keyword string, limit, offset int) ([]models.Customer, int64, error) {
+func ListCustomers(filter CustomerListFilter, limit, offset int) ([]models.Customer, int64, error) {
 	var customers []models.Customer
 	var total int64
 
 	query := models.DB.Model(&models.Customer{})
 
-	if keyword != "" {
-		like := "%" + escapeLike(keyword) + "%"
+	if filter.Keyword != "" {
+		like := "%" + escapeLike(filter.Keyword) + "%"
 		query = query.Where("wechat_id LIKE ? ESCAPE '\\' OR mobile LIKE ? ESCAPE '\\' OR nickname LIKE ? ESCAPE '\\' OR remark LIKE ? ESCAPE '\\'", like, like, like, like)
+	}
+	if filter.FollowUserID != "" {
+		query = query.Where("follow_user_id = ?", filter.FollowUserID)
+	}
+	if filter.HasExternal == "true" {
+		query = query.Where("external_user_id != ''")
+	}
+	if filter.WelcomeSent != "" {
+		if filter.WelcomeSent == "true" {
+			query = query.Where("welcome_sent = ?", true)
+		} else {
+			query = query.Where("welcome_sent = ?", false)
+		}
 	}
 
 	if err := query.Count(&total).Error; err != nil {
