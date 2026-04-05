@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"pdd-order-system/config"
+	"pdd-order-system/models"
 )
 
 // WeComClient 企业微信 API 客户端
@@ -173,6 +174,13 @@ func (w *WeComClient) CreateGroupChat(name, ownerID string, memberIDs []string) 
 		return "", fmt.Errorf("创建群聊失败: errcode=%d", result.ErrCode)
 	}
 	log.Printf("✅ 企微群聊创建成功 | chatid=%s", result.ChatID)
+
+	// TODO: 企微应用群聊API(/cgi-bin/appchat/create)不支持直接设置"禁止互加好友"
+	// 方案1: 在企微管理后台 → 客户联系 → 权限配置中全局设置"禁止通过群聊加好友"
+	// 方案2: 使用客户群API(/cgi-bin/externalcontact/groupchat)替代应用群聊API，支持更多群管理选项
+	// 方案3: 建群后调用 /cgi-bin/appchat/update 修改群设置（但该接口也不支持互加好友开关）
+	// 当前结论: 需要在企微管理后台全局配置，API层面暂无法控制
+
 	return result.ChatID, nil
 }
 
@@ -198,7 +206,7 @@ func (w *WeComClient) SendGroupMessage(chatID, content string) error {
 // func (w *WeComClient) NotifyNewOrder(...) error { ... }
 
 // SetupOrderGroup 建群 + 播报需求
-// v2.0: 群成员改为谈单客服 + 跟单客服（设计师后续手动拉入）
+// v2.0: 群成员 = 跟单客服 + 谈单客服 + 主管/管理员（设计师后续手动拉入）
 func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID, topic string, pages int, priceFen int, deadlineStr, remark string) (string, error) {
 	// fallback: 如果没有跟单客服，使用谈单客服作为群主
 	if followOperatorID == "" {
@@ -217,10 +225,28 @@ func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID
 		snShort = snShort[len(snShort)-6:]
 	}
 
-	// 去重: 当 salesOperatorID == followOperatorID 时避免重复成员导致建群失败
-	members := []string{followOperatorID}
-	if salesOperatorID != followOperatorID {
-		members = append(members, salesOperatorID)
+	// 构建群成员列表: 跟单客服 + 谈单客服 + 管理员/主管
+	// 用 map 去重，避免重复成员导致建群失败
+	memberSet := map[string]bool{followOperatorID: true}
+	if salesOperatorID != "" {
+		memberSet[salesOperatorID] = true
+	}
+
+	// 查询所有 admin 角色员工，自动拉入群聊（主管监督）
+	var admins []models.Employee
+	if err := models.DB.Where("role = ? AND is_active = ?", "admin", true).Find(&admins).Error; err != nil {
+		log.Printf("⚠️ 查询管理员列表失败: %v，建群将不包含管理员", err)
+	} else {
+		for _, admin := range admins {
+			if admin.WecomUserID != "" {
+				memberSet[admin.WecomUserID] = true
+			}
+		}
+	}
+
+	members := make([]string, 0, len(memberSet))
+	for uid := range memberSet {
+		members = append(members, uid)
 	}
 
 	groupName := fmt.Sprintf("PPT-%s %s", snShort, topicShort)
