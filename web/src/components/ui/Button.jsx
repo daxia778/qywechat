@@ -28,7 +28,7 @@ const Button = forwardRef(function Button(
     <button
       ref={ref}
       className={cn(
-        'inline-flex items-center justify-center font-semibold rounded-lg border cursor-pointer transition-all whitespace-nowrap leading-snug',
+        'inline-flex items-center justify-center font-semibold rounded-xl border cursor-pointer transition-all whitespace-nowrap leading-snug',
         'active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none',
         variants[variant],
         sizes[size],

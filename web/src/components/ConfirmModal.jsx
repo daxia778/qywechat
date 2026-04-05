@@ -133,7 +133,7 @@ export default function ConfirmModal({
                 placeholder={inputPlaceholder}
                 aria-label={inputPlaceholder || '请输入内容'}
                 rows="3"
-                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-[#465FFF] focus:border-transparent resize-none outline-none transition-all"
+                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent resize-none outline-none transition-all"
               />
             </div>
           )}

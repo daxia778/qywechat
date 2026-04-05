@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { Package, Clock, TrendingUp, AlertTriangle, Wallet, ClipboardList, Pen, CheckCircle, CalendarPlus, Check, FileEdit, DollarSign, RefreshCw } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -269,7 +270,7 @@ export default function DashboardPage() {
       {/* Page Header */}
       <PageHeader title={isAdmin ? "数据总览" : "我的工作台"} subtitle={isAdmin ? "实时运营数据看板" : `${ROLE_MAP[role] || role} · 个人数据概览`} className="mb-1">
         <button onClick={() => fetchDashboardData(true)} disabled={loading} className="flex items-center gap-1.5 bg-[#f3f4f5] border border-[#e1e3e4] rounded-lg px-3.5 py-2 text-sm font-medium text-[#454654] cursor-pointer hover:bg-[#e7e8e9] transition-colors disabled:opacity-50">
-          <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           <span>{loading ? '刷新中...' : '刷新数据'}</span>
         </button>
       </PageHeader>
@@ -282,45 +283,25 @@ export default function DashboardPage() {
             <MetricCard
               title="我的订单"
               value={myStats.total_orders || 0}
-              icon={
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-                  <rect x="3" y="3" width="18" height="3.5" rx="1.75" strokeLinejoin="round"/>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 6.5l.9 11.1A2 2 0 007.4 19.5h9.2a2 2 0 001.99-1.9l.9-11.1"/>
-                  <path strokeLinecap="round" d="M9.5 11h5"/>
-                  <path strokeLinecap="round" d="M10.5 14.5h3"/>
-                </svg>
-              }
+              icon={<Package size={18} />}
               colorHex="#434FCF"
             />
             <MetricCard
               title="待处理"
               value={myStats.pending_orders || 0}
-              icon={
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-                  <circle cx="12" cy="12" r="9"/>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v5.25l3.5 2"/>
-                </svg>
-              }
+              icon={<Clock size={18} />}
               colorHex="#F59E0B"
             />
             <MetricCard
               title="设计中"
               value={myStats.designing_orders || 0}
-              icon={
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
-                </svg>
-              }
+              icon={<Pen size={18} />}
               colorHex="#3B82F6"
             />
             <MetricCard
               title="已完成"
               value={myStats.completed_orders || 0}
-              icon={
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-              }
+              icon={<CheckCircle size={18} />}
               colorHex="#10B981"
             />
           </div>
@@ -329,13 +310,13 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-5">
             {role === 'follow' ? (
               <>
-                <MetricCard title="售后中" value={myStats.after_sale_orders || 0} icon={<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>} colorHex="#EF4444" />
-                <MetricCard title="修改中" value={myStats.revision_orders || 0} icon={<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>} colorHex="#8B5CF6" />
+                <MetricCard title="售后中" value={myStats.after_sale_orders || 0} icon={<AlertTriangle size={18} />} colorHex="#EF4444" />
+                <MetricCard title="修改中" value={myStats.revision_orders || 0} icon={<FileEdit size={18} />} colorHex="#8B5CF6" />
               </>
             ) : (
               <>
-                <MetricCard title="今日新增" value={myStats.today_orders || 0} icon={<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>} colorHex="#8B5CF6" />
-                <MetricCard title="已交付" value={myStats.delivered_orders || 0} icon={<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>} colorHex="#059669" />
+                <MetricCard title="今日新增" value={myStats.today_orders || 0} icon={<CalendarPlus size={18} />} colorHex="#8B5CF6" />
+                <MetricCard title="已交付" value={myStats.delivered_orders || 0} icon={<Check size={18} />} colorHex="#059669" />
               </>
             )}
             
@@ -344,11 +325,7 @@ export default function DashboardPage() {
               value={(myStats.month_commission || 0) / 100}
               isCurrency={true}
               subtitle={`累计 ¥${fmtYuan(myStats.total_commission)} · ${role === 'designer' ? '设计' : role === 'sales' ? '谈单' : '跟单'}提成`}
-              icon={
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-              }
+              icon={<DollarSign size={18} />}
               colorHex="#EA580C"
             />
           </div>
@@ -461,25 +438,13 @@ export default function DashboardPage() {
               value={stats.total_orders || 0}
               currentRateVal={stats.today_order_count || 0}
               prevValue={stats.yesterday_order_count || 0}
-              icon={
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-                  <rect x="3" y="3" width="18" height="3.5" rx="1.75" strokeLinejoin="round"/>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 6.5l.9 11.1A2 2 0 007.4 19.5h9.2a2 2 0 001.99-1.9l.9-11.1"/>
-                  <path strokeLinecap="round" d="M9.5 11h5"/>
-                  <path strokeLinecap="round" d="M10.5 14.5h3"/>
-                </svg>
-              }
+              icon={<Package size={18} />}
               colorHex="#434FCF"
             />
             <MetricCard
               title="待处理"
               value={stats.pending_orders || 0}
-              icon={
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-                  <circle cx="12" cy="12" r="9"/>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v5.25l3.5 2"/>
-                </svg>
-              }
+              icon={<Clock size={18} />}
               colorHex="#F59E0B"
             />
             <MetricCard
@@ -488,15 +453,7 @@ export default function DashboardPage() {
               currentRateVal={stats.today_revenue || 0}
               prevValue={stats.yesterday_revenue || 0}
               isCurrency={true}
-              icon={
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 17.5V15a1 1 0 011-1h2a1 1 0 011 1v2.5"/>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 17.5V11a1 1 0 011-1h2a1 1 0 011 1v6.5"/>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 17.5V7a1 1 0 011-1h2a1 1 0 011 1v10.5"/>
-                  <path strokeLinecap="round" d="M3 17.5h18"/>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 11.5l3-3 3 2.5 4-5"/>
-                </svg>
-              }
+              icon={<TrendingUp size={18} />}
               colorHex="#10B981"
             />
             <MetricCard
@@ -505,13 +462,7 @@ export default function DashboardPage() {
               currentRateVal={stats.grab_alert_count || 0}
               prevValue={stats.yesterday_grab_alerts || 0}
               invertTrend={true}
-              icon={
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                  <path strokeLinecap="round" d="M12 9v4.5"/>
-                  <circle cx="12" cy="16.5" r="0.5" fill="currentColor" stroke="none"/>
-                </svg>
-              }
+              icon={<AlertTriangle size={18} />}
               colorHex="#EF4444"
             />
           </div>
@@ -526,29 +477,14 @@ export default function DashboardPage() {
               prevValue={stats.yesterday_payment_amount || 0}
               isCurrency={true}
               subtitle={`拼多多 ¥${fmtYuan(stats.pdd_payment_amount)} · 企微 ¥${fmtYuan(stats.wecom_payment_amount)} · 手动 ¥${fmtYuan(stats.manual_payment_amount)}`}
-              icon={
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-                  <rect x="2" y="6" width="20" height="13" rx="2" strokeLinejoin="round"/>
-                  <path strokeLinecap="round" d="M2 10h20"/>
-                  <circle cx="12" cy="15" r="2.5"/>
-                  <path strokeLinecap="round" d="M6 10V7a6 6 0 0112 0v3"/>
-                </svg>
-              }
+              icon={<Wallet size={18} />}
               colorHex="#059669"
             />
             <MetricCard
               title="待处理订单"
               value={pendingTotal}
               subtitle={`确认 ${stats.confirmed_count || 0} · 售后 ${stats.after_sale_count || 0} · 修改 ${stats.revision_count || 0}`}
-              icon={
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width={26} height={26} strokeWidth="1.5">
-                  <rect x="5" y="3" width="14" height="18" rx="2" strokeLinejoin="round"/>
-                  <path strokeLinecap="round" d="M9 7h6"/>
-                  <path strokeLinecap="round" d="M9 11h6"/>
-                  <path strokeLinecap="round" d="M9 15h4"/>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.5 3.5v-1a.5.5 0 01.5-.5h4a.5.5 0 01.5.5v1"/>
-                </svg>
-              }
+              icon={<ClipboardList size={18} />}
               colorHex="#EA580C"
             />
           </div>
@@ -562,7 +498,7 @@ export default function DashboardPage() {
                   <p className="text-[13px] text-[#6e6e73] mt-0.5">过去一年的订单趋势</p>
                 </div>
                 <button onClick={() => fetchDashboardData(true)} className="inline-flex items-center justify-center gap-1.5 font-semibold border cursor-pointer transition-all whitespace-nowrap leading-snug active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300 px-3 py-1.5 text-xs rounded-lg" disabled={loading}>
-                  <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
                   <span>{loading ? '刷新中...' : '刷新'}</span>
                 </button>
               </div>
