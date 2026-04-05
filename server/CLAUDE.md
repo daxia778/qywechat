@@ -75,7 +75,9 @@ server/
 - 金额: **分**（Price/Commission 均为分）
 - 关联: OperatorID(谈单客服), FreelanceDesignerID(花名册外键), FollowOperatorID(跟单客服), CustomerID
 - 分润字段: PlatformFee, DesignerCommission, SalesCommission, FollowCommission, NetProfit
-- 附件: ScreenshotPath, AttachmentURLs(JSON), ScreenshotHash(截图哈希，防重复提交)
+- 附件: ScreenshotPath, AttachmentURLs(JSON), ScreenshotHash(截图 SHA256 哈希，防篡改校验)
+- 告警: AlertDismissed(抢单告警是否已处理)
+- v1.3.0: 关联设计师时 cost_price 自动设为 `(Price + ExtraPrice) * 25 / 100`（整数除法）
 - 状态机:
 ```
 PENDING → DESIGNING → COMPLETED → REFUNDED
@@ -89,7 +91,7 @@ PENDING → DESIGNING → COMPLETED → REFUNDED
 - **Payment**: 手动录入 + 企微收款自动同步，可关联 OrderID
 - **FreelanceDesigner**: 自由设计师花名册
 - **WecomMember/GroupChat/WecomMessageLog**: 企微通讯录、客户群、消息日志
-- **ContactWay**: 企微「联系我」配置（关联员工、自动标签、欢迎语）
+- **ContactWay**: 企微「联系我」配置，字段 ConfigID(唯一)/QRCode/State/UserIDs(JSON)/CreatorID
 - **AppVersion**: 客户端 OTA 版本
 - **TokenBlacklist**: JWT 黑名单（持久化，重启恢复）
 - **OrderTimeline**: 操作时间线（状态变更/金额修改审计链）
@@ -225,3 +227,30 @@ PENDING → DESIGNING → COMPLETED → REFUNDED
 cd server && go run .          # 启动后端 (端口 8201)
 cd server && go test ./...     # 运行测试
 ```
+
+## 开发经验与注意事项
+
+### 金额计算
+- 所有金额单位为**分**，整数运算避免浮点精度问题
+- cost_price 默认值 = (Price + ExtraPrice) * 25 / 100（整数除法）
+- 分润计算在 services/profit.go，触发时机：订单创建/金额修改/COMPLETED/REFUNDED
+
+### 状态流转
+- 退款(REFUNDED)必须填写 refund_reason（后端强制校验）
+- COMPLETED → REFUNDED 会清零所有分润字段
+- 关联设计师时 PENDING 自动转 DESIGNING
+
+### 设计师管理
+- 换设计师时旧设计师 total_orders 减一，新设计师加一
+- 时间线区分"首次关联"(designer_assigned)和"换人"(designer_reassigned)
+- 花名册统计(总佣金/退款数)通过 SQL JOIN 实时聚合，不落库
+
+### 数据库兼容
+- SQLite/PostgreSQL 差异通过 services/dbcompat.go 抹平
+- 日期格式化函数：SqlFormatDate / SqlFormatYearMonth / SqlFormatYearWeek
+- 跨包调用使用导出版本（大写开头）
+
+### 部署
+- 交叉编译：GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o pdd-server-linux .
+- 服务器路径：/opt/pdd-server/，systemd 管理
+- 域名：zhiyuanshijue.ltd（Nginx 反代 + Let's Encrypt SSL）
