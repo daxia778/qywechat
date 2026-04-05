@@ -1,8 +1,15 @@
-# Go workspace
+# System files
 .DS_Store
+Thumbs.db
 *.swp
+
+# IDE
 .idea/
 .vscode/
+
+# Go
+vendor/
+*.exe
 
 # Server
 server/pdd-server
