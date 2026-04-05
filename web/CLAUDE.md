@@ -1,6 +1,6 @@
 # Web 前端指南（统一端：管理后台 + 员工工作台）
 
-React 19 + Vite + TailwindCSS v4 + React Router v6
+React 19 + Vite 6 + TailwindCSS v4 + React Router v6
 
 ## 目录结构
 ```
@@ -8,121 +8,133 @@ web/src/
 ├── main.jsx                # 入口
 ├── App.jsx                 # 根组件: AuthProvider → ToastProvider → WebSocketProvider → AppRouter
 ├── index.css               # 全局样式 (TailwindCSS v4)
-├── router/index.jsx        # 路由配置 (lazy-load + ErrorBoundary + RequireAuth/RequireRole)
-├── api/                    # API 请求层 (axios)
-│   ├── client.js           # axios 实例 (baseURL=/api/v1, JWT 拦截器, CSRF 自动附加)
-│   ├── auth.js             # 登录/登出/token校验
-│   ├── orders.js           # 订单 CRUD
-│   ├── admin.js            # 管理端 API (员工/Dashboard/团队/导出)
-│   ├── customers.js        # 顾客 API
-│   ├── payments.js         # 收款流水 API
-│   ├── revenue.js          # 营收图表 API
-│   └── notifications.js    # 通知 API
+├── router/index.jsx        # 路由 (lazyWithRetry + ErrorBoundary + RequireAuth/AdminGuard/StaffGuard)
+├── api/                    # API 请求层
+│   ├── client.js           # axios 实例 (baseURL=/api/v1, JWT/CSRF 拦截器, 401 自动登出)
+│   ├── auth.js             # login/adminLogin/validateToken/logoutApi
+│   ├── orders.js           # 订单 CRUD + OCR + 批量 + 设计师
+│   ├── admin.js            # 管理端 (员工/Dashboard/团队/导出/激活码/抢单告警)
+│   ├── customers.js        # 顾客 CRUD + 合并
+│   ├── payments.js         # 收款流水 + 企微同步
+│   ├── revenue.js          # 营收图表 + 分润明细
+│   └── notifications.js    # 通知管理
 ├── pages/                  # 页面组件
-│   ├── LoginPage.jsx       # 登录页
-│   ├── DashboardPage.jsx   # 数据看板 (MetricCard + 图表)
-│   ├── OrdersPage.jsx      # 订单列表 (筛选/搜索/批量操作)
-│   ├── OrderDetailPage.jsx # 订单详情 + 时间线
-│   ├── EmployeesPage.jsx   # 员工管理 (CRUD/设备解绑)
+│   ├── LoginPage.jsx       # 登录（按 role 跳转: admin → /dashboard, staff → /s/dashboard）
+│   ├── DashboardPage.jsx   # 数据看板 (MetricCard + ECharts + WebSocket 实时更新)
+│   ├── OrdersPage.jsx      # 订单列表 (筛选标签/搜索400ms防抖/分页/批量/导出)
+│   ├── OrderDetailPage.jsx # 订单详情 + 时间线 + 金额修改
+│   ├── CustomersPage.jsx   # 顾客管理 + 合并重复
+│   ├── EmployeesPage.jsx   # 员工管理 (CRUD/启禁用/重置密码/设备解绑/批量)
 │   ├── TeamPage.jsx        # 团队工作负载
-│   ├── RevenuePage.jsx     # 营收图表
-│   ├── CustomersPage.jsx   # 顾客管理
-│   ├── PaymentsPage.jsx    # 收款流水
+│   ├── RevenuePage.jsx     # 营收图表 (ECharts) + 分润明细
+│   ├── PaymentsPage.jsx    # 收款流水 (汇总/录入/关联订单/企微同步)
+│   ├── DesignersRosterPage.jsx # 设计师花名册
 │   ├── ActivationCodesPage.jsx # 激活码管理
-│   └── GrabAlertsPage.jsx  # 抢单监控告警
+│   ├── GrabAlertsPage.jsx  # 抢单超时告警
+│   └── staff/              # 员工端页面
+│       ├── StaffDashboard.jsx   # 员工个人工作台
+│       ├── MyOrdersPage.jsx     # 我的订单
+│       └── StaffOrderDetail.jsx # 订单详情（员工视角）
 ├── components/             # 通用组件
-│   ├── layout/AppShell.jsx # 布局壳 (侧边栏 + 顶栏 + Outlet)
-│   ├── ConfirmModal.jsx    # 确认弹窗
+│   ├── layout/AppShell.jsx # 管理员布局 (侧边栏+顶栏+通知铃铛+WS状态指示+登出)
+│   ├── layout/StaffLayout.jsx # 员工端简化布局
+│   ├── ui/Button.jsx       # 按钮 (variant: primary/secondary/ghost/danger, size, loading)
+│   ├── ui/Badge.jsx        # 徽标 (variant: success/warning/danger/info)
+│   ├── ui/Card.jsx         # 卡片容器
+│   ├── ui/PageHeader.jsx   # 页面标题栏 + actions slot
+│   ├── ui/RefreshButton.jsx # 旋转刷新按钮
+│   ├── ui/StatCard.jsx     # 统计卡片（简洁版）
+│   ├── ConfirmModal.jsx    # 确认弹窗 (info/danger/warning, 可选输入框+KV明细)
 │   ├── EmptyState.jsx      # 空状态占位
-│   ├── ExportDialog.jsx    # 导出对话框
+│   ├── ExportDialog.jsx    # 导出对话框（日期范围选择）
 │   ├── LoadingSpinner.jsx  # 加载动画
-│   ├── MetricCard.jsx      # 指标卡片
-│   ├── NotificationPanel.jsx # 通知面板
-│   ├── OrderMatchModal.jsx # 订单匹配弹窗
+│   ├── MetricCard.jsx      # 指标卡片（含趋势）
+│   ├── NotificationPanel.jsx # 右侧抽屉通知面板
+│   ├── OrderMatchModal.jsx # 订单-收款匹配弹窗
 │   └── ToastContainer.jsx  # Toast 通知容器
-├── contexts/               # React Context
-│   ├── AuthContext.jsx     # 认证状态 (token/role/isAuthenticated)
-│   ├── ToastContext.jsx    # Toast 通知队列
-│   └── WebSocketContext.jsx # WebSocket 连接管理
-├── hooks/                  # 自定义 Hooks
-│   ├── useAuth.js          # 认证 hook (从 AuthContext)
-│   ├── useConfirm.js       # 确认弹窗 hook
-│   ├── useDebounce.js      # 防抖
-│   ├── useOrderActions.js  # 订单操作 (状态变更/抢单)
-│   ├── useOrderFilters.js  # 订单筛选状态管理
-│   ├── usePolling.js       # 轮询 hook
-│   ├── useToast.js         # Toast hook (从 ToastContext)
-│   └── useWebSocket.js     # WebSocket hook
+├── contexts/
+│   ├── AuthContext.jsx     # 认证: token/userName/userId/role/ready + login/logout/checkToken
+│   ├── ToastContext.jsx    # Toast: toasts[] + toast(msg,type,title)/removeToast
+│   └── WebSocketContext.jsx # WS: connected/authenticating/reconnecting/disconnected/offline
+├── hooks/
+│   ├── useAuth.js          # → AuthContext
+│   ├── useToast.js         # → ToastContext
+│   ├── useWebSocket.js     # → WebSocketContext + WS_STATE 常量
+│   ├── useDebounce.js      # useDebounce(value, delay=300)
+│   ├── usePolling.js       # usePolling(cb, interval, enabled) + Page Visibility API
+│   ├── useConfirm.js       # 确认弹窗状态统一管理
+│   ├── useOrderFilters.js  # 订单筛选/分页/WS订阅/轮询(WS连接120s/断开60s)
+│   └── useOrderActions.js  # 订单操作: 状态变更/批量/转派/选择
 └── utils/
-    ├── cn.js               # className 合并工具
-    ├── constants.js         # 常量 (状态映射/颜色)
-    ├── formatters.js        # 格式化 (金额/日期/状态)
-    └── storage.js           # localStorage 封装 (token/auth)
+    ├── cn.js               # cn() = twMerge(clsx())
+    ├── constants.js         # STATUS_MAP/状态颜色
+    ├── formatters.js        # 金额(分→元)/日期/状态格式化
+    └── storage.js           # localStorage: getToken/setAuth/clearAuth/getRole...
+```
 
 ## 路由表
 
+### 管理员路由（AdminGuard → AppShell 布局）
 | 路径 | 页面 | 权限 |
 |------|------|------|
-| `/login` | LoginPage | 公开 (已登录跳转 `/`) |
-| `/` | DashboardPage | 登录 |
-| `/orders` | OrdersPage | 登录 |
-| `/orders/:id` | OrderDetailPage | 登录 |
-| `/customers` | CustomersPage | admin/sales/follow |
+| `/login` | LoginPage | 公开 |
+| `/dashboard` | DashboardPage | admin |
+| `/orders` | OrdersPage | admin |
+| `/orders/:id` | OrderDetailPage | admin |
+| `/customers` | CustomersPage | admin |
 | `/team` | TeamPage | admin |
 | `/employees` | EmployeesPage | admin |
-| `/activation-codes` | ActivationCodesPage | admin |
 | `/revenue` | RevenuePage | admin |
 | `/payments` | PaymentsPage | admin |
-| `/grab-alerts` | GrabAlertsPage | admin |
+| `/designers` | DesignersRosterPage | admin |
 
-### 员工路由（`/s/` 前缀，StaffGuard 保护）
-
+### 员工路由（StaffGuard → StaffLayout 布局）
 | 路径 | 页面 | 权限 |
 |------|------|------|
 | `/s/dashboard` | StaffDashboard | staff |
 | `/s/orders` | MyOrdersPage | staff |
 | `/s/orders/:id` | StaffOrderDetail | staff |
+| `/s/designers` | DesignersRosterPage | staff |
 
 ## 关键模式
 
 ### API 调用
-- 所有请求通过 `api/client.js`，baseURL=/api/v1
-- JWT token 自动从 localStorage 附加到 Authorization header
-- CSRF token 从响应头自动捕获并附加到写操作
-- 401 响应自动清除认证并触发 `auth:logout` 事件
+- client.js: baseURL=/api/v1, timeout=15000
+- 请求拦截: JWT 自动附加 Authorization, 写操作附加 X-CSRF-Token
+- 响应拦截: 捕获 x-csrf-token 头缓存; 401 自动 clearAuth + 派发 auth:logout 事件
+- 错误: error.displayMessage 从 response.data.message 提取
 
 ### 状态管理
-- 无 Redux，全部用 React Context + useState/useEffect
-- AuthContext: 认证状态全局共享
-- WebSocketContext: WS 连接全局共享，页面订阅消息
-- ToastContext: 全局通知队列
+- 无 Redux/Zustand，全部用 Context + useState/useEffect
+- 三层嵌套: Auth → Toast → WebSocket
+- 服务端数据由各页面本地 state 管理，无共享缓存层
+- 实时: WS `order_updated` 事件触发刷新 + 轮询兜底
+
+### WebSocket
+- 连接: /api/v1/ws → 发送 auth → 收到 auth_ok → 30s 心跳 ping/pong
+- 断线重连: 指数退避 2s→4s→8s…最大30s + 30% jitter，超5次进入 offline 静默
+- 可手动 retry() 从 offline 恢复
 
 ### 设计规范
-- TailwindCSS v4 (不是 v3，注意语法差异)
-- 主色: `#434FCF` (靛蓝)
+- TailwindCSS **v4**（注意语法与 v3 不同）
+- 主色: `#434FCF`（靛蓝）
 - 圆角: 组件 12px，卡片 16px
+- 图标: lucide-react v0.460
+- 图表: echarts v5.5
 - 风格: 简约现代，参考 Brave 官网
 
-## CSS 陷阱与注意事项
+### CSS 注意事项
+- index.css 有全局 th/td 样式，**不要在全局 th 上设 text-align**
+- 表格用 `table-layout: fixed` + `colgroup` 全百分比宽度（总和=100%）
+- **禁止**像素和百分比混用，**禁止**让某列不设宽度
 
-### 全局样式优先级
-- `index.css` 中有全局 `th`/`td` 样式（padding、font-size 等），**不要在全局 th 上设 `text-align`**，否则会覆盖组件内 Tailwind 的 `text-center`/`text-left` class，导致表头和数据对齐不一致
-- 全局 `th` padding: `12px 12px`，响应式在 `<1024px` 缩小为 `10px`，`<640px` 缩小为 `8px 6px`
-
-### 表格布局规范
-- 使用 `table-layout: fixed` + `colgroup` **全百分比宽度**（总和 = 100%）
-- **禁止**像素和百分比混用：窄屏时像素列会挤掉百分比列，宽屏时百分比列膨胀失控
-- **禁止**让某列不设宽度（`<col />`）：`table-layout: fixed` 下该列会吞掉所有剩余空间
-- 内容溢出用 `overflow-hidden` + `truncate` 处理
-- OrdersPage 当前列宽：复选框 4% / 订单信息 28% / 客户 13% / 金额 10% / 负责人 16% / 状态 9% / 操作 20%
-
-### 部署
-- 构建: `cd web && npm run build`
-- 部署路径: `scp -r dist/* root@118.31.56.141:/opt/pdd-server/dist/`
-- **注意**: 是 `/opt/pdd-server/dist/`，不是 `/opt/pdd-order-system/dist/`
+### 表单处理
+- 无表单库，受控组件 + useState
+- 搜索: useDebounce(keyword, 400) 防抖
 
 ## 开发命令
 ```bash
 cd web && npm run dev    # 启动 (端口 8200, 代理 /api → 8201)
 cd web && npm run build  # 构建
+# 部署: scp -r dist/* root@118.31.56.141:/opt/pdd-server/dist/
 ```

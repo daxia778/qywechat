@@ -1,16 +1,40 @@
+# ============================================
+# PDD 派单系统 .claudeignore
+# 目标：减少 Claude Code 自动扫描的 token 消耗
+# ============================================
+
 # 依赖和构建产物
 node_modules/
 dist/
 build/
 *.min.js
 *.min.css
+*.map
 
-# 备份和历史
-admin-web-vue-backup/
-backups/
+# Vite 缓存（每个子项目都有）
+.vite/
+**/.vite/
+
+# Lock 文件（token 大户，单个文件几千行）
+package-lock.json
+go.sum
+yarn.lock
+pnpm-lock.yaml
+
+# 二进制产物和发布包
 releases/
+server/pdd-server
+server/pdd-server-linux
+server/pdd-order-system
+server/server
+desktop-client/build/bin/
+*.exe
+*.app
+*.zip
+*.tar.gz
+*.dmg
 
-# 运行时数据
+# 运行时数据和数据库
 server/data/
 server/uploads/
 uploads/
@@ -18,11 +42,22 @@ data/
 *.db
 *.db-wal
 *.db-shm
+*.db-journal
+
+# 备份
+backups/
+
+# 日志
 *.log
+server/server.log
+
+# 测试数据（图片等大文件）
+server/testdata/
 
 # 环境和密钥
 .env
 server/.env
+server/.env.example
 
 # IDE 和系统
 .DS_Store
@@ -30,7 +65,7 @@ server/.env
 .vscode/
 *.swp
 
-# Docker 和部署（按需读取即可）
+# Docker 和部署配置（按需手动读取即可）
 deploy/
 docker-compose*.yml
 Dockerfile
@@ -49,16 +84,39 @@ PROJECT_V2_BLUEPRINT.md
 PDD派单系统_V2改造总览与后续规划.md
 prd_pdd_wecom_system.md
 PHASE1-DEV-GUIDE.md
+LICENSE
 
 # Git
 .git/
 .github/
 
-# 桌面客户端前端依赖
+# 桌面客户端前端依赖和生成物
 desktop-client/frontend/node_modules/
 desktop-client/frontend/dist/
 desktop-client/build/
+desktop-client/wailsjs/
 
-# Lock 文件
-package-lock.json
-go.sum
+# 废弃项目目录
+admin-web-vue-backup/
+admin-web/
+staff-web/
+
+# 前端静态资源（图片/字体/SVG）
+*.svg
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.bmp
+*.ico
+*.woff
+*.woff2
+*.ttf
+*.eot
+web/src/assets/
+
+# 前端已有子 CLAUDE.md 中描述的设计文档
+web/ARCHITECTURE.md
+web/DESIGN_SYSTEM.md
+web/README.md
