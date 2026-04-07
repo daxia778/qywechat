@@ -74,6 +74,7 @@ const DesignersRosterPage = lazyWithRetry(() => import('../pages/DesignersRoster
 // [隐藏] 联系我管理 — 后续根据业务需求再上线测试
 // const ContactWaysPage = lazyWithRetry(() => import('../pages/ContactWaysPage'));
 const WelcomeTemplatesPage = lazyWithRetry(() => import('../pages/WelcomeTemplatesPage'));
+const AutomationTasksPage = lazyWithRetry(() => import('../pages/AutomationTasksPage'));
 
 // ── Staff Pages ──
 const StaffLayout = lazyWithRetry(() => import('../components/layout/StaffLayout'));
@@ -149,6 +150,7 @@ export default function AppRouter() {
                 {/* [隐藏] 联系我管理 — 后续根据业务需求再上线测试 */}
                 {/* <Route path="/contact-ways" element={<ContactWaysPage />} /> */}
                 <Route path="/welcome-templates" element={<WelcomeTemplatesPage />} />
+                <Route path="/automation" element={<AutomationTasksPage />} />
               </Route>
             </Route>
 

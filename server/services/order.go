@@ -83,6 +83,8 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 	// 异步通知跟单客服添加客户微信
 	if customerContact != "" {
 		go notifyFollowStaffToAddCustomer(order, customerContact)
+		// v1.5.0: 自动添加好友任务入队（Agent 执行 UI 自动化）
+		go EnqueueAddFriendTask(order, customerContact)
 	}
 
 	return order, nil

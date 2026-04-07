@@ -36,6 +36,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
+          http: ['axios'],
           charts: ['echarts'],
           icons: ['lucide-react'],
         },

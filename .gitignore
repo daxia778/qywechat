@@ -56,3 +56,11 @@ staff-web/dist/
 server/server.log
 *.log
 PHASE1-DEV-GUIDE.md
+
+# 调试脚本（不入库）
+wecom_auto_add.py
+wecom_ax_inspector.py
+
+# Agent 运行时
+agent/__pycache__/
+agent/platforms/__pycache__/

@@ -230,6 +230,12 @@ func CreateOrder(c *gin.Context) {
 	}
 
 	respondOK(c, order)
+
+	// WebSocket 广播新订单创建
+	services.Hub.Broadcast(services.WSEvent{
+		Type:    "new_order",
+		Payload: order,
+	})
 }
 
 type GrabOrderReq struct {

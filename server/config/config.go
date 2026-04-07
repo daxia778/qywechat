@@ -71,6 +71,10 @@ type Config struct {
 
 	// Security
 	AdminAllowedIPs []string // IP 白名单 (逗号分隔), 空则不限制
+
+	// 自动化 Agent
+	AutoAddAgentToken string // Agent 认证 Token
+	AutoAddDailyLimit int    // 每日自动添加上限 (防风控)
 }
 
 var C *Config
@@ -116,6 +120,8 @@ func Init() {
 		OSSBaseURL:              getEnv("OSS_BASE_URL", ""),
 		DeployMode:              getEnv("DEPLOY_MODE", "debug"),
 		AdminAllowedIPs:         splitCSV(getEnv("ADMIN_ALLOWED_IPS", "")),
+		AutoAddAgentToken:       getEnv("AUTO_ADD_AGENT_TOKEN", ""),
+		AutoAddDailyLimit:       getEnvInt("AUTO_ADD_DAILY_LIMIT", 30),
 	}
 
 	// 🔒 安全校验: JWT 密钥

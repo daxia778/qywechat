@@ -4,7 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useWebSocket, WS_STATE } from '../../hooks/useWebSocket';
 import { useToast } from '../../hooks/useToast';
 import { usePolling } from '../../hooks/usePolling';
-import useAudioAlert from '../../hooks/useAudioAlert';
+import useAudioAlert, { SOUND_OPTIONS, previewSound } from '../../hooks/useAudioAlert';
 import { NAV_ROUTES, ROLE_MAP } from '../../utils/constants';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../../api/notifications';
 import { formatTime } from '../../utils/formatters';
@@ -15,7 +15,7 @@ export default function AppShell() {
   const { userName, role, logout } = useAuth();
   const { on, off, connect, connected, connectionState, retry } = useWebSocket();
   const { toast } = useToast();
-  const { play: playAlert, isMuted, toggleMute } = useAudioAlert();
+  const { play: playAlert, muted, toggleMute, soundType, setSoundType, volume, setVolume } = useAudioAlert();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -25,6 +25,7 @@ export default function AppShell() {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showSoundSettings, setShowSoundSettings] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
   const [matchModalVisible, setMatchModalVisible] = useState(false);
   const [matchContactInfo, setMatchContactInfo] = useState(null);
@@ -111,6 +112,7 @@ export default function AppShell() {
       fetchNotificationsThrottled();
       playAlert('urgent');
     };
+    on('new_order', urgentHandler);
     on('order_updated', handler);
     on('notification', handler);
     on('grab_alert', urgentHandler);
@@ -118,6 +120,7 @@ export default function AppShell() {
     on('order_customer_matched', handler);
     on('order_group_created', handler);
     return () => {
+      off('new_order', urgentHandler);
       off('order_updated', handler);
       off('notification', handler);
       off('grab_alert', urgentHandler);
@@ -146,6 +149,14 @@ export default function AppShell() {
     document.addEventListener('click', close);
     return () => document.removeEventListener('click', close);
   }, [showNotifPanel]);
+
+  // Close sound settings on outside click
+  useEffect(() => {
+    if (!showSoundSettings) return;
+    const close = () => setShowSoundSettings(false);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [showSoundSettings]);
 
   const handleMarkRead = async (n) => {
     if (!n.is_read) {
@@ -216,7 +227,7 @@ export default function AppShell() {
         {/* Logo */}
         <div className={`flex items-center shrink-0 h-[64px] border-b border-white/[0.12] ${collapsed && !mobileOpen ? 'px-3 justify-center' : 'px-5 gap-2.5'}`}>
           <div className="w-9 h-9 shrink-0 rounded-xl bg-white/15 flex items-center justify-center text-white backdrop-blur-sm">
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>analytics</span>
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
           </div>
           {(!collapsed || mobileOpen) && (
             <div className="flex flex-col justify-center">
@@ -340,19 +351,119 @@ export default function AppShell() {
               </span>
             </div>
 
-            {/* Sound Toggle */}
-            <button
-              onClick={toggleMute}
-              className="w-[36px] h-[36px] flex items-center justify-center rounded-lg bg-[#f3f4f5] hover:bg-[#e7e8e9] text-[#454654] transition-colors shrink-0"
-              title={isMuted() ? '声音已关闭，点击开启' : '声音已开启，点击静音'}
-              aria-label={isMuted() ? '开启声音' : '关闭声音'}
-            >
-              {isMuted() ? (
-                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" /></svg>
-              ) : (
-                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
+            {/* Sound Toggle + Settings */}
+            <div className="relative shrink-0">
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setShowSoundSettings(!showSoundSettings); }}
+                className="w-[36px] h-[36px] flex items-center justify-center rounded-lg bg-[#f3f4f5] hover:bg-[#e7e8e9] text-[#454654] transition-colors shrink-0"
+                title={muted ? '声音已关闭（右键打开设置）' : '声音已开启（右键打开设置）'}
+                aria-label={muted ? '开启声音' : '关闭声音'}
+              >
+                {muted ? (
+                  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" /></svg>
+                ) : (
+                  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
+                )}
+              </button>
+              {/* Sound Settings Gear */}
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowSoundSettings(!showSoundSettings); }}
+                className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-[#434fcf] transition-colors shadow-sm"
+                title="声音设置"
+                aria-label="声音设置"
+              >
+                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z" /><circle cx="12" cy="12" r="3" strokeWidth="2.5" /></svg>
+              </button>
+
+              {/* Sound Settings Panel */}
+              {showSoundSettings && (
+                <div
+                  className="absolute right-0 top-12 w-72 bg-white rounded-2xl border border-slate-200 shadow-xl z-50 overflow-hidden animate-fade-in-up"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="px-4 py-3 border-b border-slate-100">
+                    <h4 className="text-sm font-bold text-slate-800">声音设置</h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">选择提示音和调节音量</p>
+                  </div>
+
+                  {/* Sound Type Selection */}
+                  <div className="px-4 py-3 space-y-1.5">
+                    <p className="text-xs font-semibold text-slate-500 mb-2">提示音</p>
+                    {SOUND_OPTIONS.map((opt) => (
+                      <div
+                        key={opt.value}
+                        className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-all ${
+                          soundType === opt.value
+                            ? 'bg-[#434fcf]/8 border border-[#434fcf]/20'
+                            : 'hover:bg-slate-50 border border-transparent'
+                        }`}
+                        onClick={() => {
+                          setSoundType(opt.value);
+                          previewSound(opt.value, 'normal', volume);
+                        }}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${
+                            soundType === opt.value ? 'border-[#434fcf]' : 'border-slate-300'
+                          }`}>
+                            {soundType === opt.value && (
+                              <span className="w-2 h-2 rounded-full bg-[#434fcf]" />
+                            )}
+                          </span>
+                          <span className={`text-[13px] ${soundType === opt.value ? 'font-semibold text-[#434fcf]' : 'text-slate-600'}`}>
+                            {opt.label}
+                          </span>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); previewSound(opt.value, 'normal', volume); }}
+                          className="text-slate-400 hover:text-[#434fcf] p-1 rounded transition-colors"
+                          title="试听"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Volume Slider */}
+                  <div className="px-4 py-3 border-t border-slate-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-semibold text-slate-500">音量</p>
+                      <span className="text-xs text-slate-400 tabular-nums">{Math.round(volume * 100)}%</span>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={Math.round(volume * 100)}
+                        onChange={(e) => setVolume(parseInt(e.target.value) / 100)}
+                        className="flex-1 h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-[#434fcf]"
+                      />
+                      <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
+                    </div>
+                  </div>
+
+                  {/* Test Buttons */}
+                  <div className="px-4 py-3 border-t border-slate-100 flex gap-2">
+                    <button
+                      onClick={() => previewSound(soundType, 'normal', volume)}
+                      className="flex-1 px-3 py-2 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                    >
+                      普通提示音
+                    </button>
+                    <button
+                      onClick={() => previewSound(soundType, 'urgent', volume)}
+                      className="flex-1 px-3 py-2 text-xs font-semibold rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors"
+                    >
+                      紧急提示音
+                    </button>
+                  </div>
+                </div>
               )}
-            </button>
+            </div>
 
             {/* Notification Bell */}
             <div className="relative shrink-0">
