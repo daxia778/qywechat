@@ -17,6 +17,7 @@ const STATUS_CONFIG = {
 const TASK_TYPE_MAP = {
   add_friend: '添加好友',
   create_group: '自动建群',
+  invite_to_group: '邀请入群',
 };
 
 const FILTERS = [

@@ -1,8 +1,10 @@
 package services
 
 import (
+	"fmt"
 	"log"
 	"regexp"
+	"strings"
 	"time"
 
 	"pdd-order-system/models"
@@ -142,6 +144,83 @@ func EnqueueCreateGroupTask(order *models.Order, customer *models.Customer) {
 			"task_id":   task.ID,
 			"task_type": task.TaskType,
 			"order_sn":  order.OrderSN,
+		},
+	})
+}
+
+// PostGroupCreationSetup 建群成功后异步配置（设群名 + 禁止互加联系人 + 转让群主给跟单客服）
+func PostGroupCreationSetup(orderID uint, followUserID string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("❌ PostGroupCreationSetup panic: %v", r)
+		}
+	}()
+
+	// 等待几秒让企微同步群信息
+	time.Sleep(3 * time.Second)
+
+	var order models.Order
+	if err := models.DB.First(&order, orderID).Error; err != nil {
+		log.Printf("❌ PostGroupCreationSetup: 订单不存在 | order_id=%d | err=%v", orderID, err)
+		return
+	}
+
+	chatID := order.WecomChatID
+
+	// 如果订单上还没有 chat_id，尝试从最近成功的建群任务结果中获取
+	if chatID == "" {
+		var task models.AutomationTask
+		models.DB.Where(
+			"task_type = ? AND order_id = ? AND status = ?",
+			models.TaskTypeCreateGroup, orderID, models.TaskStatusSuccess,
+		).Order("completed_at DESC").First(&task)
+
+		if task.Result != "" {
+			// Agent 回写的 result 可能包含 chat_id
+			chatID = strings.TrimSpace(task.Result)
+		}
+	}
+
+	if chatID == "" {
+		log.Printf("⚠️ PostGroupCreationSetup: 订单 %s 无群 chat_id，跳过群配置", order.OrderSN)
+		return
+	}
+
+	// 构造群名: PPT-后6位订单号 + 主题前12字
+	sn := order.OrderSN
+	if len(sn) > 6 {
+		sn = sn[len(sn)-6:]
+	}
+	topic := order.Topic
+	if len([]rune(topic)) > 12 {
+		topic = string([]rune(topic)[:12])
+	}
+	groupName := fmt.Sprintf("PPT-%s %s", sn, topic)
+
+	log.Printf("🔧 PostGroupCreationSetup 开始 | order=%s | chat_id=%s | group_name=%s | follow=%s",
+		order.OrderSN, chatID, groupName, followUserID)
+
+	// 调用企微 API: 设群名 + 禁止互加联系人 + 转让群主
+	if err := Wecom.ConfigureNewGroup(chatID, groupName, followUserID); err != nil {
+		log.Printf("❌ PostGroupCreationSetup 配置失败: %v", err)
+		return
+	}
+
+	// 更新订单的 chat_id（如果之前没有）
+	if order.WecomChatID == "" {
+		models.DB.Model(&order).Update("wecom_chat_id", chatID)
+	}
+
+	log.Printf("✅ PostGroupCreationSetup 完成 | order=%s | chat_id=%s", order.OrderSN, chatID)
+
+	// WebSocket 广播群配置完成
+	Hub.Broadcast(WSEvent{
+		Type: "group_configured",
+		Payload: map[string]any{
+			"order_id":   orderID,
+			"order_sn":   order.OrderSN,
+			"chat_id":    chatID,
+			"group_name": groupName,
 		},
 	})
 }

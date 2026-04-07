@@ -215,6 +215,118 @@ func AdminTransferGroupOwner(c *gin.Context) {
 	respondMessage(c, "群主已转让")
 }
 
+// AdminTransferCustomer 在职继承 — 将客户从一个员工转接到另一个员工
+func AdminTransferCustomer(c *gin.Context) {
+	var req struct {
+		HandoverUserID string   `json:"handover_userid" binding:"required"` // 原跟进成员
+		TakeoverUserID string   `json:"takeover_userid" binding:"required"` // 接替成员
+		ExternalUserID []string `json:"external_userid" binding:"required"` // 客户列表
+		TransferMsg    string   `json:"transfer_success_msg"`               // 转接提示语
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "参数错误: handover_userid, takeover_userid, external_userid 必填")
+		return
+	}
+
+	if len(req.ExternalUserID) == 0 {
+		badRequest(c, "客户列表不能为空")
+		return
+	}
+	if len(req.ExternalUserID) > 100 {
+		badRequest(c, "每次最多转接100个客户")
+		return
+	}
+
+	result, err := services.Wecom.TransferCustomer(req.HandoverUserID, req.TakeoverUserID, req.ExternalUserID, req.TransferMsg)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+
+	respondOK(c, gin.H{
+		"message":  "客户转接已提交",
+		"customer": result,
+	})
+}
+
+// AdminGetTransferResult 查询客户转接结果
+func AdminGetTransferResult(c *gin.Context) {
+	handover := c.Query("handover_userid")
+	takeover := c.Query("takeover_userid")
+	if handover == "" || takeover == "" {
+		badRequest(c, "handover_userid 和 takeover_userid 必填")
+		return
+	}
+
+	result, err := services.Wecom.TransferCustomerResult(handover, takeover)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+
+	respondOK(c, gin.H{"customer": result})
+}
+
+// AdminListExternalContacts 列出指定员工的外部联系人（含详情）
+func AdminListExternalContacts(c *gin.Context) {
+	userID := c.Query("userid")
+	if userID == "" {
+		badRequest(c, "userid 参数必填")
+		return
+	}
+
+	// 获取外部联系人ID列表
+	externalIDs, err := services.Wecom.GetExternalContactList(userID)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+
+	// 获取每个联系人的详情
+	type ContactInfo struct {
+		ExternalUserID string `json:"external_userid"`
+		Name           string `json:"name"`
+		Avatar         string `json:"avatar"`
+		Gender         int    `json:"gender"`
+		CorpName       string `json:"corp_name"`
+		Type           int    `json:"type"` // 1=微信用户 2=企微用户
+	}
+
+	contacts := make([]ContactInfo, 0, len(externalIDs))
+	for _, eid := range externalIDs {
+		detail, err := services.Wecom.GetExternalContactDetail(eid)
+		if err != nil {
+			contacts = append(contacts, ContactInfo{ExternalUserID: eid, Name: "(获取失败)"})
+			continue
+		}
+		info := ContactInfo{ExternalUserID: eid}
+		if ec, ok := detail["external_contact"].(map[string]any); ok {
+			if v, ok := ec["name"].(string); ok {
+				info.Name = v
+			}
+			if v, ok := ec["avatar"].(string); ok {
+				info.Avatar = v
+			}
+			if v, ok := ec["gender"].(float64); ok {
+				info.Gender = int(v)
+			}
+			if v, ok := ec["corp_name"].(string); ok {
+				info.CorpName = v
+			}
+			if v, ok := ec["type"].(float64); ok {
+				info.Type = int(v)
+			}
+		}
+		contacts = append(contacts, info)
+	}
+
+	respondOK(c, gin.H{
+		"userid":   userID,
+		"total":    len(contacts),
+		"contacts": contacts,
+	})
+}
+
 // AgentUpdateStatus Agent 回写任务执行结果
 func AgentUpdateStatus(c *gin.Context) {
 	idStr := c.Param("id")
@@ -277,6 +389,16 @@ func AgentUpdateStatus(c *gin.Context) {
 	}
 
 	log.Printf("📥 Agent 回写结果 | id=%d | status=%s | result=%s", id, req.Status, req.Result)
+
+	// 建群成功后：异步触发群管理配置（设群名 + 禁止互加联系人 + 转让群主）
+	if req.Status == models.TaskStatusSuccess {
+		var task models.AutomationTask
+		models.DB.First(&task, uint(id))
+
+		if task.TaskType == models.TaskTypeCreateGroup {
+			go services.PostGroupCreationSetup(task.OrderID, task.FollowUserID)
+		}
+	}
 
 	// WebSocket 广播状态变更
 	services.Hub.Broadcast(services.WSEvent{
