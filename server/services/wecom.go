@@ -217,8 +217,9 @@ func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID
 	}
 
 	topicShort := topic
-	if len(topicShort) > 12 {
-		topicShort = topicShort[:12]
+	topicRunes := []rune(topicShort)
+	if len(topicRunes) > 12 {
+		topicShort = string(topicRunes[:12])
 	}
 	snShort := orderSN
 	if len(snShort) > 6 {

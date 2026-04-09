@@ -112,7 +112,7 @@ func ExecuteTransfer(c *gin.Context) {
 	customers, err := services.Wecom.TransferCustomer(body.HandoverUserID, body.TakeoverUserID, body.ExternalUserIDs, body.TransferMsg)
 	if err != nil {
 		log.Printf("执行客户转移失败: %v", err)
-		internalError(c, fmt.Sprintf("客户转移失败: %v", err))
+		internalError(c, "客户转移失败，请稍后重试")
 		return
 	}
 
@@ -263,7 +263,7 @@ func CheckTransferStatus(c *gin.Context) {
 	customers, err := services.Wecom.GetTransferResult(body.HandoverUserID, body.TakeoverUserID)
 	if err != nil {
 		log.Printf("查询转移结果失败: %v", err)
-		internalError(c, fmt.Sprintf("查询转移结果失败: %v", err))
+		internalError(c, "查询转移结果失败，请稍后重试")
 		return
 	}
 

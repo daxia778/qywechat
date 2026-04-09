@@ -98,6 +98,11 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 	// 异步通知跟单客服：新订单 + 客户联系方式
 	if followUID != "" && Wecom != nil && Wecom.IsConfigured() {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[CreateOrder] notify follow panic: %v", r)
+				}
+			}()
 			priceYuan := fmt.Sprintf("%.2f", float64(price)/100)
 			msg := fmt.Sprintf("📦 新订单提醒\n━━━━━━━━━━━━━━━━━\n📋 订单号: %s\n🎯 主题: %s\n💰 金额: ¥%s", orderSN, topic, priceYuan)
 			if customerContact != "" {
@@ -113,6 +118,11 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 	// 异步更新顾客统计
 	if customerID > 0 {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[CreateOrder] update customer stats panic: %v", r)
+				}
+			}()
 			if err := UpdateCustomerStats(customerID); err != nil {
 				log.Printf("⚠️  更新顾客统计失败: customerID=%d err=%v", customerID, err)
 			}
@@ -242,6 +252,11 @@ func postStatusChangeEffects(order *models.Order, newStatus string) {
 		TriggerProfitRecalculation(order.ID)
 	case models.StatusRefunded:
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[postStatusChangeEffects] refund clear panic: %v", r)
+				}
+			}()
 			if err := models.WriteTx(func(tx *gorm.DB) error {
 				return ClearProfitFields(tx, order.ID)
 			}); err != nil {

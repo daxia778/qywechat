@@ -102,7 +102,7 @@ func UpdateEmployee(c *gin.Context) {
 
 	userID, _ := c.Get("wecom_userid")
 	userName, _ := c.Get("name")
-	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "更新员工信息: "+emp.Name, c.ClientIP())
+	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeUpdate, emp.WecomUserID, "更新员工信息: "+emp.Name, c.ClientIP())
 
 	// 重新加载返回最新数据
 	models.DB.First(&emp, uint(id))

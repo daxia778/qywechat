@@ -29,6 +29,7 @@ const (
 	AuditOrderGrab     = "ORDER_GRAB"
 	AuditOrderStatus   = "ORDER_STATUS"
 	AuditEmployeeAdd          = "EMPLOYEE_ADD"
+	AuditEmployeeUpdate       = "EMPLOYEE_UPDATE"
 	AuditEmployeeToggle       = "EMPLOYEE_TOGGLE"
 	AuditDeviceUnbind         = "DEVICE_UNBIND"
 	AuditSecurityAlert        = "SECURITY_ALERT"

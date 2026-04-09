@@ -30,7 +30,14 @@ func StartTransferScheduler(ctx context.Context) {
 			return
 		case <-time.After(60 * time.Second):
 		}
-		runTransferRules()
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[TransferScheduler] initial run panic recovered: %v", r)
+				}
+			}()
+			runTransferRules()
+		}()
 
 		ticker := time.NewTicker(transferCheckInterval)
 		defer ticker.Stop()
@@ -211,9 +218,11 @@ func executeTransferRule(rule models.TransferRule) {
 
 	// 更新 LastRunAt
 	nowTime := time.Now()
-	models.WriteTx(func(tx *gorm.DB) error {
+	if err := models.WriteTx(func(tx *gorm.DB) error {
 		return tx.Model(&models.TransferRule{}).Where("id = ?", rule.ID).Update("last_run_at", nowTime).Error
-	})
+	}); err != nil {
+		log.Printf("[TransferScheduler] 更新规则 LastRunAt 失败 rule=%d: %v", rule.ID, err)
+	}
 
 	if transferred > 0 {
 		log.Printf("[TransferScheduler] 规则 [%s] 执行完成，转移 %d 位客户", rule.Name, transferred)

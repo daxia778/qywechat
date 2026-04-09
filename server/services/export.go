@@ -1027,7 +1027,7 @@ func writeSheetSalary(f *excelize.File, startTime, endTime time.Time, filter Exp
 		f.SetCellValue(sheet, fmt.Sprintf("D%d", row), centsToYuan(sumSales))
 		f.SetCellValue(sheet, fmt.Sprintf("E%d", row), centsToYuan(sumFollow))
 		f.SetCellValue(sheet, fmt.Sprintf("F%d", row), centsToYuan(sumDesign))
-		f.SetCellValue(sheet, fmt.Sprintf("G%d", row), centsToYuan(sumBase+sumSales+sumFollow+sumDesign))
+		f.SetCellValue(sheet, fmt.Sprintf("G%d", row), centsToYuan(sumSales+sumFollow+sumDesign))
 		f.SetCellValue(sheet, fmt.Sprintf("H%d", row), centsToYuan(sumTotal))
 		for _, col := range []string{"C", "D", "E", "F", "G", "H"} {
 			f.SetCellStyle(sheet, fmt.Sprintf("%s%d", col, row), fmt.Sprintf("%s%d", col, row), boldMoneyStyle)
