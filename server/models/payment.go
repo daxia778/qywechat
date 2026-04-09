@@ -18,7 +18,7 @@ type PaymentRecord struct {
 	PayeeUserID    string         `gorm:"column:payee_user_id;size:64" json:"payee_user_id"`                 // 收款员工ID
 	Remark         string         `gorm:"column:remark;size:256" json:"remark"`                              // 备注
 	TradeState     string         `gorm:"column:trade_state;size:20" json:"trade_state"`                     // 交易状态
-	PaidAt         *time.Time     `gorm:"column:paid_at" json:"paid_at"`                                    // 支付时间（nil 表示未支付）
+	PaidAt         time.Time      `gorm:"column:paid_at" json:"paid_at"`                                    // 支付时间
 	MatchedAt      *time.Time     `gorm:"column:matched_at" json:"matched_at"`                              // 系统匹配时间
 	MatchMethod    string         `gorm:"column:match_method;size:20" json:"match_method"`                   // auto / manual
 	CreatedAt      time.Time      `json:"created_at"`

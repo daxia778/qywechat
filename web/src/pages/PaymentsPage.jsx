@@ -3,14 +3,14 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { useToast } from '../hooks/useToast';
 import { useDebounce } from '../hooks/useDebounce';
 import { listPayments, createPayment, getPaymentSummary, getPaymentReport, syncWecom } from '../api/payments';
-import { getOrderDetail, listOrders } from '../api/orders';
+import { getOrderDetail } from '../api/orders';
 import { formatTime, formatCurrency } from '../utils/formatters';
 import { STATUS_MAP, STATUS_COLORS } from '../utils/constants';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PaymentMatchModal from '../components/PaymentMatchModal';
 import PageHeader from '../components/ui/PageHeader';
 import { useAuth } from '../hooks/useAuth';
-import { ChevronLeft, ChevronRight, Wallet, ShoppingBag, MessageSquareMore, PenLine, List, BarChart3, RefreshCw, Plus, Search, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Wallet, ShoppingBag, MessageSquareMore, PenLine, List, BarChart3, RefreshCw, Plus, Search } from 'lucide-react';
 import * as echarts from 'echarts/core';
 import { LineChart, BarChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components';
@@ -36,116 +36,6 @@ const SUMMARY_CARDS = [
   { key: 'wecom', label: '企微来源', icon: MessageSquareMore, gradient: 'from-blue-500 to-cyan-500', ring: 'ring-blue-500/10' },
   { key: 'manual', label: '人工录入', icon: PenLine, gradient: 'from-amber-500 to-yellow-500', ring: 'ring-amber-500/10' },
 ];
-
-function OrderSearchInput({ value, onChange }) {
-  const [query, setQuery] = useState('');
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedLabel, setSelectedLabel] = useState('');
-  const debouncedQuery = useDebounce(query, 400);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const params = { page: 1, page_size: 20 };
-        if (debouncedQuery) params.keyword = debouncedQuery;
-        const res = await listOrders(params);
-        if (!cancelled) setOrders(res.data?.data || []);
-      } catch {
-        if (!cancelled) setOrders([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [debouncedQuery]);
-
-  useEffect(() => {
-    if (!value) { setSelectedLabel(''); setQuery(''); }
-  }, [value]);
-
-  const handleSelect = (order) => {
-    onChange(order.id);
-    setSelectedLabel(`#${order.id} ${order.order_sn || ''} - ¥${formatCurrency((order.price || 0) / 100)}`);
-  };
-
-  if (value) {
-    return (
-      <div className="flex items-center gap-2 w-full px-3 py-2.5 text-[14px] bg-brand-50/40 border border-brand-200 rounded-xl">
-        <div className="w-5 h-5 rounded-md bg-brand-500 flex items-center justify-center shrink-0">
-          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-        </div>
-        <span className="flex-1 text-slate-700 font-medium truncate">{selectedLabel || `订单 #${value}`}</span>
-        <button type="button" onClick={() => { onChange(''); setSelectedLabel(''); }} className="text-slate-400 hover:text-red-500 shrink-0 cursor-pointer bg-transparent border-none p-0">
-          <X size={14} />
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="relative">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="输入订单号、客户或主题筛选..."
-          className="w-full px-3 py-2 pl-9 text-[13px] bg-slate-50/60 border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 placeholder:text-slate-400"
-        />
-        <Search size={14} className="text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-        {loading && <RefreshCw size={14} className="text-brand-500 animate-spin absolute right-3 top-1/2 -translate-y-1/2" />}
-      </div>
-      <div className="border border-slate-200 rounded-xl overflow-hidden max-h-[220px] overflow-y-auto bg-white">
-        {loading && orders.length === 0 ? (
-          <div className="px-4 py-6 text-[13px] text-slate-400 text-center flex items-center justify-center gap-2">
-            <RefreshCw size={14} className="animate-spin text-brand-500" /> 加载订单列表...
-          </div>
-        ) : orders.length === 0 ? (
-          <div className="px-4 py-6 text-[13px] text-slate-400 text-center">
-            {query ? '未找到匹配订单' : '暂无订单'}
-          </div>
-        ) : (
-          orders.map((order) => {
-            const sc = STATUS_COLORS[order.status] || {};
-            return (
-              <button
-                key={order.id}
-                type="button"
-                onClick={() => handleSelect(order)}
-                className="w-full text-left px-3.5 py-2.5 hover:bg-brand-50/50 transition-colors cursor-pointer bg-transparent border-none border-b border-b-slate-100 last:border-b-0 group"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[13px] font-bold text-slate-700 shrink-0">#{order.id}</span>
-                    <span className="text-[11px] font-mono text-slate-400 truncate">{order.order_sn}</span>
-                  </div>
-                  <span className="text-[13px] font-bold text-brand-600 font-['Outfit'] tabular-nums shrink-0">¥{formatCurrency((order.price || 0) / 100)}</span>
-                </div>
-                <div className="flex items-center gap-1.5 mt-1">
-                  {order.customer_contact && <span className="text-[11px] text-slate-400 truncate max-w-[120px]">{order.customer_contact}</span>}
-                  {order.customer_contact && order.topic && <span className="text-slate-200">·</span>}
-                  {order.topic && <span className="text-[11px] text-slate-400 truncate max-w-[140px]">{order.topic}</span>}
-                  <span
-                    className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-md border shrink-0"
-                    style={{ background: sc.bg || '#f1f5f9', color: sc.text || '#64748b', borderColor: sc.border || '#e2e8f0' }}
-                  >
-                    {STATUS_MAP[order.status] || order.status}
-                  </span>
-                </div>
-              </button>
-            );
-          })
-        )}
-      </div>
-      {!loading && orders.length > 0 && (
-        <div className="text-[11px] text-slate-400 text-center">显示最近 {orders.length} 条订单，输入关键词可筛选</div>
-      )}
-    </div>
-  );
-}
 
 export default function PaymentsPage() {
   const { toast } = useToast();
@@ -856,8 +746,8 @@ export default function PaymentsPage() {
             </div>
             <form onSubmit={handleCreateSubmit} className="p-6 space-y-4">
               <div>
-                <label className="block text-[13px] font-semibold text-slate-600 mb-1">关联订单 <span className="text-red-500">*</span></label>
-                <OrderSearchInput value={form.order_id} onChange={(val) => setForm({...form, order_id: val})} />
+                <label className="block text-[13px] font-semibold text-slate-600 mb-1">关联订单 ID <span className="text-red-500">*</span></label>
+                <input required type="number" min="1" value={form.order_id} onChange={e => setForm({...form, order_id: e.target.value})} placeholder="输入订单号，如: 1001" className="w-full px-3 py-2 text-[14px] bg-white border border-slate-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 placeholder:text-slate-300" />
               </div>
               <div>
                 <label className="block text-[13px] font-semibold text-slate-600 mb-1">收款金额 (元) <span className="text-red-500">*</span></label>

@@ -207,7 +207,7 @@ const showToast = (msg, type = 'success') => {
   }, 3000);
 };
 
-const APP_VERSION = "1.4.0"; // 当前版本号
+const APP_VERSION = "1.0.0"; // 当前版本号
 
 const checkAppUpdate = async () => {
   try {
@@ -515,10 +515,6 @@ const submit = async () => {
   }
   if (manualMode && (!state.orderSn || !state.rawPrice)) {
     showToast('手动模式下请填写完整订单号和金额', 'error');
-    return;
-  }
-  if (manualMode && (!state.price || state.price <= 0 || isNaN(state.price))) {
-    showToast('金额无效，请输入大于0的金额', 'error');
     return;
   }
   if (!state.form.customerContact) {

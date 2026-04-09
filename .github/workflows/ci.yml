@@ -22,7 +22,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24.1'
+          go-version: '1.25'
           cache-dependency-path: server/go.sum
 
       - name: Download dependencies
@@ -46,7 +46,7 @@ jobs:
       - name: Security scan (gosec)
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@latest
-          gosec -exclude=G104,G115,G304,G404,G401,G112 -exclude-dir=vendor ./...
+          gosec -exclude=G104,G115,G304,G404,G401,G112 -exclude-dir=middleware/wxbizmsgcrypt.go ./...
 
       - name: Test with coverage
         env:
@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: web
+        working-directory: admin-web
 
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +71,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: admin-web/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -84,28 +84,12 @@ jobs:
 
   # ─── Release 构建 (仅 tag 触发) ─────────────
   release:
-    name: Build Release (${{ matrix.goos }}-${{ matrix.goarch }})
+    name: Build Release Artifacts
     needs: [backend, frontend]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            ext: ''
-          - goos: darwin
-            goarch: amd64
-            ext: ''
-          - goos: darwin
-            goarch: arm64
-            ext: ''
-          - goos: windows
-            goarch: amd64
-            ext: .exe
 
     steps:
       - uses: actions/checkout@v4
@@ -113,62 +97,37 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24.1'
+          go-version: '1.25'
           cache-dependency-path: server/go.sum
 
-      - name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+      - name: Build Linux AMD64
         working-directory: server
         env:
           CGO_ENABLED: '0'
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: go build -trimpath -ldflags="-s -w" -o ../pdd-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} .
-
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pdd-server-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: pdd-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
-
-  # ─── GitHub Release (仅 tag 触发) ───────────
-  publish:
-    name: Publish GitHub Release
-    needs: [release]
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all binary artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          pattern: pdd-server-*
-          merge-multiple: true
+          GOOS: linux
+          GOARCH: amd64
+        run: go build -trimpath -ldflags="-s -w" -o ../pdd-server-linux-amd64 .
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: admin-web/package-lock.json
 
       - name: Build Frontend
-        working-directory: web
+        working-directory: admin-web
         run: |
           npm ci
           npm run build
 
       - name: Package frontend
-        run: tar -czf web-dist.tar.gz -C web/dist .
+        run: tar -czf admin-web-dist.tar.gz -C admin-web/dist .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            artifacts/pdd-server-*
-            web-dist.tar.gz
+            pdd-server-linux-amd64
+            admin-web-dist.tar.gz

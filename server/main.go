@@ -6,9 +6,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"pdd-order-system/config"
@@ -131,14 +133,14 @@ func main() {
 	r.Use(middleware.CSRFMiddleware())
 
 	// ── 静态资源与前端 (SPA) ──────────────────
-	// 开发环境: ../web/dist, 生产环境: dist (WorkingDirectory=/opt/pdd-server)
-	distDir := "../web/dist"
+	// 开发环境: ../admin-web/dist, 生产环境: dist (WorkingDirectory=/opt/pdd-server)
+	distDir := "../admin-web/dist"
 	if _, err := os.Stat(distDir); os.IsNotExist(err) {
 		distDir = "dist"
 	}
-	r.Static("/assets", filepath.Join(distDir, "assets"))
-	r.StaticFile("/favicon.svg", filepath.Join(distDir, "favicon.svg"))
-	r.StaticFile("/icons.svg", filepath.Join(distDir, "icons.svg"))
+	r.Static("/assets", distDir+"/assets")
+	r.StaticFile("/favicon.svg", distDir+"/favicon.svg")
+	r.StaticFile("/icons.svg", distDir+"/icons.svg")
 	// Vue SPA: 所有非 API/静态的请求由 NoRoute 兜底 (见下方)
 
 	// P2-18: health 端点只返回 status，不暴露 uptime 等信息
@@ -212,7 +214,6 @@ func main() {
 			orderAuth.POST("/:id/match", handlers.MatchOrderContact)
 			orderAuth.POST("/:id/note", handlers.AddOrderNote)
 			orderAuth.POST("/:id/create-group", handlers.CreateOrderGroup)
-			orderAuth.DELETE("/:id", handlers.DeleteOrder)
 			orderAuth.PUT("/designers/:id", handlers.UpdateDesigner)
 
 		orderAuth.GET("/my-stats", handlers.GetMyStats)
@@ -290,12 +291,6 @@ func main() {
 			admin.POST("/contact_way", handlers.CreateContactWay)
 			admin.GET("/contact_ways", handlers.ListContactWays)
 
-			// 欢迎语模板管理
-			admin.GET("/welcome_templates", handlers.ListWelcomeTemplates)
-			admin.POST("/welcome_templates", handlers.CreateWelcomeTemplate)
-			admin.PUT("/welcome_templates/:id", handlers.UpdateWelcomeTemplate)
-			admin.DELETE("/welcome_templates/:id", handlers.DeleteWelcomeTemplate)
-
 			// 企微数据查看
 			admin.GET("/wecom/members", handlers.ListWecomMembers)
 			admin.GET("/wecom/groups", handlers.ListWecomGroups)
@@ -334,7 +329,7 @@ func main() {
 			c.JSON(http.StatusNotFound, gin.H{"error": "接口不存在"})
 			return
 		}
-		c.File(filepath.Join(distDir, "index.html"))
+		c.File(distDir + "/index.html")
 	})
 
 	// 启动
@@ -359,7 +354,7 @@ func main() {
 
 	// 优雅关闭 (Graceful Shutdown)
 	quit := make(chan os.Signal, 1)
-	registerSignals(quit)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("正在关闭服务器...")
 

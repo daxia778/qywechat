@@ -6,17 +6,7 @@ import { listCustomers, getCustomerDetail, updateCustomer, mergeCustomers } from
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
-import Badge from '../components/ui/Badge';
 import PageHeader from '../components/ui/PageHeader';
-
-const GENDER_MAP = { 0: '未知', 1: '男', 2: '女' };
-const ADD_WAY_MAP = {
-  0: '未知', 1: '扫码', 2: '搜索手机号', 3: '名片分享',
-  4: '群聊', 5: '手机通讯录', 6: '微信联系人',
-  8: '安装第三方应用', 9: '搜索邮箱', 10: '视频号添加',
-  11: '日程参与人', 12: '会议参与人',
-  201: '内部成员共享', 202: '管理员分配',
-};
 
 function getCustomerTierInfo(totalOrders, totalSpent) {
   if (totalOrders >= 5) return { label: 'VIP', color: 'bg-amber-50 text-amber-600 border-amber-200' };
@@ -53,11 +43,6 @@ export default function CustomersPage() {
   const [editNickname, setEditNickname] = useState('');
   const [editRemark, setEditRemark] = useState('');
   const [saving, setSaving] = useState(false);
-
-  // Merge mode state
-  // Filter state
-  const [filterWelcome, setFilterWelcome] = useState('');
-  const [filterFollowUser, setFilterFollowUser] = useState('');
 
   // Merge mode state
   const [mergeMode, setMergeMode] = useState(false);
@@ -172,15 +157,6 @@ export default function CustomersPage() {
     });
   };
 
-  // Client-side filtering for welcome and follow_user
-  const filteredCustomers = useMemo(() => {
-    let list = customers;
-    if (filterWelcome === 'sent') list = list.filter((c) => c.welcome_sent);
-    if (filterWelcome === 'unsent') list = list.filter((c) => !c.welcome_sent);
-    if (filterFollowUser) list = list.filter((c) => c.follow_user_id === filterFollowUser);
-    return list;
-  }, [customers, filterWelcome, filterFollowUser]);
-
   const mergeSelectedCustomers = useMemo(() => {
     return mergeSelected.map((id) => customers.find((c) => c.id === id)).filter(Boolean);
   }, [mergeSelected, customers]);
@@ -269,37 +245,16 @@ export default function CustomersPage() {
             </div>
             <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">顾客列表</h2>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="relative w-56">
-              <input
-                value={searchKeyword}
-                onChange={(e) => setSearchKeyword(e.target.value)}
-                type="text"
-                placeholder="搜索微信号/手机号/昵称..."
-                aria-label="搜索顾客"
-                className="w-full px-4 py-1.5 pl-9 text-[13px] text-slate-800 bg-white border border-slate-200 rounded-lg outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
-              />
-              <svg className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-            </div>
-            <select
-              value={filterWelcome}
-              onChange={(e) => setFilterWelcome(e.target.value)}
-              className="px-3 py-1.5 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-lg outline-none transition-all duration-150 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 cursor-pointer"
-            >
-              <option value="">欢迎语: 全部</option>
-              <option value="sent">已发送</option>
-              <option value="unsent">未发送</option>
-            </select>
-            <select
-              value={filterFollowUser}
-              onChange={(e) => setFilterFollowUser(e.target.value)}
-              className="px-3 py-1.5 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-lg outline-none transition-all duration-150 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 cursor-pointer"
-            >
-              <option value="">跟单客服: 全部</option>
-              {[...new Set(customers.map((c) => c.follow_user_id).filter(Boolean))].map((uid) => (
-                <option key={uid} value={uid}>{uid}</option>
-              ))}
-            </select>
+          <div className="relative w-64">
+            <input
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              type="text"
+              placeholder="搜索微信号/手机号/昵称..."
+              aria-label="搜索顾客"
+              className="w-full px-4 py-1.5 pl-9 text-[13px] text-slate-800 bg-white border border-slate-200 rounded-lg outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+            />
+            <svg className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           </div>
         </div>
 
@@ -315,16 +270,13 @@ export default function CustomersPage() {
                 <th>手机号</th>
                 <th>历史订单</th>
                 <th>累计消费</th>
-                <th>跟单客服</th>
-                <th>欢迎语</th>
-                <th>群聊</th>
                 <th className="text-right pr-6">最近下单</th>
               </tr>
             </thead>
             <tbody>
               {customers.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={mergeMode ? 10 : 9} className="py-20 text-center">
+                  <td colSpan={mergeMode ? 7 : 6} className="py-20 text-center">
                     <div className="flex flex-col items-center justify-center text-slate-400">
                       <svg className="w-12 h-12 mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                       <p className="font-medium text-slate-600">暂无顾客</p>
@@ -333,7 +285,7 @@ export default function CustomersPage() {
                   </td>
                 </tr>
               )}
-              {filteredCustomers.map((c) => {
+              {customers.map((c) => {
                 const isSelected = mergeSelected.includes(c.id);
                 return (
                   <tr
@@ -366,13 +318,9 @@ export default function CustomersPage() {
                     )}
                     <td className={mergeMode ? '' : 'pl-6'}>
                       <div className="flex items-center gap-2.5">
-                        {c.avatar ? (
-                          <img src={c.avatar} alt="" className="w-9 h-9 rounded-full object-cover shrink-0 border border-slate-200" />
-                        ) : (
-                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0 bg-brand-500">
-                            {(c.nickname || c.customer_contact || '?').substring(0, 1).toUpperCase()}
-                          </div>
-                        )}
+                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0 bg-brand-500">
+                          {(c.nickname || c.customer_contact || '?').substring(0, 1).toUpperCase()}
+                        </div>
                         <div>
                           <div className="flex items-center gap-1.5">
                             <span className="font-semibold text-slate-800 text-[13px]">{c.nickname || c.customer_contact || '-'}</span>
@@ -395,17 +343,6 @@ export default function CustomersPage() {
                       <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-full text-[12px] font-bold bg-slate-100 text-slate-600 tabular-nums">{c.total_orders || 0}</span>
                     </td>
                     <td className="text-[14px] font-bold text-slate-800 tabular-nums">&yen;{c.total_spent ? (c.total_spent / 100).toFixed(2) : '0.00'}</td>
-                    <td className="text-[13px] text-slate-600 font-medium">{c.follow_user_id || '-'}</td>
-                    <td>
-                      <Badge variant={c.welcome_sent ? 'success' : 'secondary'} className="text-[10px] py-0.5 px-2">
-                        {c.welcome_sent ? '已发送' : '未发送'}
-                      </Badge>
-                    </td>
-                    <td>
-                      <Badge variant={c.group_chat_id ? 'success' : 'secondary'} className="text-[10px] py-0.5 px-2">
-                        {c.group_chat_id ? '已建群' : '未建群'}
-                      </Badge>
-                    </td>
                     <td className="text-right pr-6">
                       <span className="text-[12px] text-slate-500 font-medium tabular-nums">{formatTime(c.last_order_at)}</span>
                     </td>
@@ -526,13 +463,9 @@ export default function CustomersPage() {
             {/* Panel Header */}
             <div className="px-6 py-5 border-b border-slate-200 flex items-center justify-between bg-slate-50 shrink-0">
               <div className="flex items-center gap-3">
-                {customer?.avatar ? (
-                  <img src={customer.avatar} alt="" className="w-10 h-10 rounded-full object-cover shrink-0 border border-slate-200" />
-                ) : (
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold bg-brand-500 shrink-0">
-                    {(customer?.nickname || customer?.customer_contact || '?').substring(0, 1).toUpperCase()}
-                  </div>
-                )}
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold bg-brand-500 shrink-0">
+                  {(customer?.nickname || customer?.customer_contact || '?').substring(0, 1).toUpperCase()}
+                </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-800 font-[Outfit]">顾客详情</h3>
                   <p className="text-[13px] text-slate-500">{customer?.customer_contact || '-'}</p>
@@ -635,57 +568,6 @@ export default function CustomersPage() {
                       </div>
                     </div>
                   </div>
-
-                  {/* WeChat / Enterprise Info */}
-                  {(customer?.follow_user_id || customer?.add_way || customer?.added_at || customer?.corp_name || customer?.group_chat_id || customer?.welcome_sent !== undefined) && (
-                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-                      <div className="px-5 py-3.5 border-b border-slate-100 bg-slate-50">
-                        <h4 className="text-[13px] font-bold text-slate-600 uppercase tracking-wider">企微信息</h4>
-                      </div>
-                      <div className="p-5 space-y-3">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <span className="block text-[12px] font-semibold text-slate-400 mb-1">跟单客服</span>
-                            <p className="text-sm font-medium text-slate-800">{customer?.follow_user_id || '-'}</p>
-                          </div>
-                          <div>
-                            <span className="block text-[12px] font-semibold text-slate-400 mb-1">企业名称</span>
-                            <p className="text-sm font-medium text-slate-800">{customer?.corp_name || '-'}</p>
-                          </div>
-                          <div>
-                            <span className="block text-[12px] font-semibold text-slate-400 mb-1">添加渠道</span>
-                            <p className="text-sm font-medium text-slate-800">{ADD_WAY_MAP[customer?.add_way] || '-'}</p>
-                          </div>
-                          <div>
-                            <span className="block text-[12px] font-semibold text-slate-400 mb-1">添加时间</span>
-                            <p className="text-sm font-medium text-slate-800 tabular-nums">{formatTime(customer?.added_at)}</p>
-                          </div>
-                          <div>
-                            <span className="block text-[12px] font-semibold text-slate-400 mb-1">性别</span>
-                            <p className="text-sm font-medium text-slate-800">{GENDER_MAP[customer?.gender] || '未知'}</p>
-                          </div>
-                          <div>
-                            <span className="block text-[12px] font-semibold text-slate-400 mb-1">渠道标识</span>
-                            <p className="text-sm font-medium text-slate-800 font-mono truncate">{customer?.contact_way_state || '-'}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 pt-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[12px] font-semibold text-slate-400">欢迎语:</span>
-                            <Badge variant={customer?.welcome_sent ? 'success' : 'secondary'} className="text-[10px] py-0.5 px-2">
-                              {customer?.welcome_sent ? '已发送' : '未发送'}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[12px] font-semibold text-slate-400">群聊:</span>
-                            <Badge variant={customer?.group_chat_id ? 'success' : 'secondary'} className="text-[10px] py-0.5 px-2">
-                              {customer?.group_chat_id ? '已建群' : '未建群'}
-                            </Badge>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Consumption Stats */}
                   <div className="grid grid-cols-3 gap-3">

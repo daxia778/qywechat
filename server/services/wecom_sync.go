@@ -91,8 +91,8 @@ func SyncWecomMembers() {
 	}
 
 	// 获取根部门下所有成员详情 (department_id=1 为根部门)
-	url := fmt.Sprintf("%s/user/list?access_token=%s&department_id=1&fetch_child=1", Wecom.BaseURL(), token)
-	resp, err := Wecom.RawGet(url)
+	url := fmt.Sprintf("%s/user/list?access_token=%s&department_id=1&fetch_child=1", Wecom.baseURL, token)
+	resp, err := Wecom.client.Get(url)
 	if err != nil {
 		log.Printf("❌ 同步通讯录失败 (HTTP): %v", err)
 		return

@@ -6,7 +6,7 @@ import { useToast } from '../../hooks/useToast';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useOrderFilters } from '../../hooks/useOrderFilters';
 import { useOrderActions } from '../../hooks/useOrderActions';
-import { getOrderDetail, getOrderTimeline, adjustCommission, searchDesigners, assignDesigner } from '../../api/orders';
+import { getOrderDetail, getOrderTimeline, adjustCommission } from '../../api/orders';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ORDER_TABS } from '../../utils/constants';
 import { formatTime } from '../../utils/formatters';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -143,14 +143,6 @@ export default function MyOrdersPage() {
   const [commissionRate, setCommissionRate] = useState('');
   const [commissionSubmitting, setCommissionSubmitting] = useState(false);
 
-  // ── Designer assignment modal state ──
-  const [designerModal, setDesignerModal] = useState({ visible: false, order: null });
-  const [designerList, setDesignerList] = useState([]);
-  const [designerQuery, setDesignerQuery] = useState('');
-  const [designerLoading, setDesignerLoading] = useState(false);
-  const [assigningDesigner, setAssigningDesigner] = useState(false);
-  const designerSearchTimer = useRef(null);
-
   const doAdjustCommission = async () => {
     const val = parseFloat(commissionRate);
     if (isNaN(val) || val < 0) {
@@ -222,51 +214,6 @@ export default function MyOrdersPage() {
   const {
     doUpdateStatus, confirmComplete, handleRefund,
   } = useOrderActions({ toast, fetchOrders, showModal });
-
-  const openDesignerModal = useCallback(async (order) => {
-    setDesignerModal({ visible: true, order });
-    setDesignerQuery('');
-    setDesignerLoading(true);
-    try {
-      const res = await searchDesigners('');
-      setDesignerList(res.data?.data || []);
-    } catch {
-      setDesignerList([]);
-    } finally {
-      setDesignerLoading(false);
-    }
-  }, []);
-
-  const handleDesignerSearch = useCallback((q) => {
-    setDesignerQuery(q);
-    if (designerSearchTimer.current) clearTimeout(designerSearchTimer.current);
-    designerSearchTimer.current = setTimeout(async () => {
-      setDesignerLoading(true);
-      try {
-        const res = await searchDesigners(q);
-        setDesignerList(res.data?.data || []);
-      } catch {
-        setDesignerList([]);
-      } finally {
-        setDesignerLoading(false);
-      }
-    }, 300);
-  }, []);
-
-  const handleAssignDesigner = useCallback(async (designer) => {
-    if (!designerModal.order || assigningDesigner) return;
-    setAssigningDesigner(true);
-    try {
-      await assignDesigner(designerModal.order.id, { freelance_designer_id: designer.id });
-      toast(`已分配设计师: ${designer.name}`, 'success');
-      setDesignerModal({ visible: false, order: null });
-      fetchOrders();
-    } catch (err) {
-      toast('分配失败: ' + (err.displayMessage || err.message), 'error');
-    } finally {
-      setAssigningDesigner(false);
-    }
-  }, [designerModal.order, assigningDesigner, toast, fetchOrders]);
 
   return (
     <div className="flex flex-col gap-5 w-full max-w-[1200px] mx-auto">
@@ -469,7 +416,6 @@ export default function MyOrdersPage() {
                   onHandleRefund={handleRefund}
                   onPreviewImage={openPreview}
                   onOpenDrawer={openDrawer}
-                  onAssignDesigner={openDesignerModal}
                 />
               ))}
             </tbody>
@@ -593,13 +539,7 @@ export default function MyOrdersPage() {
                     <div className="flex items-center gap-3">
                       <div className="flex-1 bg-gradient-to-br from-brand-500 to-brand-600 rounded-xl p-4 text-white shadow-sm">
                         <span className="text-[11px] font-medium opacity-80">订单金额</span>
-                        <p className="text-2xl font-bold font-[Outfit] tabular-nums mt-0.5">&yen;{(((drawerData.order.price || 0) + (drawerData.order.extra_price || 0)) / 100).toFixed(2)}</p>
-                        {drawerData.order.extra_price > 0 && (
-                          <div className="flex items-center gap-2 mt-1.5 text-[11px] opacity-80">
-                            <span>首次: &yen;{((drawerData.order.price || 0) / 100).toFixed(2)}</span>
-                            <span className="text-amber-200 font-semibold">+补款: &yen;{(drawerData.order.extra_price / 100).toFixed(2)}</span>
-                          </div>
-                        )}
+                        <p className="text-2xl font-bold font-[Outfit] tabular-nums mt-0.5">&yen;{((drawerData.order.price || 0) / 100).toFixed(2)}</p>
                       </div>
                     </div>
 
@@ -693,98 +633,16 @@ export default function MyOrdersPage() {
         </div>,
         document.body
       )}
-
-      {/* ── Designer Assignment Modal (Portal to body) ── */}
-      {designerModal.visible && createPortal(
-        <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/40 backdrop-blur-[2px]" onClick={() => setDesignerModal({ visible: false, order: null })}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-scale-in" onClick={(e) => e.stopPropagation()}>
-            {/* Header */}
-            <div className="px-6 pt-6 pb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-indigo-50">
-                  <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-800 text-lg font-[Outfit]">分配设计师</h3>
-                  {designerModal.order && (
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      {designerModal.order.order_sn} · <span className="font-semibold text-slate-500">&yen;{((designerModal.order.price || 0) / 100).toFixed(2)}</span>
-                    </p>
-                  )}
-                </div>
-              </div>
-              <button onClick={() => setDesignerModal({ visible: false, order: null })} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer bg-transparent border-none">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-
-            {/* Search */}
-            <div className="px-6 pb-3">
-              <div className="relative">
-                <input
-                  type="text"
-                  value={designerQuery}
-                  onChange={(e) => handleDesignerSearch(e.target.value)}
-                  placeholder="搜索设计师姓名..."
-                  className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none transition-all placeholder:text-slate-400 focus:bg-white focus:border-indigo-300 focus:shadow-[0_0_0_3px_rgba(67,79,207,0.08)]"
-                  autoFocus
-                />
-                <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-              </div>
-            </div>
-
-            {/* Designer List */}
-            <div className="px-6 pb-6 max-h-[340px] overflow-y-auto">
-              {designerLoading ? (
-                <div className="flex items-center justify-center py-10">
-                  <div className="w-6 h-6 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin" />
-                </div>
-              ) : designerList.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 text-slate-400">
-                  <svg className="w-10 h-10 mb-2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                  <p className="text-sm font-medium">未找到设计师</p>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  {designerList.map((d) => (
-                    <button
-                      key={d.id}
-                      onClick={() => handleAssignDesigner(d)}
-                      disabled={assigningDesigner}
-                      className="w-full flex items-center gap-3 px-3.5 py-3 rounded-xl border border-transparent hover:border-indigo-200 hover:bg-indigo-50/50 transition-all cursor-pointer bg-transparent text-left group disabled:opacity-50"
-                    >
-                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
-                        {(d.name || '?')[0]}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-800 truncate group-hover:text-indigo-700 transition-colors">{d.name}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5 truncate">
-                          {d.specialty || '设计师'}
-                          {d.total_orders != null && <span className="ml-2 text-slate-300">·</span>}
-                          {d.total_orders != null && <span className="ml-1">{d.total_orders} 单</span>}
-                        </p>
-                      </div>
-                      <svg className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 }
 
 // ── Memoized Order Row ──
-const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirmComplete, onHandleRefund, onPreviewImage, onOpenDrawer, onAssignDesigner }) {
-  const isCommissionAdjusted = order.commission_adjusted;
+const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirmComplete, onHandleRefund, onPreviewImage, onOpenDrawer }) {
   const canRefund = ['DESIGNING', 'REVISION', 'AFTER_SALE', 'COMPLETED'].includes(order.status) && (role === 'admin' || role === 'follow');
 
   return (
-    <tr className={`group relative transition-colors cursor-pointer ${isCommissionAdjusted ? 'border-l-4 border-l-amber-400 bg-amber-100/70' : 'hover:bg-[#FAFBFC]'}`} onClick={() => onOpenDrawer(order)}>
+    <tr className="group relative transition-colors cursor-pointer hover:bg-[#FAFBFC]" onClick={() => onOpenDrawer(order)}>
       <td className="overflow-hidden">
         <div className="flex items-center gap-2.5">
           {order.screenshot_path ? (
@@ -812,10 +670,7 @@ const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirm
         ) : '-'}
       </td>
       <td className="text-center text-[14px] font-bold text-slate-800 tabular-nums whitespace-nowrap">
-        &yen;{((order.price + (order.extra_price || 0)) / 100).toFixed(2)}
-        {order.extra_price > 0 && (
-          <span className="ml-1 text-[10px] font-medium text-indigo-500 bg-indigo-50 px-1 py-0.5 rounded">+补</span>
-        )}
+        &yen;{order.price ? (order.price / 100).toFixed(2) : '0.00'}
         {order.commission_adjusted && (
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ml-1 -mt-1" title="佣金已调整" />
         )}
@@ -845,8 +700,8 @@ const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirm
             const canOperate = role === 'admin' || role === 'follow';
             const btnBase = "inline-flex items-center justify-center w-[72px] py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-150 cursor-pointer active:scale-[0.97]";
             if (!canOperate) return null;
-            // 待处理类（含旧状态 GROUP_CREATED / CONFIRMED）→ 分配设计师（打开侧抽屉）
-            if (['PENDING', 'GROUP_CREATED', 'CONFIRMED'].includes(order.status)) return <button onClick={() => onAssignDesigner(order)} className={`${btnBase} border border-purple-200 text-purple-600 hover:bg-purple-50 bg-white`}>分配设计师</button>;
+            // 待处理类（含旧状态 GROUP_CREATED / CONFIRMED）→ 接单
+            if (['PENDING', 'GROUP_CREATED', 'CONFIRMED'].includes(order.status)) return <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className={`${btnBase} border border-blue-200 text-blue-600 hover:bg-blue-50 bg-white`}>接单</button>;
             // 进行中类（含旧状态 DELIVERED）→ 完成
             if (['DESIGNING', 'REVISION', 'AFTER_SALE', 'DELIVERED'].includes(order.status)) return <button onClick={() => onConfirmComplete(order)} className={`${btnBase} border border-emerald-200 text-emerald-600 hover:bg-emerald-50 bg-white`}>完成</button>;
             // 已完成 → 退款（需确认+填写原因）

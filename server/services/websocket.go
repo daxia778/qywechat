@@ -3,8 +3,11 @@ package services
 import (
 	"encoding/json"
 	"log"
+	"net/http"
 	"sync"
 	"time"
+
+	"pdd-order-system/config"
 
 	"github.com/gorilla/websocket"
 )
@@ -67,23 +70,34 @@ var Hub = &WSHub{
 	clients: make(map[*safeConn]struct{}),
 }
 
+var upgrader = websocket.Upgrader{
+	CheckOrigin:     checkWSOrigin,
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
+
+// checkWSOrigin 校验 WebSocket 连接的 Origin 是否在允许列表中
+func checkWSOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // 非浏览器客户端（如桌面端 Wails）允许
+	}
+	for _, allowed := range config.C.CORSOrigins {
+		if origin == allowed {
+			return true
+		}
+	}
+	log.Printf("⚠️ WebSocket Origin 被拒绝: %q", origin) // #nosec G706 — 用 %q 防注入
+	return false
+}
+
 // pongPayload is the pre-serialized JSON response to application-level pings.
 var pongPayload = []byte(`{"type":"pong"}`)
 
 // Register 注册一个新的 WebSocket 连接
 func (h *WSHub) Register(conn *websocket.Conn, userID string) {
-	sc := &safeConn{conn: conn, userID: userID}
-
-	// 在写锁内完成连接数检查 + 注册，消除 TOCTOU 竞态
-	h.mu.Lock()
-	count := 0
-	for c := range h.clients {
-		if c.userID == userID {
-			count++
-		}
-	}
-	if count >= maxConnsPerUser {
-		h.mu.Unlock()
+	// 检查该用户当前连接数，超过上限则拒绝
+	if h.UserClientCount(userID) >= maxConnsPerUser {
 		log.Printf("⚠️ WebSocket 连接被拒绝 | user=%s | 已达上限 %d", userID, maxConnsPerUser)
 		conn.WriteControl(
 			websocket.CloseMessage,
@@ -93,10 +107,13 @@ func (h *WSHub) Register(conn *websocket.Conn, userID string) {
 		conn.Close()
 		return
 	}
+
+	sc := &safeConn{conn: conn, userID: userID}
+
+	h.mu.Lock()
 	h.clients[sc] = struct{}{}
-	total := len(h.clients)
 	h.mu.Unlock()
-	log.Printf("🔌 WebSocket 连接 | user=%s | total=%d", userID, total)
+	log.Printf("🔌 WebSocket 连接 | user=%s | total=%d", userID, len(h.clients))
 
 	// 启动读循环 — handles both disconnect detection and application-level
 	// ping messages from the browser client.
@@ -104,10 +121,9 @@ func (h *WSHub) Register(conn *websocket.Conn, userID string) {
 		defer func() {
 			h.mu.Lock()
 			delete(h.clients, sc)
-			remaining := len(h.clients)
 			h.mu.Unlock()
 			conn.Close()
-			log.Printf("🔌 WebSocket 断开 | user=%s | total=%d", userID, remaining)
+			log.Printf("🔌 WebSocket 断开 | user=%s | total=%d", userID, len(h.clients))
 		}()
 
 		conn.SetReadDeadline(time.Now().Add(pongWait))

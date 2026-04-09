@@ -13,7 +13,7 @@ type Employee struct {
 	WecomUserID      string         `gorm:"column:wecom_userid;uniqueIndex;size:64" json:"wecom_userid"`
 	Name             string         `gorm:"column:name;size:64;not null" json:"name"`
 	Role             string         `gorm:"column:role;size:16;not null" json:"role"` // sales / follow / admin
-	Username         string         `gorm:"column:username;size:64" json:"username,omitempty"`                   // 所有角色登录用户名（条件唯一索引在 ensureIndexes 中创建）
+	Username         string         `gorm:"column:username;uniqueIndex;size:64" json:"username,omitempty"`       // 所有角色登录用户名
 	PasswordHash     string         `gorm:"column:password_hash;size:128" json:"-"`                             // bcrypt 哈希密码
 	MachineID        string         `gorm:"column:machine_id;index;size:128" json:"machine_id,omitempty"`       // 复合设备指纹哈希 (桌面端设备绑定)
 	MacAddress       string         `gorm:"column:mac_address;size:64" json:"mac_address,omitempty"`            // 真实 MAC 地址（管理看板展示用）
@@ -89,7 +89,6 @@ type Order struct {
 	GrabAlertSent        bool      `gorm:"column:grab_alert_sent;default:false" json:"grab_alert_sent"`
 	DesigningAlertSent   bool      `gorm:"column:designing_alert_sent;default:false" json:"designing_alert_sent"`
 	AlertDismissed       bool      `gorm:"column:alert_dismissed;default:false" json:"alert_dismissed"`
-	CustomerWxAdded      bool      `gorm:"column:customer_wx_added;default:false" json:"customer_wx_added"`       // 客户是否已添加企微好友
 }
 
 // OrderStatus 状态机常量

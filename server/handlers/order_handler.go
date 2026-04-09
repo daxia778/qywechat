@@ -996,65 +996,6 @@ func MatchOrderContact(c *gin.Context) {
 	})
 }
 
-// ─── 删除订单 (仅管理员) ──────────────────────────────────
-
-// DeleteOrder 硬删除订单及其关联数据（仅 admin）
-func DeleteOrder(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 32)
-	if err != nil {
-		badRequest(c, "无效的订单ID")
-		return
-	}
-
-	role := c.GetString("role")
-	if role != "admin" {
-		forbidden(c, "仅管理员可删除订单")
-		return
-	}
-
-	var order models.Order
-	if err := models.DB.First(&order, uint(id)).Error; err != nil {
-		notFound(c, "订单不存在")
-		return
-	}
-
-	userID := c.GetString("wecom_userid")
-	operatorName := ""
-	if name, exists := c.Get("name"); exists {
-		operatorName, _ = name.(string)
-	}
-
-	// 在事务中删除订单及关联数据
-	err = models.WriteTx(func(tx *gorm.DB) error {
-		// 删除关联的时间线记录
-		if err := tx.Where("order_id = ?", order.ID).Delete(&models.OrderTimeline{}).Error; err != nil {
-			return err
-		}
-		// 删除关联的收款记录
-		if err := tx.Where("order_id = ?", order.ID).Delete(&models.PaymentRecord{}).Error; err != nil {
-			return err
-		}
-		// 硬删除订单
-		return tx.Unscoped().Delete(&order).Error
-	})
-
-	if err != nil {
-		log.Printf("DeleteOrder 失败: order_id=%d err=%v", id, err)
-		internalError(c, "删除订单失败，请稍后重试")
-		return
-	}
-
-	// 写入审计日志
-	models.WriteAuditLog(userID, operatorName, models.AuditOrderDelete,
-		fmt.Sprintf("%d", order.ID),
-		fmt.Sprintf("删除订单 %s (金额:%d分)", order.OrderSN, order.Price),
-		c.ClientIP(),
-	)
-
-	respondMessage(c, "订单已删除")
-}
-
 // ─── 跟单客服列表 (桌面端建群选择) ──────────────────────────────────
 
 // ListFollowStaff 返回角色为 follow 且在职的跟单客服列表（含在线状态）

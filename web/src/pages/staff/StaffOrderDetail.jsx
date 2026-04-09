@@ -382,25 +382,9 @@ export default function StaffOrderDetail() {
           <div style={{ position: 'absolute', right: 50, bottom: -20, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
           <div style={{ position: 'relative', zIndex: 1 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>订单金额</div>
-            {order.extra_price > 0 ? (
-              <div style={{ marginTop: 4 }}>
-                <div style={{ fontSize: 36, fontWeight: 800, color: '#fff', fontFamily: "'Outfit', sans-serif", letterSpacing: '-0.02em' }}>
-                  ¥{fmtYuan((order.price || 0) + order.extra_price)}
-                </div>
-                <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
-                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>
-                    首次: ¥{fmtYuan(order.price)}
-                  </span>
-                  <span style={{ fontSize: 12, color: '#FDE68A', fontWeight: 600 }}>
-                    +补款: ¥{fmtYuan(order.extra_price)}
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div style={{ fontSize: 36, fontWeight: 800, color: '#fff', fontFamily: "'Outfit', sans-serif", letterSpacing: '-0.02em', marginTop: 4 }}>
-                ¥{fmtYuan(order.price)}
-              </div>
-            )}
+            <div style={{ fontSize: 36, fontWeight: 800, color: '#fff', fontFamily: "'Outfit', sans-serif", letterSpacing: '-0.02em', marginTop: 4 }}>
+              ¥{fmtYuan(order.price)}
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 24, position: 'relative', zIndex: 1 }}>
             {order.pages > 0 && (

@@ -3,8 +3,7 @@ import { createPortal } from 'react-dom';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
-import { getOrderDetail, getOrderTimeline, updateOrderStatus, updateOrderAmount, searchDesigners, assignDesigner, adjustCommission, createOrderGroup, deleteOrder } from '../api/orders';
-import { Trash2 } from 'lucide-react';
+import { getOrderDetail, getOrderTimeline, updateOrderStatus, updateOrderAmount, searchDesigners, assignDesigner, adjustCommission, createOrderGroup } from '../api/orders';
 import { getCustomerDetail } from '../api/customers';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
@@ -258,16 +257,6 @@ export default function OrderDetailPage() {
     }
   };
 
-  const doDeleteOrder = async () => {
-    try {
-      await deleteOrder(order.id);
-      toast('订单已删除', 'success');
-      navigate('/orders');
-    } catch (err) {
-      toast('删除失败: ' + (err.displayMessage || err.message), 'error');
-    }
-  };
-
   const showModal = (opts, action) => {
     actionRef.current = action;
     setModal({ show: true, showInput: false, detail: null, confirmText: '确认', ...opts });
@@ -459,17 +448,6 @@ export default function OrderDetailPage() {
                 调整佣金
               </button>
             )}
-            {/* 删除订单 (仅 admin) */}
-            {role === 'admin' && (
-              <button onClick={() => showModal({
-                title: '删除订单', message: `确定要永久删除订单 ${order.order_sn} 吗？此操作不可撤销。`,
-                type: 'danger', confirmText: '确认删除',
-                detail: { '订单号': order.order_sn, '金额': `¥${((order.price ?? 0) / 100).toFixed(2)}`, '状态': STATUS_MAP[order.status] || order.status },
-              }, () => doDeleteOrder())} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-all duration-150 cursor-pointer border border-red-400 text-red-600 hover:bg-red-50 text-[12px] bg-white active:scale-[0.98]">
-                <Trash2 className="w-3.5 h-3.5" />
-                删除订单
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -536,24 +514,7 @@ export default function OrderDetailPage() {
               </div>
               <div>
                 <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">订单金额</span>
-                {order.extra_price > 0 ? (
-                  <div className="mt-1 space-y-1">
-                    <div className="flex items-center gap-2 text-sm tabular-nums">
-                      <span className="text-slate-500">首次收款:</span>
-                      <span className="font-semibold text-slate-700">&yen;{((order.price ?? 0) / 100).toFixed(2)}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm tabular-nums">
-                      <span className="text-slate-500">补款:</span>
-                      <span className="font-semibold text-amber-600">&yen;{(order.extra_price / 100).toFixed(2)}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm tabular-nums pt-1 border-t border-slate-100">
-                      <span className="text-slate-500">总计:</span>
-                      <span className="font-bold text-slate-800">&yen;{(((order.price ?? 0) + order.extra_price) / 100).toFixed(2)}</span>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">&yen;{((order.price ?? 0) / 100).toFixed(2)}</p>
-                )}
+                <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">&yen;{((order.price ?? 0) / 100).toFixed(2)}</p>
               </div>
               <div>
                 <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">创建时间</span>
@@ -811,42 +772,16 @@ export default function OrderDetailPage() {
             </div>
           )}
 
-          {/* 群聊状态 */}
-          <div className="bg-surface-container-lowest ghost-border rounded-xl">
-            <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-blue-50">
-                <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+          {/* Group Chat Indicator (when no customer but has chat) */}
+          {!customer && order.wecom_chat_id && (
+            <div className="bg-surface-container-lowest ghost-border rounded-xl px-6 py-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-success-bg">
+                <svg className="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
               </div>
-              <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">群聊状态</h2>
+              <span className="text-sm font-semibold text-slate-700">企微群聊已创建</span>
+              <span className="text-xs text-slate-400 font-mono">{order.wecom_chat_id}</span>
             </div>
-            <div className="px-6 py-5">
-              {order.wecom_chat_id ? (
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-700 border border-green-200">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                    已建群
-                  </span>
-                  <span className="text-sm text-slate-600 font-mono">{order.wecom_chat_id}</span>
-                </div>
-              ) : order.status === 'DESIGNING' ? (
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-yellow-50 text-yellow-700 border border-yellow-200">
-                    <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
-                    建群中
-                  </span>
-                  <span className="text-sm text-slate-500">系统正在自动创建群聊...</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-500 border border-slate-200">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                    未建群
-                  </span>
-                  <span className="text-sm text-slate-500">分配设计师后将自动建群</span>
-                </div>
-              )}
-            </div>
-          </div>
+          )}
 
           {/* Profit (admin only) */}
           {role === 'admin' && <div className="bg-surface-container-lowest ghost-border rounded-xl">

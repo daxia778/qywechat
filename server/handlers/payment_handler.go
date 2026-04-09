@@ -140,14 +140,6 @@ func CreatePayment(c *gin.Context) {
 		return
 	}
 
-	// 校验该订单的收款记录数量（最多2条）
-	var existingPaymentCount int64
-	models.DB.Model(&models.PaymentRecord{}).Where("order_id = ?", req.OrderID).Count(&existingPaymentCount)
-	if existingPaymentCount >= 2 {
-		badRequest(c, "每个订单最多关联两条收款记录")
-		return
-	}
-
 	// 角色权限校验: admin 和 follow 可以录入
 	role, _ := c.Get("role")
 	roleStr, _ := role.(string)
@@ -185,7 +177,7 @@ func CreatePayment(c *gin.Context) {
 		PayeeUserID:   uidStr,
 		Remark:        req.Remark,
 		TradeState:    "SUCCESS",
-		PaidAt:        &paidAt,
+		PaidAt:        paidAt,
 		MatchedAt:     &now,
 		MatchMethod:   "manual",
 	}
@@ -200,38 +192,6 @@ func CreatePayment(c *gin.Context) {
 	}
 
 	log.Printf("手动录入收款 | txn=%s | order=%d | amount=%d | source=%s", transactionID, req.OrderID, req.Amount, req.Source)
-
-	// 如果这是第2笔收款，更新订单 ExtraPrice 并触发分润重算 + 写时间线
-	if existingPaymentCount == 1 {
-		if err := models.WriteTx(func(tx *gorm.DB) error {
-			if err := tx.Model(&models.Order{}).Where("id = ?", req.OrderID).Update("extra_price", req.Amount).Error; err != nil {
-				return err
-			}
-			// 获取操作人姓名
-			operatorName := uidStr
-			var emp models.Employee
-			if tx.Where("wecom_userid = ?", uidStr).First(&emp).Error == nil {
-				operatorName = emp.Name
-			}
-			// 写入时间线
-			return tx.Create(&models.OrderTimeline{
-				OrderID:      req.OrderID,
-				EventType:    "amount_changed",
-				ToStatus:     order.Status,
-				OldValue:     fmt.Sprintf("%d", order.Price),
-				NewValue:     fmt.Sprintf("%d", order.Price+req.Amount),
-				OperatorID:   uidStr,
-				OperatorName: operatorName,
-				Remark:       fmt.Sprintf("补款 ¥%.2f，总金额 ¥%.2f → ¥%.2f", float64(req.Amount)/100, float64(order.Price)/100, float64(order.Price+req.Amount)/100),
-			}).Error
-		}); err != nil {
-			log.Printf("更新订单 ExtraPrice 失败: orderID=%d err=%v", req.OrderID, err)
-		} else {
-			log.Printf("第2笔收款，已更新订单 ExtraPrice | orderID=%d | extra_price=%d", req.OrderID, req.Amount)
-			services.TriggerProfitRecalculation(req.OrderID)
-		}
-	}
-
 	respondOK(c, gin.H{"message": "收款记录创建成功", "payment": payment})
 }
 
@@ -271,14 +231,6 @@ func MatchPayment(c *gin.Context) {
 		return
 	}
 
-	// 校验该订单的收款记录数量（最多2条）
-	var existingPaymentCount int64
-	models.DB.Model(&models.PaymentRecord{}).Where("order_id = ?", req.OrderID).Count(&existingPaymentCount)
-	if existingPaymentCount >= 2 {
-		badRequest(c, "每个订单最多关联两条收款记录")
-		return
-	}
-
 	var payment models.PaymentRecord
 	err = models.WriteTx(func(tx *gorm.DB) error {
 		if err := tx.First(&payment, uint(id)).Error; err != nil {
@@ -302,37 +254,6 @@ func MatchPayment(c *gin.Context) {
 	if err != nil {
 		badRequest(c, err.Error())
 		return
-	}
-
-	// 如果这是第2笔收款，更新订单 ExtraPrice 并触发分润重算 + 写时间线
-	if existingPaymentCount == 1 {
-		userID, _ := c.Get("wecom_userid")
-		matchUID, _ := userID.(string)
-		if err := models.WriteTx(func(tx *gorm.DB) error {
-			if err := tx.Model(&models.Order{}).Where("id = ?", req.OrderID).Update("extra_price", payment.Amount).Error; err != nil {
-				return err
-			}
-			operatorName := matchUID
-			var emp models.Employee
-			if tx.Where("wecom_userid = ?", matchUID).First(&emp).Error == nil {
-				operatorName = emp.Name
-			}
-			return tx.Create(&models.OrderTimeline{
-				OrderID:      req.OrderID,
-				EventType:    "amount_changed",
-				ToStatus:     order.Status,
-				OldValue:     fmt.Sprintf("%d", order.Price),
-				NewValue:     fmt.Sprintf("%d", order.Price+payment.Amount),
-				OperatorID:   matchUID,
-				OperatorName: operatorName,
-				Remark:       fmt.Sprintf("补款 ¥%.2f，总金额 ¥%.2f → ¥%.2f", float64(payment.Amount)/100, float64(order.Price)/100, float64(order.Price+payment.Amount)/100),
-			}).Error
-		}); err != nil {
-			log.Printf("MatchPayment 更新订单 ExtraPrice 失败: orderID=%d err=%v", req.OrderID, err)
-		} else {
-			log.Printf("MatchPayment 第2笔收款，已更新订单 ExtraPrice | orderID=%d | extra_price=%d", req.OrderID, payment.Amount)
-			services.TriggerProfitRecalculation(req.OrderID)
-		}
 	}
 
 	log.Printf("手动关联流水 | txn=%s -> order=%d", payment.TransactionID, req.OrderID)

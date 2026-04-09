@@ -13,7 +13,6 @@ export const batchUpdateOrderStatus = (data) => client.put('/orders/batch-status
 export const listPendingMatchOrders = (params) => client.get('/orders/pending-match', { params });
 export const matchOrderContact = (id, data) => client.post(`/orders/${id}/match`, data);
 export const reassignOrder = (id, designerUserid) => client.put(`/orders/${id}/reassign`, { designer_userid: designerUserid });
-export const deleteOrder = (id) => client.delete(`/orders/${id}`);
 export const getMyStats = (config) => client.get('/orders/my-stats', config);
 
 // 花名册

@@ -1,12 +1,8 @@
-import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { Outlet, useLocation, useNavigate, NavLink } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
 import { useWebSocket, WS_STATE } from '../../hooks/useWebSocket'
-import useAudioAlert from '../../hooks/useAudioAlert'
-import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../../api/notifications'
-import { usePolling } from '../../hooks/usePolling'
-import NotificationPanel from '../NotificationPanel'
 import { ROLE_LABELS } from '../../utils/constants'
 
 const BASE_NAV_ITEMS = [
@@ -59,15 +55,10 @@ export default function StaffLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [currentTime, setCurrentTime] = useState('')
-  const [showNotifPanel, setShowNotifPanel] = useState(false)
-  const [notifications, setNotifications] = useState([])
-  const [unreadCount, setUnreadCount] = useState(0)
-  const lastFetchRef = useRef(0)
 
   const roleLabel = ROLE_LABELS[user?.role] || user?.role || '员工'
   const userInitials = (user?.name || '员工').substring(0, 2)
-  const { connectionState, retry, connect, on, off } = useWebSocket()
-  const { play: playAlert, isMuted, toggleMute } = useAudioAlert()
+  const { connectionState, retry, connect } = useWebSocket()
 
   const NAV_ITEMS = useMemo(() =>
     BASE_NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(user?.role)),
@@ -78,65 +69,6 @@ export default function StaffLayout() {
   useEffect(() => {
     connect()
   }, [connect])
-
-  // Fetch notifications
-  const fetchNotifications = useCallback(async () => {
-    try {
-      const res = await getNotifications({ limit: 20 })
-      setNotifications(res.data.data || [])
-      setUnreadCount(res.data.unread_count || 0)
-    } catch (err) {
-      console.error('Failed to fetch notifications:', err)
-    }
-  }, [])
-
-  useEffect(() => {
-    fetchNotifications()
-  }, [fetchNotifications])
-
-  usePolling(fetchNotifications, 30000)
-
-  // 节流版 fetchNotifications，防止多个 WS 事件同时触发 API 调用风暴
-  const fetchNotificationsThrottled = useCallback(() => {
-    const now = Date.now()
-    if (now - lastFetchRef.current < 1000) return
-    lastFetchRef.current = now
-    fetchNotifications()
-  }, [fetchNotifications])
-
-  // WS events: refresh notifications + sound alert
-  useEffect(() => {
-    const handler = () => {
-      fetchNotificationsThrottled()
-      playAlert('normal')
-    }
-    const urgentHandler = () => {
-      fetchNotificationsThrottled()
-      playAlert('urgent')
-    }
-    on('order_updated', handler)
-    on('notification', handler)
-    on('designing_timeout_alert', urgentHandler)
-    on('order_customer_matched', urgentHandler)
-    on('order_group_created', handler)
-    on('new_external_contact', urgentHandler)
-    return () => {
-      off('order_updated', handler)
-      off('notification', handler)
-      off('designing_timeout_alert', urgentHandler)
-      off('order_customer_matched', urgentHandler)
-      off('order_group_created', handler)
-      off('new_external_contact', urgentHandler)
-    }
-  }, [on, off, fetchNotificationsThrottled, playAlert])
-
-  // Close notif panel on outside click (仅在面板打开时注册监听器)
-  useEffect(() => {
-    if (!showNotifPanel) return
-    const close = () => setShowNotifPanel(false)
-    document.addEventListener('click', close)
-    return () => document.removeEventListener('click', close)
-  }, [showNotifPanel])
 
   const currentRouteName = NAV_ITEMS.find(
     (r) => r.path === location.pathname || location.pathname.startsWith(r.path)
@@ -176,20 +108,6 @@ export default function StaffLayout() {
     await logout()
     toast('已退出登录', 'success')
     navigate('/login')
-  }
-
-  const handleMarkRead = async (n) => {
-    if (!n.is_read) {
-      await markNotificationRead(n.id)
-      setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)))
-      setUnreadCount((c) => Math.max(0, c - 1))
-    }
-  }
-
-  const handleMarkAllRead = async () => {
-    await markAllNotificationsRead()
-    setNotifications((prev) => prev.map((x) => ({ ...x, is_read: true })))
-    setUnreadCount(0)
   }
 
   return (
@@ -349,44 +267,6 @@ export default function StaffLayout() {
                 {connectionState === WS_STATE.CONNECTED ? '已连接' : connectionState === WS_STATE.RECONNECTING ? '重连中' : connectionState === WS_STATE.OFFLINE ? '离线' : '已断开'}
               </span>
             </div>
-
-            {/* Sound Toggle */}
-            <button
-              onClick={toggleMute}
-              className="w-[36px] h-[36px] flex items-center justify-center rounded-lg bg-[#f3f4f5] hover:bg-[#e7e8e9] text-[#454654] transition-colors shrink-0"
-              title={isMuted() ? '声音已关闭，点击开启' : '声音已开启，点击静音'}
-            >
-              {isMuted() ? (
-                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" /></svg>
-              ) : (
-                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
-              )}
-            </button>
-
-            {/* Notification Bell */}
-            <div className="relative shrink-0">
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowNotifPanel(!showNotifPanel) }}
-                className="w-[36px] h-[36px] flex items-center justify-center rounded-lg bg-[#f3f4f5] hover:bg-[#e7e8e9] text-[#454654] transition-colors relative"
-                aria-label={`通知${unreadCount > 0 ? `，${unreadCount}条未读` : ''}`}
-              >
-                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-                {unreadCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1 animate-pulse">
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </span>
-                )}
-              </button>
-              {showNotifPanel && (
-                <NotificationPanel
-                  notifications={notifications}
-                  unreadCount={unreadCount}
-                  onMarkRead={handleMarkRead}
-                  onMarkAllRead={handleMarkAllRead}
-                />
-              )}
-            </div>
-
             {/* User Avatar + Name + Logout */}
             <div className="flex items-center gap-1.5 hover:bg-[#f3f4f5] p-1 pr-1.5 rounded-xl cursor-pointer transition-colors shrink-0">
               <div

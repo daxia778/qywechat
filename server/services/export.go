@@ -755,9 +755,7 @@ func writeSheetPayments(f *excelize.File, startTime, endTime time.Time, headerSt
 		f.SetCellValue(sheet, fmt.Sprintf("D%d", row), orderSN)
 		f.SetCellValue(sheet, fmt.Sprintf("E%d", row), custName)
 		f.SetCellValue(sheet, fmt.Sprintf("F%d", row), resolveName(nameMap, p.PayeeUserID))
-		if p.PaidAt != nil {
-			f.SetCellValue(sheet, fmt.Sprintf("G%d", row), p.PaidAt.Format("2006-01-02 15:04:05"))
-		}
+		f.SetCellValue(sheet, fmt.Sprintf("G%d", row), p.PaidAt.Format("2006-01-02 15:04:05"))
 		f.SetCellValue(sheet, fmt.Sprintf("H%d", row), matchMethod)
 
 		// 金额列样式
