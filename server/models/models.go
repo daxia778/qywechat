@@ -21,6 +21,7 @@ type Employee struct {
 	ActivationCodePrefix string     `gorm:"column:activation_code_prefix;index;size:8" json:"-"`                // [废弃] 保留字段兼容旧数据
 	Status           string         `gorm:"column:status;size:16;default:idle" json:"status"`                   // idle / busy
 	ActiveOrderCount int            `gorm:"column:active_order_count;default:0" json:"active_order_count"`
+	BaseSalary       int            `gorm:"column:base_salary;default:0" json:"base_salary"`                   // 底薪（分）
 	IsActive         bool           `gorm:"column:is_active;default:true" json:"is_active"`
 	LastLoginAt      *time.Time     `gorm:"column:last_login_at" json:"last_login_at,omitempty"`                // 最后登录时间
 	LastLoginIP      string         `gorm:"column:last_login_ip;size:45" json:"last_login_ip,omitempty"`        // 最后登录 IP

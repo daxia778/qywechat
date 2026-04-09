@@ -24,13 +24,17 @@ type ExportFilter struct {
 
 // perfData 员工绩效聚合数据（用于绩效报表导出）
 type perfData struct {
-	Name         string
-	Role         string
-	OrderCount   int
-	TotalAmount  int
-	Commission   int
-	CompletedCnt int
-	RefundedCnt  int
+	Name             string
+	Role             string
+	OrderCount       int
+	TotalAmount      int
+	Commission       int
+	CompletedCnt     int
+	RefundedCnt      int
+	SalesCommission  int // 谈单佣金合计
+	FollowCommission int // 跟单佣金合计
+	DesignCommission int // 设计佣金合计
+	BaseSalary       int // 底薪（分）
 }
 
 // ── 样式常量 ──────────────────────────────────────────
@@ -120,6 +124,9 @@ func ExportOrderReport(filter ExportFilter) (*excelize.File, error) {
 
 	// Sheet 4: 收款流水
 	writeSheetPayments(f, startTime, endTime, headerStyle, moneyStyle)
+
+	// Sheet 5: 薪资明细
+	writeSheetSalary(f, startTime, endTime, filter, headerStyle, moneyStyle)
 
 	// 删除默认的 Sheet1（excelize 默认创建）
 	f.DeleteSheet("Sheet1")
@@ -517,8 +524,9 @@ func writeSheetEmployeePerformance(f *excelize.File, startTime, endTime time.Tim
 	// 初始化所有活跃员工
 	for _, emp := range employees {
 		perfMap[emp.WecomUserID] = &perfData{
-			Name: emp.Name,
-			Role: emp.Role,
+			Name:       emp.Name,
+			Role:       emp.Role,
+			BaseSalary: emp.BaseSalary,
 		}
 	}
 
@@ -531,6 +539,7 @@ func writeSheetEmployeePerformance(f *excelize.File, startTime, endTime time.Tim
 			pd.OrderCount++
 			pd.TotalAmount += totalAmount
 			pd.Commission += o.SalesCommission
+			pd.SalesCommission += o.SalesCommission
 			if o.Status == models.StatusCompleted {
 				pd.CompletedCnt++
 			}
@@ -545,6 +554,7 @@ func writeSheetEmployeePerformance(f *excelize.File, startTime, endTime time.Tim
 			pd.OrderCount++
 			pd.TotalAmount += totalAmount
 			pd.Commission += o.DesignerCommission
+			pd.DesignCommission += o.DesignerCommission
 			if o.Status == models.StatusCompleted {
 				pd.CompletedCnt++
 			}
@@ -559,6 +569,7 @@ func writeSheetEmployeePerformance(f *excelize.File, startTime, endTime time.Tim
 			pd.OrderCount++
 			pd.TotalAmount += totalAmount
 			pd.Commission += o.FollowCommission
+			pd.FollowCommission += o.FollowCommission
 			if o.Status == models.StatusCompleted {
 				pd.CompletedCnt++
 			}
@@ -877,4 +888,159 @@ func getOrCreatePerf(m map[string]*perfData, id, role string) *perfData {
 		m[id] = pd
 	}
 	return pd
+}
+
+// ── Sheet 5: 薪资明细 ──────────────────────────────
+
+func writeSheetSalary(f *excelize.File, startTime, endTime time.Time, filter ExportFilter, headerStyle, moneyStyle int) {
+	sheet := "薪资明细"
+	f.NewSheet(sheet)
+
+	// 查询所有活跃员工
+	var employees []models.Employee
+	models.DB.Where("is_active = ?", true).Find(&employees)
+
+	// 查询区间内订单
+	var orders []models.Order
+	buildOrderQuery(startTime, endTime, filter).Find(&orders)
+
+	// 按员工聚合（复用 perfData，含分角色佣金）
+	perfMap := make(map[string]*perfData)
+	for _, emp := range employees {
+		perfMap[emp.WecomUserID] = &perfData{
+			Name:       emp.Name,
+			Role:       emp.Role,
+			BaseSalary: emp.BaseSalary,
+		}
+	}
+
+	for _, o := range orders {
+		if o.OperatorID != "" {
+			pd := getOrCreatePerf(perfMap, o.OperatorID, "sales")
+			pd.OrderCount++
+			pd.Commission += o.SalesCommission
+			pd.SalesCommission += o.SalesCommission
+			if o.Status == models.StatusCompleted {
+				pd.CompletedCnt++
+			}
+		}
+		if o.DesignerID != "" {
+			pd := getOrCreatePerf(perfMap, o.DesignerID, "designer")
+			pd.OrderCount++
+			pd.Commission += o.DesignerCommission
+			pd.DesignCommission += o.DesignerCommission
+			if o.Status == models.StatusCompleted {
+				pd.CompletedCnt++
+			}
+		}
+		if o.FollowOperatorID != "" {
+			pd := getOrCreatePerf(perfMap, o.FollowOperatorID, "follow")
+			pd.OrderCount++
+			pd.Commission += o.FollowCommission
+			pd.FollowCommission += o.FollowCommission
+			if o.Status == models.StatusCompleted {
+				pd.CompletedCnt++
+			}
+		}
+	}
+
+	// 转为 slice，包含所有有底薪或有佣金的员工
+	var salaryList []*perfData
+	for _, pd := range perfMap {
+		if pd.OrderCount == 0 && pd.BaseSalary == 0 {
+			continue
+		}
+		salaryList = append(salaryList, pd)
+	}
+	sort.Slice(salaryList, func(i, j int) bool {
+		totalI := salaryList[i].BaseSalary + salaryList[i].Commission
+		totalJ := salaryList[j].BaseSalary + salaryList[j].Commission
+		return totalI > totalJ
+	})
+
+	// 表头
+	headers := []string{"员工姓名", "角色", "底薪(元)", "谈单佣金(元)", "跟单佣金(元)", "设计佣金(元)", "佣金合计(元)", "应发合计(元)", "经手订单数", "已完成数"}
+	for col, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(col+1, 1)
+		f.SetCellValue(sheet, cell, h)
+	}
+	headerEnd, _ := excelize.CoordinatesToCellName(len(headers), 1)
+	f.SetCellStyle(sheet, "A1", headerEnd, headerStyle)
+
+	// 列宽
+	colWidths := []float64{14, 10, 12, 14, 14, 14, 14, 14, 12, 10}
+	for i, w := range colWidths {
+		colName, _ := excelize.ColumnNumberToName(i + 1)
+		f.SetColWidth(sheet, colName, colName, w)
+	}
+
+	// 汇总行数据
+	var sumBase, sumSales, sumFollow, sumDesign, sumTotal int
+
+	// 写入数据
+	row := 2
+	for _, pd := range salaryList {
+		roleText := roleCN[pd.Role]
+		if roleText == "" {
+			roleText = pd.Role
+		}
+
+		totalPay := pd.BaseSalary + pd.Commission
+		sumBase += pd.BaseSalary
+		sumSales += pd.SalesCommission
+		sumFollow += pd.FollowCommission
+		sumDesign += pd.DesignCommission
+		sumTotal += totalPay
+
+		f.SetCellValue(sheet, fmt.Sprintf("A%d", row), pd.Name)
+		f.SetCellValue(sheet, fmt.Sprintf("B%d", row), roleText)
+		f.SetCellValue(sheet, fmt.Sprintf("C%d", row), centsToYuan(pd.BaseSalary))
+		f.SetCellValue(sheet, fmt.Sprintf("D%d", row), centsToYuan(pd.SalesCommission))
+		f.SetCellValue(sheet, fmt.Sprintf("E%d", row), centsToYuan(pd.FollowCommission))
+		f.SetCellValue(sheet, fmt.Sprintf("F%d", row), centsToYuan(pd.DesignCommission))
+		f.SetCellValue(sheet, fmt.Sprintf("G%d", row), centsToYuan(pd.Commission))
+		f.SetCellValue(sheet, fmt.Sprintf("H%d", row), centsToYuan(totalPay))
+		f.SetCellValue(sheet, fmt.Sprintf("I%d", row), pd.OrderCount)
+		f.SetCellValue(sheet, fmt.Sprintf("J%d", row), pd.CompletedCnt)
+
+		// 金额列样式
+		for _, col := range []string{"C", "D", "E", "F", "G", "H"} {
+			f.SetCellStyle(sheet, fmt.Sprintf("%s%d", col, row), fmt.Sprintf("%s%d", col, row), moneyStyle)
+		}
+		row++
+	}
+
+	// 汇总行
+	if len(salaryList) > 0 {
+		boldStyle, _ := f.NewStyle(&excelize.Style{
+			Font: &excelize.Font{Bold: true, Size: 11},
+		})
+		boldMoneyStyle, _ := f.NewStyle(&excelize.Style{
+			Font:      &excelize.Font{Bold: true, Size: 11},
+			NumFmt:    4,
+			Alignment: &excelize.Alignment{Horizontal: "right"},
+		})
+
+		f.SetCellValue(sheet, fmt.Sprintf("A%d", row), "合计")
+		f.SetCellStyle(sheet, fmt.Sprintf("A%d", row), fmt.Sprintf("A%d", row), boldStyle)
+		f.SetCellValue(sheet, fmt.Sprintf("C%d", row), centsToYuan(sumBase))
+		f.SetCellValue(sheet, fmt.Sprintf("D%d", row), centsToYuan(sumSales))
+		f.SetCellValue(sheet, fmt.Sprintf("E%d", row), centsToYuan(sumFollow))
+		f.SetCellValue(sheet, fmt.Sprintf("F%d", row), centsToYuan(sumDesign))
+		f.SetCellValue(sheet, fmt.Sprintf("G%d", row), centsToYuan(sumBase+sumSales+sumFollow+sumDesign))
+		f.SetCellValue(sheet, fmt.Sprintf("H%d", row), centsToYuan(sumTotal))
+		for _, col := range []string{"C", "D", "E", "F", "G", "H"} {
+			f.SetCellStyle(sheet, fmt.Sprintf("%s%d", col, row), fmt.Sprintf("%s%d", col, row), boldMoneyStyle)
+		}
+	}
+
+	// 冻结首行
+	f.SetPanes(sheet, &excelize.Panes{
+		Freeze:      true,
+		Split:       false,
+		XSplit:      0,
+		YSplit:      1,
+		TopLeftCell: "A2",
+		ActivePane:  "bottomLeft",
+	})
 }

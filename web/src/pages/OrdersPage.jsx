@@ -13,6 +13,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/ui/PageHeader';
 import ExportDialog from '../components/ExportDialog';
+import DesignerSelectModal from '../components/DesignerSelectModal';
 
 const EVENT_TYPE_MAP = {
   status_changed: (e) => STATUS_MAP[e.to_status] || e.to_status,
@@ -209,6 +210,7 @@ export default function OrdersPage() {
     selectedDesigner, setSelectedDesigner, reassignLoading,
     doUpdateStatus, confirmComplete, confirmClose, handleRefund,
     openReassignModal, doReassign,
+    acceptModal, acceptLoading, openAcceptModal, closeAcceptModal, doAcceptOrder,
   } = useOrderActions({ toast, fetchOrders, showModal });
 
   const handleExportExcel = () => setExportDialogVisible(true);
@@ -233,6 +235,15 @@ export default function OrdersPage() {
       <ExportDialog
         visible={exportDialogVisible}
         onClose={() => setExportDialogVisible(false)}
+      />
+
+      {/* 接单设计师选择弹窗 */}
+      <DesignerSelectModal
+        visible={acceptModal.show}
+        order={acceptModal.order}
+        onConfirm={doAcceptOrder}
+        onClose={closeAcceptModal}
+        loading={acceptLoading}
       />
 
       {/* Commission Adjustment Modal */}
@@ -495,6 +506,7 @@ export default function OrdersPage() {
                   onUpdateStatus={doUpdateStatus}
                   onConfirmComplete={confirmComplete}
                   onHandleRefund={handleRefund}
+                  onAcceptOrder={openAcceptModal}
                   onPreviewImage={openPreview}
                   onOpenDrawer={openDrawer}
                 />
@@ -769,7 +781,7 @@ export default function OrdersPage() {
 }
 
 // ── Memoized Order Row ──
-const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirmComplete, onHandleRefund, onPreviewImage, onOpenDrawer }) {
+const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirmComplete, onHandleRefund, onAcceptOrder, onPreviewImage, onOpenDrawer }) {
   const isCommissionAdjusted = order.commission_adjusted;
   const canRefund = ['DESIGNING', 'REVISION', 'AFTER_SALE', 'COMPLETED'].includes(order.status) && (role === 'admin' || role === 'sales');
 
@@ -833,7 +845,7 @@ const OrderRow = memo(function OrderRow({ order, role, onUpdateStatus, onConfirm
             const btnBase = "inline-flex items-center justify-center w-[72px] py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-150 cursor-pointer active:scale-[0.97]";
             if (!canOperate) return null;
             // 待处理类（含旧状态 GROUP_CREATED / CONFIRMED）→ 接单
-            if (['PENDING', 'GROUP_CREATED', 'CONFIRMED'].includes(order.status)) return <button onClick={() => onUpdateStatus(order, 'DESIGNING')} className={`${btnBase} border border-blue-200 text-blue-600 hover:bg-blue-50 bg-white`}>接单</button>;
+            if (['PENDING', 'GROUP_CREATED', 'CONFIRMED'].includes(order.status)) return <button onClick={() => onAcceptOrder(order)} className={`${btnBase} border border-blue-200 text-blue-600 hover:bg-blue-50 bg-white`}>接单</button>;
             // 进行中类（含旧状态 DELIVERED）→ 完成
             if (['DESIGNING', 'REVISION', 'AFTER_SALE', 'DELIVERED'].includes(order.status)) return <button onClick={() => onConfirmComplete(order)} className={`${btnBase} border border-emerald-200 text-emerald-600 hover:bg-emerald-50 bg-white`}>完成</button>;
             // 已完成 → 退款（需确认+填写原因）

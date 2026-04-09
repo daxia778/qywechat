@@ -1159,6 +1159,7 @@ func CreateOrderGroup(c *gin.Context) {
 		order.Price,
 		deadlineStr,
 		order.Remark,
+		order.CustomerContact,
 	)
 	if err != nil {
 		log.Printf("CreateOrderGroup 建群失败: order_id=%d err=%v", id, err)

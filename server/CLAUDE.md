@@ -19,6 +19,8 @@ server/
 │   ├── version.go       # AppVersion 客户端版本
 │   ├── token_blacklist.go # TokenBlacklist JWT 黑名单（持久化到 DB，重启不丢）
 │   ├── freelance_designer.go # FreelanceDesigner 自由设计师花名册
+│   ├── customer_transfer.go # CustomerTransfer 客户转接记录
+│   ├── transfer_rule.go     # TransferRule 自动转接规则
 │   └── wecom_data.go    # WecomMember/GroupChat/WecomMessageLog 企微数据
 ├── handlers/            # HTTP 处理器
 │   ├── response.go      # 统一响应: respondOK/respondList/respondError/badRequest/notFound/forbidden/internalError
@@ -36,7 +38,8 @@ server/
 │   ├── version_handler.go   # 客户端 OTA 版本检查/发布
 │   ├── wecom_handler.go     # 企微回调解析/通讯录/群聊消息/诊断
 │   ├── ws.go                # WebSocket 连接处理
-│   └── designer_handler.go  # 自由设计师花名册 CRUD + 统计
+│   ├── designer_handler.go  # 自由设计师花名册 CRUD + 统计
+│   └── transfer_handler.go  # 客户转接：外部联系人查询/执行转移/记录/状态检查
 ├── middleware/          # 中间件
 │   ├── auth.go          # JWTAuth(): JWT 鉴权 + 黑名单校验
 │   ├── admin.go         # AdminOnly(): 角色校验
@@ -47,7 +50,7 @@ server/
 │   ├── password.go      # 密码强度校验
 │   └── wxbizmsgcrypt.go # 企微消息加解密（移植自官方 SDK）
 ├── services/            # 业务服务
-│   ├── wecom.go         # 企微 API 客户端（access_token 内存缓存自动续期、消息推送、建群）
+│   ├── wecom.go         # 企微 API 客户端（access_token 内存缓存自动续期、消息推送、建群、客户转接）
 │   ├── wecom_sync.go    # 企微通讯录定时同步（每小时）+ 90天过期清理
 │   ├── wecom_payment.go # 企微对外收款定时同步（每2小时）
 │   ├── ocr.go           # OCR：智谱 GLM-4V（默认）/ 通义千问 VL
@@ -61,7 +64,8 @@ server/
 │   ├── websocket.go     # WebSocket Hub（广播/房间管理）
 │   ├── backup.go        # SQLite 每日定时备份
 │   ├── cleanup.go       # 上传文件 7 天过期清理
-│   └── dbcompat.go      # 数据库兼容层（SQLite/PostgreSQL 差异抹平）
+│   ├── dbcompat.go      # 数据库兼容层（SQLite/PostgreSQL 差异抹平）
+│   └── transfer_scheduler.go # 自动转接调度器（6小时周期检查转接规则）
 └── testutil/setup.go    # 测试辅助
 ```
 
@@ -192,6 +196,14 @@ PENDING → DESIGNING → COMPLETED → REFUNDED
 | GET | `/admin/profit/export` | 导出分润CSV |
 | GET | `/admin/export/excel` | 导出Excel |
 | GET | `/admin/metrics` | 运行指标 |
+| GET | `/admin/transfer/external-contacts` | 查询员工外部联系人 |
+| POST | `/admin/transfer/execute` | 执行客户转移 |
+| GET | `/admin/transfer/records` | 转移记录列表 |
+| POST | `/admin/transfer/check-status` | 批量查询转移状态 |
+| GET | `/admin/transfer/rules` | 自动转接规则列表 |
+| POST | `/admin/transfer/rules` | 创建自动转接规则 |
+| PUT | `/admin/transfer/rules/:id` | 更新自动转接规则 |
+| DELETE | `/admin/transfer/rules/:id` | 删除自动转接规则 |
 
 ## 后台调度器
 | 调度器 | 周期 | 功能 |
@@ -205,6 +217,7 @@ PENDING → DESIGNING → COMPLETED → REFUNDED
 | StartFailMapCleaner | 后台 | 暴力破解记录清理 |
 | StartCSRFCleanup | 后台 | CSRF token 清理 |
 | StartTokenCleanup | 后台 | JWT 黑名单清理 |
+| TransferScheduler | 每6小时 | 自动转接规则检查+执行 |
 
 所有调度器通过 `context.WithCancel` 统一管理，优雅关闭时一并取消。
 

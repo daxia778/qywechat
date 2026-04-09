@@ -71,6 +71,8 @@ const RevenuePage = lazyWithRetry(() => import('../pages/RevenuePage'));
 const CustomersPage = lazyWithRetry(() => import('../pages/CustomersPage'));
 const PaymentsPage = lazyWithRetry(() => import('../pages/PaymentsPage'));
 const DesignersRosterPage = lazyWithRetry(() => import('../pages/DesignersRosterPage'));
+const CustomerTransferPage = lazyWithRetry(() => import('../pages/CustomerTransferPage'));
+const ActivationCodesPage = lazyWithRetry(() => import('../pages/ActivationCodesPage'));
 // const ContactWaysPage = lazyWithRetry(() => import('../pages/ContactWaysPage'));
 
 // ── Staff Pages ──
@@ -144,6 +146,8 @@ export default function AppRouter() {
                 <Route path="/revenue" element={<RevenuePage />} />
                 <Route path="/payments" element={<PaymentsPage />} />
                 <Route path="/designers" element={<DesignersRosterPage />} />
+                <Route path="/customer-transfer" element={<CustomerTransferPage />} />
+                <Route path="/activation-codes" element={<ActivationCodesPage />} />
                 {/* <Route path="/contact-ways" element={<ContactWaysPage />} /> */}
               </Route>
             </Route>

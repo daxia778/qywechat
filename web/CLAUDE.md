@@ -31,6 +31,7 @@ web/src/
 │   ├── DesignersRosterPage.jsx # 设计师花名册
 │   ├── ActivationCodesPage.jsx # 激活码管理
 │   ├── GrabAlertsPage.jsx  # 抢单超时告警
+│   ├── CustomerTransferPage.jsx # 客户转接（在职继承）管理
 │   └── staff/              # 员工端页面
 │       ├── StaffDashboard.jsx   # 员工个人工作台
 │       ├── MyOrdersPage.jsx     # 我的订单
@@ -46,7 +47,8 @@ web/src/
 │   ├── ui/StatCard.jsx     # 统计卡片（简洁版）
 │   ├── ConfirmModal.jsx    # 确认弹窗 (info/danger/warning, 可选输入框+KV明细)
 │   ├── EmptyState.jsx      # 空状态占位
-│   ├── ExportDialog.jsx    # 导出对话框（日期范围选择）
+│   ├── ExportDialog.jsx    # 导出对话框（日期范围选择+薪资明细Sheet）
+│   ├── DesignerSelectModal.jsx # 设计师选择弹窗（搜索/选择/新建一体化）
 │   ├── LoadingSpinner.jsx  # 加载动画
 │   ├── MetricCard.jsx      # 指标卡片（含趋势）
 │   ├── NotificationPanel.jsx # 右侧抽屉通知面板
@@ -87,6 +89,7 @@ web/src/
 | `/revenue` | RevenuePage | admin |
 | `/payments` | PaymentsPage | admin |
 | `/designers` | DesignersRosterPage | admin |
+| `/customer-transfer` | CustomerTransferPage | admin |
 
 ### 员工路由（StaffGuard → StaffLayout 布局）
 | 路径 | 页面 | 权限 |

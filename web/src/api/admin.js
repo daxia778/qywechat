@@ -11,6 +11,7 @@ export const getProfitSummary = (month, config) => client.get('/admin/profit_bre
 export const pauseActivationCode = (id) => client.put(`/admin/activation_codes/${id}/pause`);
 export const listActivationCodes = (params = {}) => client.get('/admin/activation_codes', { params });
 export const createActivationCode = (employeeId) => client.post('/admin/activation_codes', { employee_id: employeeId });
+export const updateEmployee = (id, data) => client.put(`/admin/employees/${id}`, data);
 export const deleteEmployee = (id) => client.delete(`/admin/employees/${id}`);
 export const batchToggleEmployees = (ids, active) => client.put('/admin/employees/batch_toggle', { ids, active });
 export const batchDeleteEmployees = (ids) => client.post('/admin/employees/batch_delete', { ids });
@@ -61,3 +62,15 @@ export const getTeamRoster = () => client.get('/admin/team_roster');
 // 联系我管理
 export const createContactWay = (data) => client.post('/admin/contact_way', data);
 export const listContactWays = () => client.get('/admin/contact_ways');
+
+// 客户转接
+export const getExternalContacts = (userid) => client.get('/admin/transfer/external-contacts', { params: { userid } });
+export const executeTransfer = (data) => client.post('/admin/transfer/execute', data);
+export const getTransferRecords = (params) => client.get('/admin/transfer/records', { params });
+export const checkTransferStatus = (data) => client.post('/admin/transfer/check-status', data);
+
+// 自动转接规则
+export const createTransferRule = (data) => client.post('/admin/transfer/rules', data);
+export const listTransferRules = () => client.get('/admin/transfer/rules');
+export const updateTransferRule = (id, data) => client.put(`/admin/transfer/rules/${id}`, data);
+export const deleteTransferRule = (id) => client.delete(`/admin/transfer/rules/${id}`);

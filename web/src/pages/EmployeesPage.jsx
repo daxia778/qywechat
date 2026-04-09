@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
-import { listEmployees, createEmployee, toggleEmployee, unbindDevice as apiUnbind, pauseActivationCode as apiPause, batchToggleEmployees, batchDeleteEmployees, resetPassword as apiResetPassword } from '../api/admin';
+import { listEmployees, createEmployee, updateEmployee, toggleEmployee, unbindDevice as apiUnbind, pauseActivationCode as apiPause, batchToggleEmployees, batchDeleteEmployees, resetPassword as apiResetPassword } from '../api/admin';
 import { ROLE_MAP, ROLE_CLASS_MAP, ROLE_AVATAR_CLASS_MAP, BADGE_VARIANT_CLASSES } from '../utils/constants';
 import { formatDate } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
@@ -269,6 +269,18 @@ export default function EmployeesPage() {
     });
   };
 
+  // Base salary update
+  const handleUpdateBaseSalary = async (empId, salaryYuan) => {
+    const salaryFen = Math.round(salaryYuan * 100);
+    try {
+      await updateEmployee(empId, { base_salary: salaryFen });
+      toast('底薪已更新', 'success');
+      fetchEmployees();
+    } catch (err) {
+      toast('更新底薪失败: ' + (err.displayMessage || err.message), 'error');
+    }
+  };
+
   // Feature B: Toggle row expansion
   const toggleExpand = (id) => {
     setExpandedRowId((prev) => (prev === id ? null : id));
@@ -459,6 +471,7 @@ export default function EmployeesPage() {
                   onToggleStatus={() => handleToggle(emp)}
                   onUnbind={() => handleUnbind(emp)}
                   onResetPassword={() => handleResetPassword(emp)}
+                  onUpdateBaseSalary={handleUpdateBaseSalary}
                 />
               ))}
             </tbody>
@@ -532,8 +545,11 @@ const ROW_BADGE_CLASSES = {
   secondary: 'bg-slate-100 text-slate-500',
 };
 
-const EmployeeRow = memo(function EmployeeRow({ emp, isAdmin, isExpanded, isSelected, onToggleExpand, onToggleSelect, onToggleStatus, onUnbind, onResetPassword }) {
+const EmployeeRow = memo(function EmployeeRow({ emp, isAdmin, isExpanded, isSelected, onToggleExpand, onToggleSelect, onToggleStatus, onUnbind, onResetPassword, onUpdateBaseSalary }) {
   const totalCols = isAdmin ? 9 : 8;
+  const [editingSalary, setEditingSalary] = useState(false);
+  const [salaryInput, setSalaryInput] = useState('');
+  const salaryInputRef = useRef(null);
 
   return (
     <>
@@ -649,6 +665,77 @@ const EmployeeRow = memo(function EmployeeRow({ emp, isAdmin, isExpanded, isSele
                   mono
                   icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>}
                 />
+                {/* 底薪 (inline edit) */}
+                <div className="flex items-start gap-2.5">
+                  <div className="mt-0.5 text-slate-400 shrink-0">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[12px] text-slate-400 font-medium mb-0.5">底薪</div>
+                    {editingSalary ? (
+                      <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          ref={salaryInputRef}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={salaryInput}
+                          onChange={(e) => setSalaryInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const val = parseFloat(salaryInput);
+                              if (!isNaN(val) && val >= 0) {
+                                onUpdateBaseSalary(emp.id, val);
+                                setEditingSalary(false);
+                              }
+                            } else if (e.key === 'Escape') {
+                              setEditingSalary(false);
+                            }
+                          }}
+                          className="w-24 px-2 py-1 text-[13px] border border-brand-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-500/20"
+                          autoFocus
+                        />
+                        <span className="text-[12px] text-slate-400">元</span>
+                        <button
+                          onClick={() => {
+                            const val = parseFloat(salaryInput);
+                            if (!isNaN(val) && val >= 0) {
+                              onUpdateBaseSalary(emp.id, val);
+                              setEditingSalary(false);
+                            }
+                          }}
+                          className="text-[11px] text-brand-500 hover:text-brand-600 font-semibold"
+                        >
+                          保存
+                        </button>
+                        <button
+                          onClick={() => setEditingSalary(false)}
+                          className="text-[11px] text-slate-400 hover:text-slate-600 font-semibold"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] text-slate-700 font-medium">
+                          {emp.base_salary ? (emp.base_salary / 100).toFixed(2) + ' 元' : '未设置'}
+                        </span>
+                        {isAdmin && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSalaryInput(emp.base_salary ? (emp.base_salary / 100).toFixed(2) : '');
+                              setEditingSalary(true);
+                            }}
+                            className="text-[11px] text-brand-500 hover:text-brand-600 font-semibold"
+                          >
+                            编辑
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
                 {emp.user_agent && (
                   <div className="col-span-2 md:col-span-4">
                     <DetailItem

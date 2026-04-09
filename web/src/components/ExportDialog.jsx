@@ -14,21 +14,17 @@ const ROLE_OPTIONS = [
   { value: '', label: '全部' },
   { value: 'sales', label: '谈单客服' },
   { value: 'designer', label: '设计师' },
-  { value: 'follow_up', label: '跟单客服' },
+  { value: 'follow', label: '跟单客服' },
 ];
 
 const STATUS_OPTIONS = [
   { value: '', label: '全部状态' },
   { value: 'PENDING', label: '待处理' },
-  { value: 'GROUP_CREATED', label: '已建群' },
-  { value: 'CONFIRMED', label: '已确认' },
   { value: 'DESIGNING', label: '设计中' },
-  { value: 'DELIVERED', label: '已交付' },
   { value: 'REVISION', label: '修改中' },
   { value: 'AFTER_SALE', label: '售后中' },
   { value: 'COMPLETED', label: '已完成' },
   { value: 'REFUNDED', label: '已退款' },
-  { value: 'CLOSED', label: '已关闭' },
 ];
 
 const getQuickRange = (key) => {
@@ -428,7 +424,7 @@ export default function ExportDialog({ visible, onClose }) {
                               </span>
                               {emp.role && (
                                 <span className="text-[10px] text-slate-400 shrink-0">
-                                  {emp.role === 'sales' ? '谈单' : emp.role === 'designer' ? '设计' : emp.role === 'follow_up' ? '跟单' : emp.role}
+                                  {emp.role === 'sales' ? '谈单' : emp.role === 'designer' ? '设计' : emp.role === 'follow' ? '跟单' : emp.role}
                                 </span>
                               )}
                             </div>

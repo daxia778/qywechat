@@ -207,7 +207,7 @@ func (w *WeComClient) SendGroupMessage(chatID, content string) error {
 
 // SetupOrderGroup 建群 + 播报需求
 // v2.0: 群成员 = 跟单客服 + 谈单客服 + 主管/管理员（设计师后续手动拉入）
-func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID, topic string, pages int, priceFen int, deadlineStr, remark string) (string, error) {
+func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID, topic string, pages int, priceFen int, deadlineStr, remark, customerContact string) (string, error) {
 	// fallback: 如果没有跟单客服，使用谈单客服作为群主
 	if followOperatorID == "" {
 		followOperatorID = salesOperatorID
@@ -266,8 +266,12 @@ func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID
 	if remark == "" {
 		remark = "无"
 	}
-	brief := fmt.Sprintf("📋 PPT 设计需求清单\n━━━━━━━━━━━━━━━━━\n📦 订单号: %s\n🎯 主题: %s\n📄 页数: %d页\n💰 金额: ¥%.2f\n⏰ 交付: %s\n📝 备注: %s\n━━━━━━━━━━━━━━━━━\n请跟进设计进度，确保按时交付！",
-		orderSN, topic, pages, priceYuan, deadlineStr, remark)
+	contactLine := ""
+	if customerContact != "" {
+		contactLine = fmt.Sprintf("\n👤 客户联系方式: %s", customerContact)
+	}
+	brief := fmt.Sprintf("📋 PPT 设计需求清单\n━━━━━━━━━━━━━━━━━\n📦 订单号: %s\n🎯 主题: %s\n📄 页数: %d页\n💰 金额: ¥%.2f%s\n⏰ 交付: %s\n📝 备注: %s\n━━━━━━━━━━━━━━━━━\n请跟进设计进度，确保按时交付！",
+		orderSN, topic, pages, priceYuan, contactLine, deadlineStr, remark)
 	_ = w.SendGroupMessage(chatID, brief)
 
 	// 记录消息日志
@@ -523,5 +527,82 @@ func (w *WeComClient) TestSendMessage(token string) (*DiagResult, error) {
 		}, nil
 	}
 	return &DiagResult{Status: "ok"}, nil
+}
+
+// TransferCustomer 在职继承-转移客户
+// 文档: https://developer.work.weixin.qq.com/document/path/92125
+func (w *WeComClient) TransferCustomer(handoverUserID, takeoverUserID string, externalUserIDs []string, transferMsg string) ([]map[string]any, error) {
+	if !w.IsContactConfigured() {
+		return nil, fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
+	}
+
+	token, err := w.GetContactAccessToken()
+	if err != nil {
+		return nil, err
+	}
+
+	payload := map[string]any{
+		"handover_userid":      handoverUserID,
+		"takeover_userid":      takeoverUserID,
+		"external_userid":      externalUserIDs,
+		"transfer_success_msg": transferMsg,
+	}
+
+	body, err := w.postJSONRaw(fmt.Sprintf("%s/externalcontact/transfer_customer?access_token=%s", w.baseURL, token), payload)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		ErrCode  int              `json:"errcode"`
+		ErrMsg   string           `json:"errmsg"`
+		Customer []map[string]any `json:"customer"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("解析转移客户响应失败: %w", err)
+	}
+	if resp.ErrCode != 0 {
+		return nil, fmt.Errorf("转移客户失败: %d %s", resp.ErrCode, resp.ErrMsg)
+	}
+
+	log.Printf("✅ 在职继承转移客户 | handover=%s takeover=%s count=%d", handoverUserID, takeoverUserID, len(externalUserIDs))
+	return resp.Customer, nil
+}
+
+// GetTransferResult 查询客户转移结果
+// 文档: https://developer.work.weixin.qq.com/document/path/94088
+func (w *WeComClient) GetTransferResult(handoverUserID, takeoverUserID string) ([]map[string]any, error) {
+	if !w.IsContactConfigured() {
+		return nil, fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
+	}
+
+	token, err := w.GetContactAccessToken()
+	if err != nil {
+		return nil, err
+	}
+
+	payload := map[string]any{
+		"handover_userid": handoverUserID,
+		"takeover_userid": takeoverUserID,
+	}
+
+	body, err := w.postJSONRaw(fmt.Sprintf("%s/externalcontact/transfer_result?access_token=%s", w.baseURL, token), payload)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		ErrCode  int              `json:"errcode"`
+		ErrMsg   string           `json:"errmsg"`
+		Customer []map[string]any `json:"customer"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("解析转移结果响应失败: %w", err)
+	}
+	if resp.ErrCode != 0 {
+		return nil, fmt.Errorf("查询转移结果失败: %d %s", resp.ErrCode, resp.ErrMsg)
+	}
+
+	return resp.Customer, nil
 }
 

@@ -346,6 +346,7 @@ func AssignDesigner(c *gin.Context) {
 				order.Price,
 				deadlineStr,
 				order.Remark,
+				order.CustomerContact,
 			)
 			if err != nil {
 				log.Printf("⚠️ 自动建群失败: sn=%s err=%v", order.OrderSN, err)

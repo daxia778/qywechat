@@ -44,6 +44,71 @@ type CreateEmployeeReq struct {
 	Role string `json:"role" binding:"required"`
 }
 
+type UpdateEmployeeReq struct {
+	Name       *string `json:"name"`
+	BaseSalary *int    `json:"base_salary"` // 分
+}
+
+// UpdateEmployee 更新员工信息（含底薪设置）
+// PUT /api/v1/admin/employees/:id
+func UpdateEmployee(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		badRequest(c, "无效的员工ID")
+		return
+	}
+
+	var req UpdateEmployeeReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "请求参数格式错误")
+		return
+	}
+
+	if req.Name == nil && req.BaseSalary == nil {
+		badRequest(c, "至少提供一个要更新的字段")
+		return
+	}
+
+	var emp models.Employee
+	if err := models.DB.First(&emp, uint(id)).Error; err != nil {
+		notFound(c, "员工不存在")
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		if *req.Name == "" {
+			badRequest(c, "姓名不能为空")
+			return
+		}
+		updates["name"] = *req.Name
+	}
+	if req.BaseSalary != nil {
+		if *req.BaseSalary < 0 {
+			badRequest(c, "底薪不能为负数")
+			return
+		}
+		updates["base_salary"] = *req.BaseSalary
+	}
+
+	if err := models.WriteTx(func(tx *gorm.DB) error {
+		return tx.Model(&emp).Updates(updates).Error
+	}); err != nil {
+		log.Printf("更新员工失败: %v", err)
+		internalError(c, "更新失败，请稍后重试")
+		return
+	}
+
+	userID, _ := c.Get("wecom_userid")
+	userName, _ := c.Get("name")
+	models.WriteAuditLog(fmt.Sprintf("%v", userID), fmt.Sprintf("%v", userName), models.AuditEmployeeAdd, emp.WecomUserID, "更新员工信息: "+emp.Name, c.ClientIP())
+
+	// 重新加载返回最新数据
+	models.DB.First(&emp, uint(id))
+	respondOK(c, gin.H{"employee": emp})
+}
+
 // generateUsernameTx 在事务内根据角色生成唯一用户名，防止并发竞态。
 // 通过 SELECT ... FOR UPDATE (PostgreSQL) 或 WriteTx 互斥锁 (SQLite) 保证序列号唯一。
 func generateUsernameTx(tx *gorm.DB, role string) string {

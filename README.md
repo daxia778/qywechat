@@ -156,9 +156,9 @@ qywechat/
 │   ├── .golangci.yml        #   Lint 配置 (11 linters + gosec)
 │   └── main.go              #   入口 & 路由注册
 │
-├── admin-web/               # React 管理看板
-│   ├── src/pages/           #   页面 (Dashboard, Orders, Revenue, Team, Employees)
-│   ├── src/components/      #   UI 组件库 (AppShell, ConfirmModal, Toast, ...)
+├── web/                     # React 管理看板 + 员工工作台
+│   ├── src/pages/           #   页面 (Dashboard, Orders, Revenue, Team, Employees, Staff)
+│   ├── src/components/      #   UI 组件库 (AppShell, ConfirmModal, Toast, DesignerSelectModal, ...)
 │   ├── src/api/             #   API 客户端
 │   ├── src/contexts/        #   全局状态 (Auth, Toast, WebSocket)
 │   ├── src/utils/           #   常量 + 格式化工具 + cn() (tailwind-merge)
@@ -269,7 +269,7 @@ go run .                # 启动在 :8201
 ### 2. Admin Web
 
 ```bash
-cd admin-web
+cd web
 npm install
 npm run dev             # 启动在 :8200 (自动代理 API → :8201)
 ```
@@ -471,14 +471,14 @@ GitHub Actions 自动化流水线 (`.github/workflows/ci.yml`)：
 cd server && air
 
 # 前端开发
-cd admin-web && npm run dev
+cd web && npm run dev
 
 # 运行后端测试
 cd server && go test ./... -v -count=1
 
 # 运行 lint
 cd server && golangci-lint run
-cd admin-web && npm run lint
+cd web && npm run lint
 
 # 构建 Docker 镜像
 docker compose build
@@ -488,7 +488,34 @@ docker compose build
 
 ## Changelog
 
-### v1.3.0 (Latest)
+### v1.6.0 (Latest)
+
+**客户转接（在职继承）**
+- 新增客户转接管理页面，支持企微外部联系人在职转移
+- 自动转接规则引擎：按添加天数自动触发转接（6小时检查周期）
+- 转接记录管理：状态追踪（pending/waiting/success/failed）
+- 企微 API 集成：`transfer_customer` + `transfer_result` 双接口
+
+**接单流程优化**
+- 接单时必须选择设计师，与花名册联动
+- 新增 DesignerSelectModal 组件：搜索/选择/新建设计师一体化
+- 支持从花名册选择已有设计师或即时创建新设计师
+
+**建群推送客户联系方式**
+- 企微建群消息中自动包含客户联系方式，方便跟单直接加好友
+
+**佣金薪资导出增强**
+- Excel 导出新增"薪资明细" Sheet，按员工汇总佣金
+- 支持设置员工底薪，应发合计 = 底薪 + 佣金合计
+- 佣金分列显示：谈单/跟单/设计三类佣金独立统计
+
+**代码质量**
+- 10 组深度代码审查 agent 覆盖前后端全部改动
+- 修复 `go vet` 测试文件参数不匹配问题
+- 修复 ExportDialog 角色值不一致 bug
+- CI 流水线路径修正（`admin-web` → `web`）
+
+### v1.3.0
 
 **跟单客服模块增强**
 - 跟单客服新增「收款流水」模块（StaffPaymentsPage），支持查看/筛选/手动录入/关联订单

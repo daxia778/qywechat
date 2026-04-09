@@ -95,6 +95,9 @@ func main() {
 	// 启动企微对外收款定时同步 (每2小时)
 	services.StartWecomPaymentSyncScheduler(ctx)
 
+	// 启动自动转接调度器 (每6小时)
+	services.StartTransferScheduler(ctx)
+
 	// 确保目录存在
 	os.MkdirAll("uploads", 0o750) // #nosec G301 — 服务进程专用目录
 	os.MkdirAll("data", 0o750)    // #nosec G301 — 服务进程专用目录
@@ -262,6 +265,7 @@ func main() {
 			admin.PUT("/employees/:id/toggle", handlers.ToggleEmployee)
 			admin.PUT("/employees/:id/reset_password", handlers.ResetPassword)
 			admin.PUT("/employees/:id/unbind", handlers.UnbindDevice)
+			admin.PUT("/employees/:id", handlers.UpdateEmployee)
 			admin.DELETE("/employees/:id", handlers.DeleteEmployee)
 			admin.PUT("/employees/batch_toggle", handlers.BatchToggleEmployees)
 			admin.POST("/employees/batch_delete", handlers.BatchDeleteEmployees)
@@ -290,6 +294,16 @@ func main() {
 			// 客户联系（联系我）
 			admin.POST("/contact_way", handlers.CreateContactWay)
 			admin.GET("/contact_ways", handlers.ListContactWays)
+
+			// 客户转接（在职继承）
+			admin.GET("/transfer/external-contacts", handlers.GetExternalContacts)
+			admin.POST("/transfer/execute", handlers.ExecuteTransfer)
+			admin.GET("/transfer/records", handlers.GetTransferRecords)
+			admin.POST("/transfer/check-status", handlers.CheckTransferStatus)
+			admin.POST("/transfer/rules", handlers.CreateTransferRule)
+			admin.GET("/transfer/rules", handlers.ListTransferRules)
+			admin.PUT("/transfer/rules/:id", handlers.UpdateTransferRule)
+			admin.DELETE("/transfer/rules/:id", handlers.DeleteTransferRule)
 
 			// 企微数据查看
 			admin.GET("/wecom/members", handlers.ListWecomMembers)

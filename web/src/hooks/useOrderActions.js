@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { updateOrderStatus, batchUpdateOrderStatus, reassignOrder } from '../api/orders';
+import { updateOrderStatus, batchUpdateOrderStatus, reassignOrder, assignDesigner } from '../api/orders';
 import { listEmployees } from '../api/admin';
 import { STATUS_MAP } from '../utils/constants';
 
@@ -11,6 +11,10 @@ export function useOrderActions({ toast, fetchOrders, showModal }) {
   const [selectedDesigner, setSelectedDesigner] = useState('');
   const [reassignLoading, setReassignLoading] = useState(false);
 
+  // 接单设计师选择弹窗
+  const [acceptModal, setAcceptModal] = useState({ show: false, order: null });
+  const [acceptLoading, setAcceptLoading] = useState(false);
+
   const doUpdateStatus = useCallback(async (order, newStatus, refundReason = '') => {
     try {
       await updateOrderStatus(order.id, { status: newStatus, refund_reason: refundReason });
@@ -20,6 +24,30 @@ export function useOrderActions({ toast, fetchOrders, showModal }) {
       toast('更新失败: ' + (err.displayMessage || err.message), 'error');
     }
   }, [toast, fetchOrders]);
+
+  // 接单：打开设计师选择弹窗
+  const openAcceptModal = useCallback((order) => {
+    setAcceptModal({ show: true, order });
+  }, []);
+
+  const closeAcceptModal = useCallback(() => {
+    setAcceptModal({ show: false, order: null });
+  }, []);
+
+  const doAcceptOrder = useCallback(async (designerData) => {
+    if (!acceptModal.order) return;
+    setAcceptLoading(true);
+    try {
+      await assignDesigner(acceptModal.order.id, designerData);
+      toast(`订单 ${acceptModal.order.order_sn} 已接单`, 'success');
+      setAcceptModal({ show: false, order: null });
+      fetchOrders();
+    } catch (err) {
+      toast('接单失败: ' + (err.displayMessage || err.message), 'error');
+    } finally {
+      setAcceptLoading(false);
+    }
+  }, [acceptModal.order, toast, fetchOrders]);
 
   const confirmComplete = useCallback((order) => {
     showModal({
@@ -152,5 +180,11 @@ export function useOrderActions({ toast, fetchOrders, showModal }) {
     toggleSelect,
     toggleSelectAll,
     doBatchUpdate,
+    // 接单设计师选择
+    acceptModal,
+    acceptLoading,
+    openAcceptModal,
+    closeAcceptModal,
+    doAcceptOrder,
   };
 }
