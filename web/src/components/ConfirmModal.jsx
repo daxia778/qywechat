@@ -7,12 +7,8 @@ export default function ConfirmModal({
   const [inputValue, setInputValue] = useState('');
   const modalRef = useRef(null);
   const previousActiveElement = useRef(null);
-  const onCancelRef = useRef(onCancel);
   const generatedId = useId();
   const titleId = `confirm-modal-title-${generatedId}`;
-
-  // 保持 onCancel ref 最新，避免 useEffect 依赖变化导致 focus 丢失
-  useEffect(() => { onCancelRef.current = onCancel; }, [onCancel]);
 
   const handleConfirm = () => {
     onConfirm?.(inputValue);
@@ -20,12 +16,11 @@ export default function ConfirmModal({
   };
 
   const handleCancel = useCallback(() => {
-    onCancelRef.current?.();
+    onCancel?.();
     setInputValue('');
-  }, []);
+  }, [onCancel]);
 
   // Focus trap and Escape key handler + body scroll lock
-  // 仅在 visible 变化时执行，避免父组件重渲染时抢夺 textarea 焦点
   useEffect(() => {
     if (!visible) return;
 
@@ -92,7 +87,7 @@ export default function ConfirmModal({
         previousActiveElement.current.focus();
       }
     };
-  }, [visible]);
+  }, [visible, handleCancel]);
 
   if (!visible) return null;
 

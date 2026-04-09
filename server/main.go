@@ -169,15 +169,6 @@ func main() {
 		// 企微回调 (公开, 企微服务器验证必须公开)
 		v1.Any("/wecom/callback", handlers.WecomCallback)
 
-		// Agent 自动化 API (Agent Token 认证)
-		agent := v1.Group("/agent/automation")
-		agent.Use(middleware.AgentAuth())
-		{
-			agent.GET("/pending", handlers.AgentFetchPending)
-			agent.PUT("/:id/status", handlers.AgentUpdateStatus)
-			agent.POST("/heartbeat", handlers.AgentHeartbeat)
-		}
-
 		// WebSocket (公开, token 通过 query param 传递)
 		v1.GET("/ws", handlers.WebSocketHandler)
 
@@ -304,17 +295,6 @@ func main() {
 			admin.POST("/welcome_templates", handlers.CreateWelcomeTemplate)
 			admin.PUT("/welcome_templates/:id", handlers.UpdateWelcomeTemplate)
 			admin.DELETE("/welcome_templates/:id", handlers.DeleteWelcomeTemplate)
-
-			// 自动化任务管理
-			admin.GET("/automation/tasks", handlers.AdminListAutomationTasks)
-			admin.PUT("/automation/tasks/:id/retry", handlers.AdminRetryAutomationTask)
-			admin.PUT("/automation/tasks/:id/cancel", handlers.AdminCancelAutomationTask)
-			admin.GET("/automation/stats", handlers.AdminGetAutomationStats)
-			admin.GET("/automation/agent-status", handlers.AdminGetAgentStatus)
-
-			// 群管理 API
-			admin.PUT("/wecom/groups/:chat_id/settings", handlers.AdminUpdateGroupSettings)
-			admin.POST("/wecom/groups/:chat_id/transfer", handlers.AdminTransferGroupOwner)
 
 			// 企微数据查看
 			admin.GET("/wecom/members", handlers.ListWecomMembers)

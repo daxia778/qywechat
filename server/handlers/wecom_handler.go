@@ -416,9 +416,6 @@ func autoMatchOrderForCustomer(staffUserID string, customer *models.Customer, ni
 	// 触发自动建群检查（如果订单已分配设计师）
 	go services.TriggerAutoGroupCreation(order.ID)
 
-	// v1.5.0: 入队自动建群任务（Agent 执行 UI 自动化拉客户入群）
-	go services.EnqueueCreateGroupTask(&order, customer)
-
 	// WebSocket 通知前端刷新
 	services.Hub.Broadcast(services.WSEvent{
 		Type: "order_customer_matched",
