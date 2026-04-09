@@ -12,10 +12,10 @@ web/src/
 ├── api/                    # API 请求层
 │   ├── client.js           # axios 实例 (baseURL=/api/v1, JWT/CSRF 拦截器, 401 自动登出)
 │   ├── auth.js             # login/adminLogin/validateToken/logoutApi
-│   ├── orders.js           # 订单 CRUD + OCR + 批量 + 设计师 + addOrderNote + createOrderGroup
-│   ├── admin.js            # 管理端 (员工/Dashboard/团队/导出/激活码/抢单告警/联系我)
+│   ├── orders.js           # 订单 CRUD + OCR + 批量 + 设计师
+│   ├── admin.js            # 管理端 (员工/Dashboard/团队/导出/激活码/抢单告警)
 │   ├── customers.js        # 顾客 CRUD + 合并
-│   ├── payments.js         # 收款流水 + 企微同步 + getPaymentReport(对账报表)
+│   ├── payments.js         # 收款流水 + 企微同步
 │   ├── revenue.js          # 营收图表 + 分润明细
 │   └── notifications.js    # 通知管理
 ├── pages/                  # 页面组件
@@ -31,12 +31,10 @@ web/src/
 │   ├── DesignersRosterPage.jsx # 设计师花名册
 │   ├── ActivationCodesPage.jsx # 激活码管理
 │   ├── GrabAlertsPage.jsx  # 抢单超时告警
-│   ├── ContactWaysPage.jsx # 企微「联系我」管理（创建/列表/QR码）
 │   └── staff/              # 员工端页面
 │       ├── StaffDashboard.jsx   # 员工个人工作台
 │       ├── MyOrdersPage.jsx     # 我的订单
-│       ├── StaffOrderDetail.jsx # 订单详情（员工视角）
-│       └── StaffPaymentsPage.jsx # 跟单客服收款流水（查看/筛选/手动录入/关联订单）
+│       └── StaffOrderDetail.jsx # 订单详情（员工视角）
 ├── components/             # 通用组件
 │   ├── layout/AppShell.jsx # 管理员布局 (侧边栏+顶栏+通知铃铛+WS状态指示+登出)
 │   ├── layout/StaffLayout.jsx # 员工端简化布局
@@ -53,7 +51,6 @@ web/src/
 │   ├── MetricCard.jsx      # 指标卡片（含趋势）
 │   ├── NotificationPanel.jsx # 右侧抽屉通知面板
 │   ├── OrderMatchModal.jsx # 订单-收款匹配弹窗
-│   ├── PaymentMatchModal.jsx # 收款关联订单弹窗
 │   └── ToastContainer.jsx  # Toast 通知容器
 ├── contexts/
 │   ├── AuthContext.jsx     # 认证: token/userName/userId/role/ready + login/logout/checkToken
@@ -90,7 +87,6 @@ web/src/
 | `/revenue` | RevenuePage | admin |
 | `/payments` | PaymentsPage | admin |
 | `/designers` | DesignersRosterPage | admin |
-| `/contact-ways` | ContactWaysPage | admin |
 
 ### 员工路由（StaffGuard → StaffLayout 布局）
 | 路径 | 页面 | 权限 |
@@ -99,7 +95,6 @@ web/src/
 | `/s/orders` | MyOrdersPage | staff |
 | `/s/orders/:id` | StaffOrderDetail | staff |
 | `/s/designers` | DesignersRosterPage | staff |
-| `/s/payments` | StaffPaymentsPage | staff (roles: ['follow']) |
 
 ## 关键模式
 
@@ -143,35 +138,3 @@ cd web && npm run dev    # 启动 (端口 8200, 代理 /api → 8201)
 cd web && npm run build  # 构建
 # 部署: scp -r dist/* root@118.31.56.141:/opt/pdd-server/dist/
 ```
-
-## 前端开发经验与注意事项
-
-### Modal 弹窗
-- 父容器有 `overflow-hidden` 时，`position: fixed` 的 Modal 会被裁剪
-- 解决方案：用 `createPortal(modal, document.body)` 渲染到 body
-- 引入：`import { createPortal } from 'react-dom'`
-- StaffLayout.jsx 的 main 区域有 overflow-hidden，所有页面内的 Modal 都需要 Portal
-
-### 组件设计模式
-- OrderSearchInput：自动加载最近 20 条订单 + 搜索筛选 + 可视化选择
-  - 用户不会记住订单 ID，必须提供可视化列表
-  - useDebounce(400ms) 防抖搜索
-  - 选中状态显示绿色勾选 chip，可一键清除
-- 导航按角色过滤：NAV_ITEMS 加 `roles` 字段，useMemo 按 user.role 过滤
-
-### UI 设计规范
-- 品牌色：#434FCF（hover: #3640b5）
-- 卡片阴影：shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)]
-- 卡片边框：border-black/[0.06]（ghost border）
-- 卡片圆角：rounded-2xl
-- hover 上浮：hover:-translate-y-0.5 + 阴影加深
-- 数字字体：font-['Outfit',sans-serif] tabular-nums tracking-tight
-- 状态标签：圆角胶囊 rounded-full + 对应颜色 bg + 小圆点指示器
-- 图标：统一用 lucide-react，不手写 SVG
-- 动画：animate-scale-in（Modal 入场）、animate-fade-in-up（列表项）
-- 加载态：skeleton pulse 或 RefreshCw animate-spin
-
-### 金额展示
-- 后端返回分，前端 formatCurrency(amount / 100) 转元
-- ¥ 符号单独 span，字号略小
-- 数字用 Outfit 字体 + tabular-nums 等宽对齐

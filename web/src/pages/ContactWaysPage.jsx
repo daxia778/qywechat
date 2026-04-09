@@ -3,22 +3,9 @@ import { createContactWay, listContactWays, listEmployees } from '../api/admin';
 import { useToast } from '../hooks/useToast';
 import PageHeader from '../components/ui/PageHeader';
 import Button from '../components/ui/Button';
+import { Card, CardHeader } from '../components/ui/Card';
 import EmptyState from '../components/EmptyState';
 import { formatTime } from '../utils/constants';
-import {
-  Plus,
-  QrCode,
-  Users,
-  Clock,
-  Copy,
-  Check,
-  ExternalLink,
-  Tag,
-  X,
-  ImageOff,
-  Loader2,
-  UserCheck,
-} from 'lucide-react';
 
 export default function ContactWaysPage() {
   const { toast } = useToast();
@@ -94,234 +81,180 @@ export default function ContactWaysPage() {
     }
   };
 
-  const roleLabel = (role) =>
-    role === 'sales' ? '谈单' : role === 'follow' ? '跟单' : '管理';
-
   return (
     <div className="space-y-6">
       <PageHeader title="联系我管理" subtitle="创建和管理企微「联系我」二维码渠道">
-        <Button onClick={() => setShowForm(true)}>
-          <Plus className="w-4 h-4" />
+        <Button onClick={() => setShowForm(!showForm)}>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+          </svg>
           新建联系我
         </Button>
       </PageHeader>
 
-      {/* ── Modal Overlay ── */}
+      {/* Create Form */}
       {showForm && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) { setShowForm(false); setSelectedUserIDs([]); setState(''); } }}
-        >
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" style={{ animation: 'fadeInUp 0.2s ease both' }} />
-
-          {/* Dialog */}
-          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-[0_24px_64px_rgba(0,0,0,0.12)] border border-black/[0.06] animate-modal-in">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
-              <div>
-                <h2 className="text-lg font-bold text-slate-800 font-[Outfit]">新建联系我</h2>
-                <p className="text-sm text-slate-500 mt-0.5">选择接待员工，生成专属二维码</p>
-              </div>
-              <button
-                onClick={() => { setShowForm(false); setSelectedUserIDs([]); setState(''); }}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+        <Card>
+          <CardHeader title="新建联系我" subtitle="选择接待员工，生成专属二维码" />
+          <div className="p-5 lg:p-7 space-y-5">
+            {/* State / Channel */}
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                渠道标识 (可选)
+              </label>
+              <input
+                type="text"
+                value={state}
+                onChange={(e) => setState(e.target.value)}
+                placeholder="如: 官网、公众号、海报..."
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#434FCF]/20 focus:border-[#434FCF] transition-all"
+              />
+              <p className="text-xs text-slate-400 mt-1">用于区分不同渠道来源，客户添加时会带上此标识</p>
             </div>
 
-            {/* Modal Body */}
-            <div className="px-6 py-5 space-y-5 max-h-[60vh] overflow-y-auto">
-              {/* Channel identifier */}
-              <div>
-                <label className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-2">
-                  <Tag className="w-3.5 h-3.5 text-slate-400" />
-                  渠道标识
-                  <span className="text-xs font-normal text-slate-400 ml-1">可选</span>
-                </label>
-                <input
-                  type="text"
-                  value={state}
-                  onChange={(e) => setState(e.target.value)}
-                  placeholder="如: 官网、公众号、海报..."
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#434FCF]/15 focus:border-[#434FCF]/40 focus:bg-white transition-all"
-                />
-                <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                  用于区分不同渠道来源，客户添加时会带上此标识
-                </p>
-              </div>
-
-              {/* Employee Selection */}
-              <div>
-                <label className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-2">
-                  <UserCheck className="w-3.5 h-3.5 text-slate-400" />
-                  接待员工
-                  <span className="text-red-400 text-xs">*</span>
-                </label>
-                {employees.length === 0 ? (
-                  <div className="flex items-center justify-center py-6 rounded-xl border border-dashed border-slate-200 bg-slate-50/50">
-                    <p className="text-sm text-slate-400">暂无可选员工</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {employees
-                      .filter((e) => e.is_active)
-                      .map((emp) => {
-                        const selected = selectedUserIDs.includes(emp.wecom_userid);
-                        return (
-                          <button
-                            key={emp.wecom_userid}
-                            type="button"
-                            onClick={() => toggleUser(emp.wecom_userid)}
-                            className={`group relative px-3.5 py-2 rounded-xl text-sm font-medium border transition-all duration-150 cursor-pointer ${
-                              selected
-                                ? 'bg-[#434FCF] text-white border-[#434FCF] shadow-[0_2px_8px_rgba(67,79,207,0.25)]'
-                                : 'bg-white text-slate-600 border-slate-200 hover:border-[#434FCF]/30 hover:shadow-[0_2px_8px_rgba(67,79,207,0.06)]'
-                            }`}
-                          >
-                            <span className="flex items-center gap-1.5">
-                              <span className={`flex items-center justify-center w-4 h-4 rounded-md border transition-all ${
-                                selected
-                                  ? 'bg-white/20 border-white/40'
-                                  : 'border-slate-300 group-hover:border-[#434FCF]/40'
-                              }`}>
-                                {selected && <Check className="w-3 h-3" />}
-                              </span>
-                              {emp.name}
-                              <span className={`text-xs ${selected ? 'text-white/60' : 'text-slate-400'}`}>
-                                {roleLabel(emp.role)}
-                              </span>
+            {/* Employee Selection */}
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                接待员工 <span className="text-red-500">*</span>
+              </label>
+              {employees.length === 0 ? (
+                <p className="text-sm text-slate-400">暂无可选员工</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {employees
+                    .filter((e) => e.is_active)
+                    .map((emp) => {
+                      const selected = selectedUserIDs.includes(emp.wecom_userid);
+                      return (
+                        <button
+                          key={emp.wecom_userid}
+                          type="button"
+                          onClick={() => toggleUser(emp.wecom_userid)}
+                          className={`px-3.5 py-2 rounded-xl text-sm font-medium border transition-all ${
+                            selected
+                              ? 'bg-[#434FCF] text-white border-[#434FCF] shadow-[0_2px_8px_rgba(67,79,207,0.25)]'
+                              : 'bg-white text-slate-600 border-slate-200 hover:border-[#434FCF]/40 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span className="flex items-center gap-1.5">
+                            {selected && (
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                            {emp.name}
+                            <span className="text-xs opacity-60">
+                              {emp.role === 'sales' ? '谈单' : emp.role === 'follow' ? '跟单' : '管理'}
                             </span>
-                          </button>
-                        );
-                      })}
-                  </div>
-                )}
-                {selectedUserIDs.length > 0 && (
-                  <p className="text-xs text-[#434FCF]/70 mt-2 flex items-center gap-1">
-                    <Users className="w-3 h-3" />
-                    已选 {selectedUserIDs.length} 人，客户会随机分配给其中一人
-                  </p>
-                )}
-              </div>
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
+              {selectedUserIDs.length > 0 && (
+                <p className="text-xs text-slate-400 mt-2">
+                  已选 {selectedUserIDs.length} 人，客户会随机分配给其中一人
+                </p>
+              )}
             </div>
 
-            {/* Modal Footer */}
-            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl">
+            {/* Actions */}
+            <div className="flex items-center gap-3 pt-2">
+              <Button onClick={handleCreate} disabled={submitting || selectedUserIDs.length === 0}>
+                {submitting ? '创建中...' : '创建'}
+              </Button>
               <Button variant="secondary" onClick={() => { setShowForm(false); setSelectedUserIDs([]); setState(''); }}>
                 取消
               </Button>
-              <Button onClick={handleCreate} disabled={submitting || selectedUserIDs.length === 0}>
-                {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                {submitting ? '创建中...' : '创建渠道'}
-              </Button>
             </div>
           </div>
-        </div>
+        </Card>
       )}
 
-      {/* ── Content ── */}
-      {loading ? (
-        <div className="flex flex-col items-center justify-center py-24">
-          <div className="w-10 h-10 rounded-full border-[3px] border-slate-200 border-t-[#434FCF] animate-spin" />
-          <p className="text-sm text-slate-400 mt-4">加载中...</p>
-        </div>
-      ) : items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24">
-          <EmptyState
-            icon={<QrCode className="w-12 h-12 text-slate-300 mb-3" strokeWidth={1.5} />}
-            title="暂无联系我渠道"
-            description="创建二维码渠道，客户扫码即可添加企微好友"
-          />
-          <Button className="mt-4" onClick={() => setShowForm(true)}>
-            <Plus className="w-4 h-4" />
-            创建第一个渠道
-          </Button>
-        </div>
-      ) : (
-        <>
-          {/* Stats bar */}
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <QrCode className="w-4 h-4 text-slate-400" />
-            共 <span className="font-semibold text-slate-700">{items.length}</span> 个渠道
-          </div>
+      {/* List */}
+      <Card>
+        <CardHeader title="已创建的联系我" subtitle={`共 ${items.length} 个渠道`} />
+        <div className="p-0">
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="w-8 h-8 rounded-full border-[3px] border-slate-200 border-t-[#434FCF] animate-spin" />
+            </div>
+          ) : items.length === 0 ? (
+            <EmptyState
+              title="暂无联系我渠道"
+              description="点击上方「新建联系我」按钮创建二维码渠道"
+            />
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {items.map((item) => (
+                <div key={item.id} className="flex items-start gap-5 px-5 lg:px-7 py-5 hover:bg-slate-50/50 transition-colors">
+                  {/* QR Code */}
+                  <div className="shrink-0">
+                    {item.qr_code ? (
+                      <a href={item.qr_code} target="_blank" rel="noopener noreferrer">
+                        <img
+                          src={item.qr_code}
+                          alt="二维码"
+                          className="w-20 h-20 rounded-xl border border-slate-200 object-contain bg-white p-1 hover:shadow-md transition-shadow"
+                        />
+                      </a>
+                    ) : (
+                      <div className="w-20 h-20 rounded-xl border border-dashed border-slate-200 flex items-center justify-center bg-slate-50">
+                        <svg className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
 
-          {/* Card Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {items.map((item, idx) => (
-              <div
-                key={item.id}
-                className="group bg-white rounded-2xl border border-black/[0.06] shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)] hover:shadow-[0_8px_32px_rgba(0,0,0,0.08),0_2px_8px_rgba(0,0,0,0.04)] hover:-translate-y-0.5 transition-all duration-200"
-                style={{ animation: `fadeInUp 0.35s cubic-bezier(0.16,1,0.3,1) ${idx * 0.05}s both` }}
-              >
-                <div className="p-5">
-                  {/* Top row: channel name + badge */}
-                  <div className="flex items-start justify-between gap-3 mb-4">
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-bold text-slate-800 font-[Outfit] tracking-tight truncate">
+                  {/* Info */}
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-slate-800">
                         {item.state || '默认渠道'}
-                      </h3>
-                      <span className="inline-block mt-1 px-2 py-0.5 rounded-md bg-slate-100 text-[11px] text-slate-500 font-mono leading-relaxed">
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-slate-100 text-xs text-slate-500 font-mono">
                         {item.config_id}
                       </span>
                     </div>
-                    {/* Status dot */}
-                    <div className="shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-100">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      <span className="text-[11px] font-semibold text-emerald-600">活跃</span>
-                    </div>
-                  </div>
 
-                  {/* QR Code area */}
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="shrink-0">
-                      {item.qr_code ? (
-                        <a href={item.qr_code} target="_blank" rel="noopener noreferrer" className="block">
-                          <div className="w-[72px] h-[72px] rounded-xl border border-black/[0.06] bg-white p-1.5 shadow-[0_1px_4px_rgba(0,0,0,0.04)] group-hover:shadow-[0_4px_12px_rgba(67,79,207,0.08)] transition-shadow">
-                            <img
-                              src={item.qr_code}
-                              alt="二维码"
-                              className="w-full h-full object-contain rounded-lg"
-                            />
-                          </div>
-                        </a>
-                      ) : (
-                        <div className="w-[72px] h-[72px] rounded-xl border border-dashed border-slate-200 flex items-center justify-center bg-slate-50/80">
-                          <ImageOff className="w-5 h-5 text-slate-300" strokeWidth={1.5} />
-                        </div>
-                      )}
+                    <div className="flex items-center gap-3 text-xs text-slate-500">
+                      <span className="flex items-center gap-1">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                        {(item.user_names || []).join(', ') || '-'}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        {formatTime(item.created_at)}
+                      </span>
                     </div>
 
-                    {/* Meta info */}
-                    <div className="flex-1 min-w-0 space-y-2">
-                      <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                        <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span className="truncate">{(item.user_names || []).join(', ') || '-'}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                        <Clock className="w-3.5 h-3.5 shrink-0" />
-                        <span>{formatTime(item.created_at)}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Divider */}
-                  <div className="border-t border-slate-100 pt-3">
-                    <div className="flex items-center gap-2">
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-2 pt-1">
                       {item.qr_code && (
                         <button
                           onClick={() => copyToClipboard(item.qr_code, item.id)}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
-                            copiedId === item.id
-                              ? 'text-emerald-600 bg-emerald-50 border border-emerald-200'
-                              : 'text-[#434FCF] bg-[#434FCF]/[0.04] hover:bg-[#434FCF]/[0.08] border border-[#434FCF]/10 hover:border-[#434FCF]/20'
-                          }`}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-[#434FCF] bg-[#434FCF]/5 hover:bg-[#434FCF]/10 border border-[#434FCF]/10 transition-all"
                         >
                           {copiedId === item.id ? (
-                            <><Check className="w-3.5 h-3.5" /> 已复制</>
+                            <>
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                              </svg>
+                              已复制
+                            </>
                           ) : (
-                            <><Copy className="w-3.5 h-3.5" /> 复制链接</>
+                            <>
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                              </svg>
+                              复制链接
+                            </>
                           )}
                         </button>
                       )}
@@ -330,20 +263,22 @@ export default function ContactWaysPage() {
                           href={item.qr_code}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 transition-all duration-150"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-500 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-all"
                         >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                          查看
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                          查看二维码
                         </a>
                       )}
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+              ))}
+            </div>
+          )}
+        </div>
+      </Card>
     </div>
   );
 }

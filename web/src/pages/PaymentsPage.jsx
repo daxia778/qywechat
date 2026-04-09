@@ -10,7 +10,6 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import PaymentMatchModal from '../components/PaymentMatchModal';
 import PageHeader from '../components/ui/PageHeader';
 import { useAuth } from '../hooks/useAuth';
-import { ChevronLeft, ChevronRight, Wallet, ShoppingBag, MessageSquareMore, PenLine, List, BarChart3, RefreshCw, Plus, Search } from 'lucide-react';
 import * as echarts from 'echarts/core';
 import { LineChart, BarChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components';
@@ -25,17 +24,10 @@ const SOURCE_MAP = {
 };
 
 const SOURCE_STYLE = {
-  pdd: 'bg-gradient-to-r from-red-50 to-orange-50 text-red-600 border-red-200/60 shadow-[0_1px_2px_rgba(239,68,68,0.08)]',
-  wecom: 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 border-blue-200/60 shadow-[0_1px_2px_rgba(59,130,246,0.08)]',
-  manual: 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-600 border-amber-200/60 shadow-[0_1px_2px_rgba(245,158,11,0.08)]',
+  pdd: 'bg-red-50 text-red-600 border-red-200',
+  wecom: 'bg-blue-50 text-blue-600 border-blue-200',
+  manual: 'bg-amber-50 text-amber-600 border-amber-200',
 };
-
-const SUMMARY_CARDS = [
-  { key: 'total', label: '历史总收款', icon: Wallet, gradient: 'from-indigo-500 to-purple-500', ring: 'ring-indigo-500/10' },
-  { key: 'pdd', label: '拼多多来源', icon: ShoppingBag, gradient: 'from-red-500 to-orange-500', ring: 'ring-red-500/10' },
-  { key: 'wecom', label: '企微来源', icon: MessageSquareMore, gradient: 'from-blue-500 to-cyan-500', ring: 'ring-blue-500/10' },
-  { key: 'manual', label: '人工录入', icon: PenLine, gradient: 'from-amber-500 to-yellow-500', ring: 'ring-amber-500/10' },
-];
 
 export default function PaymentsPage() {
   const { toast } = useToast();
@@ -362,30 +354,26 @@ export default function PaymentsPage() {
   return (
     <div className="flex flex-col gap-5 w-full max-w-[1400px] mx-auto">
       <PageHeader title="收款流水" subtitle="系统自动同步企微及跨平台对账单">
-        <div className="flex items-center gap-2.5">
-          {/* Segmented Control */}
+        <div className="flex items-center gap-2">
+          {/* 视图切换按钮 */}
           {role === 'admin' && (
-            <div className="relative flex items-center bg-slate-100/80 rounded-xl p-[3px] backdrop-blur-sm">
-              <div
-                className="absolute top-[3px] bottom-[3px] rounded-[10px] bg-brand-500 shadow-[0_1px_3px_rgba(67,79,207,0.3)] transition-all duration-300 ease-out"
-                style={{ width: 'calc(50% - 3px)', left: viewMode === 'list' ? '3px' : 'calc(50%)' }}
-              />
+            <div className="flex items-center bg-slate-100 rounded-xl p-0.5">
               <button
                 onClick={() => setViewMode('list')}
-                className={`relative z-10 inline-flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold rounded-[10px] transition-colors duration-200 cursor-pointer border-none ${
-                  viewMode === 'list' ? 'text-white' : 'text-slate-500 hover:text-slate-700'
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-[12px] font-semibold rounded-lg transition-all duration-150 cursor-pointer border-none ${
+                  viewMode === 'list' ? 'bg-white text-slate-800 shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
-                <List className="w-3.5 h-3.5" />
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
                 列表
               </button>
               <button
                 onClick={() => setViewMode('report')}
-                className={`relative z-10 inline-flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold rounded-[10px] transition-colors duration-200 cursor-pointer border-none ${
-                  viewMode === 'report' ? 'text-white' : 'text-slate-500 hover:text-slate-700'
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-[12px] font-semibold rounded-lg transition-all duration-150 cursor-pointer border-none ${
+                  viewMode === 'report' ? 'bg-white text-slate-800 shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
-                <BarChart3 className="w-3.5 h-3.5" />
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                 报表
               </button>
             </div>
@@ -394,18 +382,18 @@ export default function PaymentsPage() {
             <button
               onClick={handleSyncWecom}
               disabled={syncing}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-brand-600 bg-brand-50 border border-brand-200 hover:bg-brand-100 hover:shadow-md transition-all duration-200 shadow-sm disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-brand-600 bg-brand-50 border border-brand-200 hover:bg-brand-100 transition-all duration-150 shadow-sm disabled:opacity-50"
             >
-              <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+              <svg className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
               <span>{syncing ? '同步中...' : '同步企微流水'}</span>
             </button>
           )}
           {(role === 'admin' || role === 'follow') && (
             <button
               onClick={() => setCreateModalVisible(true)}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 hover:shadow-lg hover:shadow-brand-500/25 transition-all duration-200 shadow-sm active:scale-[0.97]"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 shadow-sm active:scale-[0.98]"
             >
-              <Plus className="w-4 h-4" />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
               <span>手动录入</span>
             </button>
           )}
@@ -415,61 +403,65 @@ export default function PaymentsPage() {
       {/* KPI Cards for Admin */}
       {role === 'admin' && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
-          {SUMMARY_CARDS.map((card) => {
-            const Icon = card.icon;
-            const isTotal = card.key === 'total';
-            const amount = isTotal
-              ? summary.total_amount
-              : (summary.by_source?.[card.key]?.total || 0);
-            const count = isTotal ? null : (summary.by_source?.[card.key]?.count || 0);
-            return (
-              <div
-                key={card.key}
-                className="group bg-surface-container-lowest ghost-border rounded-2xl p-5 lg:p-6 flex flex-col justify-between hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200/50 transition-all duration-300 ease-out"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${card.gradient} flex items-center justify-center ring-4 ${card.ring} shadow-sm group-hover:scale-105 transition-transform duration-300`}>
-                    <Icon className="w-5 h-5 text-white" strokeWidth={2} />
-                  </div>
-                  {count > 0 && (
-                    <span className="text-[11px] font-medium text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full tabular-nums">{count} 笔</span>
-                  )}
-                </div>
-                <div>
-                  <span className="text-[11px] lg:text-[12px] font-medium text-slate-400 mb-1 block tracking-wide">{card.label}</span>
-                  {summaryLoading && !summary.total_amount ? (
-                    <div className="h-8 w-28 bg-slate-100 rounded-lg animate-pulse" />
-                  ) : (
-                    <h4 className={`${isTotal ? 'text-2xl lg:text-[28px]' : 'text-xl lg:text-[24px]'} font-bold text-slate-800 font-['Outfit'] tabular-nums leading-tight tracking-tight`}>
-                      &yen;{(amount / 100).toFixed(2)}
-                    </h4>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center">
+            <span className="text-[11px] lg:text-[13px] font-semibold text-on-surface-variant/70 mb-1.5 block uppercase tracking-wider">历史总收款</span>
+            {summaryLoading && !summary.total_amount ? (
+               <div className="h-8 w-24 bg-slate-100 rounded-lg animate-pulse" />
+            ) : (
+              <h4 className="text-2xl lg:text-[28px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
+                &yen;{(summary.total_amount / 100).toFixed(2)}
+              </h4>
+            )}
+          </div>
+          <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center border-l-[3px] border-l-red-400">
+             <span className="text-[11px] lg:text-[13px] font-semibold text-on-surface-variant/70 mb-1.5 block uppercase tracking-wider">拼多多来源</span>
+             <h4 className="text-xl lg:text-[24px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
+                &yen;{((summary.by_source?.pdd?.total || 0) / 100).toFixed(2)}
+             </h4>
+             {summary.by_source?.pdd?.count > 0 && (
+               <span className="text-[11px] text-slate-400 mt-1 tabular-nums">{summary.by_source.pdd.count} 笔</span>
+             )}
+          </div>
+          <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center border-l-[3px] border-l-blue-400">
+             <span className="text-[11px] lg:text-[13px] font-semibold text-on-surface-variant/70 mb-1.5 block uppercase tracking-wider">企微来源</span>
+             <h4 className="text-xl lg:text-[24px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
+                &yen;{((summary.by_source?.wecom?.total || 0) / 100).toFixed(2)}
+             </h4>
+             {summary.by_source?.wecom?.count > 0 && (
+               <span className="text-[11px] text-slate-400 mt-1 tabular-nums">{summary.by_source.wecom.count} 笔</span>
+             )}
+          </div>
+          <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center border-l-[3px] border-l-amber-400">
+             <span className="text-[11px] lg:text-[13px] font-semibold text-on-surface-variant/70 mb-1.5 block uppercase tracking-wider">人工录入</span>
+             <h4 className="text-xl lg:text-[24px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
+                &yen;{((summary.by_source?.manual?.total || 0) / 100).toFixed(2)}
+             </h4>
+             {summary.by_source?.manual?.count > 0 && (
+               <span className="text-[11px] text-slate-400 mt-1 tabular-nums">{summary.by_source.manual.count} 笔</span>
+             )}
+          </div>
         </div>
       )}
 
       {/* Main Table Card */}
-      <div className="bg-surface-container-lowest ghost-border rounded-2xl flex flex-col overflow-hidden">
+      <div className="bg-surface-container-lowest ghost-border rounded-xl flex flex-col overflow-hidden">
         {/* Filters */}
-        <div className="px-6 py-4 border-b border-slate-100 flex flex-wrap gap-3 items-center">
-          <div className="flex-1 min-w-[200px] max-w-[280px] relative group/search">
+        <div className="px-6 py-4 border-b border-slate-200/80 flex flex-wrap gap-3 items-center">
+          <div className="flex-1 min-w-[200px] max-w-[280px] relative">
             <input
               type="text"
               placeholder="搜索订单 ID..."
               value={filterOrderId}
               onChange={(e) => setFilterOrderId(e.target.value)}
-              className="w-full h-[36px] px-4 pl-9 text-[13px] text-slate-800 bg-slate-50/60 border border-slate-200/80 rounded-xl outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/10 focus:bg-white placeholder:text-slate-400 transition-all duration-200"
+              className="w-full h-[34px] px-4 pl-9 text-[13px] text-slate-800 bg-slate-50/60 border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 placeholder:text-slate-400 transition-colors"
             />
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 group-focus-within/search:text-brand-500 transition-colors" />
+            <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           </div>
           <div className="w-[140px]">
             <select
               value={filterSource}
               onChange={(e) => setFilterSource(e.target.value)}
-              className="w-full h-[36px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200/80 rounded-xl outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/10 transition-all duration-200 cursor-pointer appearance-none"
+              className="w-full h-[34px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 transition-colors cursor-pointer"
             >
               <option value="">所有来源</option>
               <option value="pdd">拼多多</option>
@@ -482,14 +474,14 @@ export default function PaymentsPage() {
               type="date"
               value={filterStartTime}
               onChange={(e) => setFilterStartTime(e.target.value)}
-              className="h-[36px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200/80 rounded-xl outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/10 transition-all duration-200"
+              className="h-[34px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 transition-colors"
             />
-            <span className="text-slate-300 text-sm select-none font-light">-</span>
+            <span className="text-slate-300 text-sm select-none">~</span>
             <input
               type="date"
               value={filterEndTime}
               onChange={(e) => setFilterEndTime(e.target.value)}
-              className="h-[36px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200/80 rounded-xl outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/10 transition-all duration-200"
+              className="h-[34px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 transition-colors"
             />
           </div>
           <button
@@ -499,7 +491,7 @@ export default function PaymentsPage() {
               setFilterStartTime('');
               setFilterEndTime('');
             }}
-            className="h-[36px] px-3.5 text-[13px] font-medium text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-xl transition-all duration-200 cursor-pointer border-none bg-transparent"
+            className="h-[34px] px-3 text-[13px] font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
           >
             重置
           </button>
@@ -518,13 +510,13 @@ export default function PaymentsPage() {
               <col style={{ width: '16%' }} />
             </colgroup>
             <thead>
-              <tr className="border-b border-slate-100">
-                <th className="text-left !bg-transparent !text-slate-400 !font-medium !text-[12px] tracking-wide" style={{ paddingLeft: 24 }}>流水号 / 交易时间</th>
-                <th className="text-center !bg-transparent !text-slate-400 !font-medium !text-[12px] tracking-wide">来源</th>
-                <th className="text-right !bg-transparent !text-slate-400 !font-medium !text-[12px] tracking-wide">收款金额</th>
-                <th className="text-center !bg-transparent !text-slate-400 !font-medium !text-[12px] tracking-wide">关联订单</th>
-                <th className="hidden lg:table-cell text-left !bg-transparent !text-slate-400 !font-medium !text-[12px] tracking-wide">备注</th>
-                <th className="text-center !bg-transparent !text-slate-400 !font-medium !text-[12px] tracking-wide">操作</th>
+              <tr>
+                <th className="text-left" style={{ paddingLeft: 24 }}>流水号 / 交易时间</th>
+                <th className="text-center">来源</th>
+                <th className="text-right">收款金额</th>
+                <th className="text-center">关联订单</th>
+                <th className="hidden lg:table-cell text-left">备注</th>
+                <th className="text-center">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -543,21 +535,20 @@ export default function PaymentsPage() {
                 const isExpanded = expandedPaymentId === p.id;
                 return (
                 <React.Fragment key={p.id}>
-                <tr className={`border-b border-slate-50/80 hover:bg-slate-50/50 transition-all duration-150 group ${isExpanded ? 'bg-brand-50/20' : ''}`}>
+                <tr className={`border-b border-slate-50 hover:bg-slate-50/60 transition-colors group ${isExpanded ? 'bg-brand-50/30' : ''}`}>
                   <td style={{ paddingLeft: 24 }}>
-                    <div className="text-[13px] font-medium text-slate-600 font-mono truncate tracking-tight" title={p.transaction_id}>
+                    <div className="text-[13px] font-medium text-slate-700 font-mono truncate" title={p.transaction_id}>
                       {p.transaction_id.length > 20 ? p.transaction_id.substring(0, 20) + '...' : p.transaction_id}
                     </div>
-                    <div className="text-[11px] text-slate-400 mt-0.5 tabular-nums font-['Outfit']">{formatTime(p.paid_at)}</div>
+                    <div className="text-[12px] text-slate-400 mt-0.5 tabular-nums">{formatTime(p.paid_at)}</div>
                   </td>
                   <td className="text-center">
-                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${SOURCE_STYLE[p.source] || SOURCE_STYLE.manual}`}>
-                      <span className="w-1 h-1 rounded-full bg-current opacity-60" />
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${SOURCE_STYLE[p.source] || SOURCE_STYLE.manual}`}>
                       {SOURCE_MAP[p.source] || p.source}
                     </span>
                   </td>
                   <td className="text-right">
-                    <span className="text-[14px] font-bold text-slate-800 font-['Outfit'] tabular-nums tracking-tight">
+                    <span className="text-[14px] font-bold text-slate-800 font-[Outfit] tabular-nums">
                       &yen;{formatCurrency(p.amount / 100)}
                     </span>
                   </td>
@@ -592,14 +583,13 @@ export default function PaymentsPage() {
                   </td>
                   <td className="text-center">
                     {p.order_id ? (
-                      <div className="inline-flex items-center gap-1.5 text-[11px] text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      <div className="text-[12px] text-slate-400 tabular-nums">
                         {p.matched_at ? formatTime(p.matched_at) : '已匹配'}
                       </div>
                     ) : (
                       <button
                         onClick={() => openMatchModal(p)}
-                        className="inline-flex items-center justify-center px-3.5 py-1.5 text-[12px] font-semibold text-brand-600 bg-brand-50 border border-brand-200/60 rounded-xl hover:bg-brand-100 hover:shadow-sm transition-all duration-200 cursor-pointer active:scale-[0.97]"
+                        className="inline-flex items-center justify-center px-3 py-1.5 text-[12px] font-semibold text-brand-600 bg-brand-50 border border-brand-200 rounded-xl hover:bg-brand-100 transition-all shadow-sm cursor-pointer active:scale-[0.97]"
                       >
                         手动关联
                       </button>
@@ -705,30 +695,20 @@ export default function PaymentsPage() {
         </div>
 
         {/* Pagination */}
-        <div className="bg-surface-container-low/50 px-6 py-3.5 border-t border-slate-100 flex justify-between items-center">
-          <span className="text-[13px] text-slate-400">共 <span className="font-semibold text-slate-600 font-['Outfit'] tabular-nums">{total}</span> 条记录</span>
-          <div className="flex items-center gap-2">
+        <div className="bg-surface-container-low px-6 py-3 border-t border-slate-200 flex justify-between items-center">
+          <span className="text-[13px] text-slate-500">共 <span className="font-bold text-slate-700">{total}</span> 条记录</span>
+          <div className="flex items-center gap-1.5">
             <button
                onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
                disabled={currentPage === 0}
-               className={`inline-flex items-center gap-1 px-3 py-1.5 font-medium rounded-lg border transition-all duration-200 text-[12px] ${currentPage === 0 ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300 cursor-pointer active:scale-[0.97] shadow-sm'}`}
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-              上一页
-            </button>
-            <span className="text-[13px] text-slate-400 px-2 tabular-nums font-['Outfit']">
-              <span className="font-semibold text-slate-600">{currentPage + 1}</span>
-              <span className="mx-1">/</span>
-              {totalPages}
-            </span>
+               className={`px-3 py-1 text-sm font-semibold rounded-xl border border-slate-200 shadow-sm transition-all duration-150 text-[12px] ${currentPage === 0 ? 'bg-slate-50 text-slate-400 cursor-not-allowed opacity-50' : 'bg-white text-slate-700 hover:bg-slate-50 cursor-pointer active:scale-[0.98]'}`}
+            >上一页</button>
+            <span className="text-[13px] text-slate-500 px-3">{currentPage + 1} / {totalPages}</span>
             <button
                onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
                disabled={currentPage >= totalPages - 1}
-               className={`inline-flex items-center gap-1 px-3 py-1.5 font-medium rounded-lg border transition-all duration-200 text-[12px] ${currentPage >= totalPages - 1 ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300 cursor-pointer active:scale-[0.97] shadow-sm'}`}
-            >
-              下一页
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
+               className={`px-3 py-1 text-sm font-semibold rounded-xl border border-slate-200 shadow-sm transition-all duration-150 text-[12px] ${currentPage >= totalPages - 1 ? 'bg-slate-50 text-slate-400 cursor-not-allowed opacity-50' : 'bg-white text-slate-700 hover:bg-slate-50 cursor-pointer active:scale-[0.98]'}`}
+            >下一页</button>
           </div>
         </div>
       </div>

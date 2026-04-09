@@ -372,17 +372,15 @@ export default function StaffPaymentsPage() {
               </svg>
             ),
           },
-        ].map((card, i) => (
+        ].map((card) => (
           <div
             key={card.title}
-            className="group relative bg-white border border-black/[0.06] rounded-2xl p-5 lg:p-6 flex flex-col gap-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_0_0_1.5px_var(--c-ring),0_12px_28px_var(--c-glow)] overflow-hidden animate-fade-in-up"
-            style={{ '--c-ring': `${card.colorHex}30`, '--c-glow': `${card.colorHex}15`, animationDelay: `${i * 80}ms` }}
+            className="group relative bg-white border border-black/[0.06] rounded-2xl p-5 lg:p-6 flex flex-col gap-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_0_1.5px_var(--c-ring),0_8px_24px_var(--c-glow)] overflow-hidden"
+            style={{ '--c-ring': `${card.colorHex}30`, '--c-glow': `${card.colorHex}12` }}
           >
-            {/* Decorative gradient circles */}
-            <div className={`absolute -top-6 -right-6 w-24 h-24 rounded-full bg-gradient-to-br ${card.gradient} opacity-[0.06] pointer-events-none transition-all duration-500 group-hover:opacity-[0.12] group-hover:scale-110`} />
-            <div className={`absolute -bottom-10 -left-10 w-20 h-20 rounded-full bg-gradient-to-tr ${card.gradient} opacity-[0.04] pointer-events-none transition-all duration-500 group-hover:opacity-[0.08] group-hover:scale-110`} />
+            <div className={`absolute -top-6 -right-6 w-24 h-24 rounded-full bg-gradient-to-br ${card.gradient} opacity-[0.06] pointer-events-none transition-opacity duration-300 group-hover:opacity-[0.10]`} />
             <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-gradient-to-br ${card.gradient} text-white shadow-md transition-transform duration-300 group-hover:scale-105`}
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-gradient-to-br ${card.gradient} text-white shadow-md`}
               style={{ boxShadow: `0 4px 12px ${card.colorHex}25` }}
             >
               {card.icon}
@@ -390,10 +388,10 @@ export default function StaffPaymentsPage() {
             <div className="text-[13px] font-medium text-slate-500 tracking-[0.01em]">{card.title}</div>
             <div className="font-['Outfit',sans-serif] text-[28px] lg:text-[32px] font-bold text-slate-900 leading-[1] tracking-tight tabular-nums">
               {summaryLoading ? (
-                <div className="h-8 w-28 skeleton rounded-lg" />
+                <div className="h-8 w-24 bg-slate-100 rounded-lg animate-pulse" />
               ) : (
                 <>
-                  {card.prefix && <span className="text-[22px] lg:text-[26px] font-semibold text-slate-400 mr-0.5">{card.prefix}</span>}
+                  {card.prefix && <span>{card.prefix}</span>}
                   {card.value}
                   {card.suffix && <span className="text-sm font-semibold text-slate-400 ml-0.5">{card.suffix}</span>}
                 </>
@@ -404,25 +402,24 @@ export default function StaffPaymentsPage() {
       </div>
 
       {/* Table Card */}
-      <div className="bg-surface-container-lowest ghost-border rounded-2xl flex flex-col overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)]">
+      <div className="bg-surface-container-lowest ghost-border rounded-xl flex flex-col overflow-hidden">
         {/* Filters */}
-        <div className="px-5 lg:px-6 py-4 border-b border-slate-100 bg-white/60 flex flex-wrap gap-3 items-center">
-          <div className="flex-1 min-w-[180px] max-w-[260px] relative group/search">
+        <div className="px-5 lg:px-6 py-4 border-b border-slate-200/80 flex flex-wrap gap-3 items-center">
+          <div className="flex-1 min-w-[180px] max-w-[260px] relative">
             <input
               type="text"
               placeholder="搜索订单 ID..."
               value={filterOrderId}
               onChange={(e) => setFilterOrderId(e.target.value)}
-              className="w-full h-[36px] px-4 pl-9 text-[13px] text-slate-800 bg-slate-50/80 border border-slate-200/80 rounded-xl outline-none focus:border-[#434FCF] focus:ring-2 focus:ring-[#434FCF]/10 focus:bg-white placeholder:text-slate-400 transition-all duration-200"
+              className="w-full h-[34px] px-4 pl-9 text-[13px] text-slate-800 bg-slate-50/60 border border-slate-200 rounded-xl outline-none focus:border-[#434FCF] focus:ring-2 focus:ring-[#434FCF]/10 placeholder:text-slate-400 transition-colors"
             />
-            <Search size={14} className="text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 transition-colors group-focus-within/search:text-[#434FCF]" />
+            <Search size={14} className="text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           </div>
           <div className="w-[130px]">
             <select
               value={filterSource}
               onChange={(e) => setFilterSource(e.target.value)}
-              className="w-full h-[36px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200/80 rounded-xl outline-none focus:border-[#434FCF] focus:ring-2 focus:ring-[#434FCF]/10 transition-all duration-200 cursor-pointer appearance-none"
-              style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 8px center', backgroundRepeat: 'no-repeat', backgroundSize: '16px', paddingRight: '28px' }}
+              className="w-full h-[34px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-[#434FCF] focus:ring-2 focus:ring-[#434FCF]/10 transition-colors cursor-pointer"
             >
               <option value="">所有来源</option>
               <option value="pdd">拼多多</option>
@@ -435,22 +432,21 @@ export default function StaffPaymentsPage() {
               type="date"
               value={filterStartTime}
               onChange={(e) => setFilterStartTime(e.target.value)}
-              className="h-[36px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200/80 rounded-xl outline-none focus:border-[#434FCF] focus:ring-2 focus:ring-[#434FCF]/10 transition-all duration-200"
+              className="h-[34px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-[#434FCF] focus:ring-2 focus:ring-[#434FCF]/10 transition-colors"
             />
-            <span className="text-slate-300 text-xs font-medium select-none px-0.5">~</span>
+            <span className="text-slate-300 text-sm select-none">~</span>
             <input
               type="date"
               value={filterEndTime}
               onChange={(e) => setFilterEndTime(e.target.value)}
-              className="h-[36px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200/80 rounded-xl outline-none focus:border-[#434FCF] focus:ring-2 focus:ring-[#434FCF]/10 transition-all duration-200"
+              className="h-[34px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-[#434FCF] focus:ring-2 focus:ring-[#434FCF]/10 transition-colors"
             />
           </div>
           {hasFilters && (
             <button
               onClick={resetFilters}
-              className="h-[36px] px-3.5 text-[13px] font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 border border-transparent hover:border-red-100"
+              className="h-[34px] px-3 text-[13px] font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
             >
-              <X size={12} />
               重置
             </button>
           )}
@@ -481,18 +477,11 @@ export default function StaffPaymentsPage() {
             <tbody>
               {payments.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={6} className="py-24 text-center">
-                    <div className="flex flex-col items-center justify-center">
-                      <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mb-4 border border-slate-100">
-                        <Wallet size={28} strokeWidth={1.5} className="text-slate-300" />
-                      </div>
-                      <p className="font-semibold text-[15px] text-slate-600">暂无收款记录</p>
-                      <p className="text-[13px] text-slate-400 mt-1">当前筛选条件下没有匹配的流水</p>
-                      {hasFilters && (
-                        <button onClick={resetFilters} className="mt-4 text-[13px] font-medium text-[#434FCF] hover:text-[#3640b5] transition-colors cursor-pointer bg-transparent border-none">
-                          清除筛选条件
-                        </button>
-                      )}
+                  <td colSpan={6} className="py-20 text-center">
+                    <div className="flex flex-col items-center justify-center text-slate-400">
+                      <Wallet size={48} strokeWidth={1.2} className="mb-3 text-slate-200" />
+                      <p className="font-medium text-slate-600">暂无收款记录</p>
+                      <p className="text-sm mt-0.5">当前筛选条件下没有匹配的流水</p>
                     </div>
                   </td>
                 </tr>
@@ -500,22 +489,21 @@ export default function StaffPaymentsPage() {
               {payments.map((p) => {
                 const isExpanded = expandedId === p.id;
                 return (
-                  <tr key={p.id} className={`border-b border-slate-100/60 transition-all duration-150 group ${isExpanded ? 'bg-[#434FCF]/[0.03]' : 'hover:bg-slate-50/80'}`}>
+                  <tr key={p.id} className={`border-b border-slate-50 hover:bg-slate-50/60 transition-colors group ${isExpanded ? 'bg-[#434FCF]/[0.03]' : ''}`}>
                     <td style={{ paddingLeft: 24 }}>
                       <div className="text-[13px] font-medium text-slate-700 font-mono truncate" title={p.transaction_id}>
                         {p.transaction_id.length > 20 ? p.transaction_id.substring(0, 20) + '...' : p.transaction_id}
                       </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5 tabular-nums font-['Outfit',sans-serif]">{formatTime(p.paid_at)}</div>
+                      <div className="text-[12px] text-slate-400 mt-0.5 tabular-nums">{formatTime(p.paid_at)}</div>
                     </td>
                     <td className="text-center">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${SOURCE_STYLE[p.source] || SOURCE_STYLE.manual} shadow-[0_1px_2px_rgba(0,0,0,0.04)]`}>
-                        <span className="w-1 h-1 rounded-full bg-current opacity-60" />
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${SOURCE_STYLE[p.source] || SOURCE_STYLE.manual}`}>
                         {SOURCE_MAP[p.source] || p.source}
                       </span>
                     </td>
                     <td className="text-right">
-                      <span className="text-[14px] font-bold text-slate-800 font-['Outfit',sans-serif] tabular-nums tracking-tight">
-                        <span className="text-[12px] font-semibold text-slate-400 mr-px">&yen;</span>{formatCurrency(p.amount / 100)}
+                      <span className="text-[14px] font-bold text-slate-800 font-[Outfit] tabular-nums">
+                        &yen;{formatCurrency(p.amount / 100)}
                       </span>
                     </td>
                     <td className="text-center">
@@ -538,8 +526,8 @@ export default function StaffPaymentsPage() {
                           )}
                         </div>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200/60 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-red-500 bg-red-50 px-2.5 py-1 rounded-lg border border-red-100">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
                           未关联
                         </span>
                       )}
@@ -549,14 +537,13 @@ export default function StaffPaymentsPage() {
                     </td>
                     <td className="text-center">
                       {p.order_id ? (
-                        <div className="text-[11px] text-emerald-600 tabular-nums font-medium flex items-center justify-center gap-1">
-                          <span className="w-1 h-1 rounded-full bg-emerald-400" />
+                        <div className="text-[12px] text-slate-400 tabular-nums">
                           {p.matched_at ? formatTime(p.matched_at) : '已匹配'}
                         </div>
                       ) : (
                         <button
                           onClick={() => { setMatchPaymentItem(p); setMatchOrderId(''); setMatchModalVisible(true); }}
-                          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-[12px] font-semibold text-[#434FCF] bg-[#434FCF]/[0.06] border border-[#434FCF]/15 rounded-full hover:bg-[#434FCF]/[0.12] hover:border-[#434FCF]/25 transition-all duration-200 cursor-pointer active:scale-[0.97]"
+                          className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-[12px] font-semibold text-[#434FCF] bg-[#434FCF]/[0.06] border border-[#434FCF]/20 rounded-xl hover:bg-[#434FCF]/[0.12] transition-all shadow-sm cursor-pointer active:scale-[0.97]"
                         >
                           <Link2 size={11} />
                           手动关联
@@ -573,20 +560,20 @@ export default function StaffPaymentsPage() {
           {payments.map((p) => {
             if (expandedId !== p.id || !p.order_id) return null;
             return (
-              <div key={`exp-${p.id}`} className="px-6 lg:px-8 py-5 bg-gradient-to-b from-[#434FCF]/[0.02] to-transparent border-b border-slate-100 animate-fade-in-up">
+              <div key={`exp-${p.id}`} className="px-6 lg:px-8 py-5 bg-[#434FCF]/[0.02] border-b border-slate-100 animate-fade-in-up">
                 {expandLoading ? (
-                  <div className="flex items-center justify-center gap-2.5 py-8 text-slate-400">
+                  <div className="flex items-center justify-center gap-2 py-6 text-slate-400">
                     <RefreshCw size={16} className="animate-spin text-[#434FCF]" />
-                    <span className="text-[13px] font-medium">加载订单详情...</span>
+                    <span className="text-sm font-medium">加载订单详情...</span>
                   </div>
                 ) : expandedOrder ? (() => {
                   const sc = STATUS_COLORS[expandedOrder.status] || STATUS_COLORS.PENDING;
                   return (
-                    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden">
-                      <div className="px-5 py-3.5 border-b border-slate-100 bg-slate-50/40 flex items-center justify-between">
-                        <div className="flex items-center gap-2.5">
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
                           <span className="text-[14px] font-bold text-slate-700">订单详情</span>
-                          <span className="text-[12px] text-slate-400 font-mono bg-slate-100/80 px-2 py-0.5 rounded-md">{expandedOrder.order_sn}</span>
+                          <span className="text-[12px] text-slate-400 font-mono">{expandedOrder.order_sn}</span>
                           <span
                             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border"
                             style={{ background: sc.bg, color: sc.text, borderColor: sc.border }}
@@ -635,28 +622,24 @@ export default function StaffPaymentsPage() {
         </div>
 
         {/* Pagination */}
-        <div className="bg-white/80 px-6 py-3.5 border-t border-slate-100 flex justify-between items-center">
-          <span className="text-[13px] text-slate-400">
-            共 <span className="font-bold text-slate-600 tabular-nums">{total}</span> 条记录
+        <div className="bg-surface-container-low px-6 py-3 border-t border-slate-200 flex justify-between items-center">
+          <span className="text-[13px] text-slate-500">
+            共 <span className="font-bold text-slate-700">{total}</span> 条记录
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
               disabled={currentPage === 0}
-              className={`inline-flex items-center gap-1 px-3.5 py-1.5 text-[12px] font-semibold rounded-lg border transition-all duration-200 ${currentPage === 0 ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300 cursor-pointer active:scale-[0.97] shadow-[0_1px_2px_rgba(0,0,0,0.04)]'}`}
+              className={`inline-flex items-center gap-1 px-3 py-1 text-[12px] font-semibold rounded-xl border border-slate-200 shadow-sm transition-all duration-150 ${currentPage === 0 ? 'bg-slate-50 text-slate-400 cursor-not-allowed opacity-50' : 'bg-white text-slate-700 hover:bg-slate-50 cursor-pointer active:scale-[0.98]'}`}
             >
               <ChevronLeft size={12} />
               上一页
             </button>
-            <span className="text-[13px] px-3 tabular-nums font-['Outfit',sans-serif]">
-              <span className="font-bold text-[#434FCF]">{currentPage + 1}</span>
-              <span className="text-slate-300 mx-1">/</span>
-              <span className="text-slate-500">{totalPages}</span>
-            </span>
+            <span className="text-[13px] text-slate-500 px-3">{currentPage + 1} / {totalPages}</span>
             <button
               onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
               disabled={currentPage >= totalPages - 1}
-              className={`inline-flex items-center gap-1 px-3.5 py-1.5 text-[12px] font-semibold rounded-lg border transition-all duration-200 ${currentPage >= totalPages - 1 ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300 cursor-pointer active:scale-[0.97] shadow-[0_1px_2px_rgba(0,0,0,0.04)]'}`}
+              className={`inline-flex items-center gap-1 px-3 py-1 text-[12px] font-semibold rounded-xl border border-slate-200 shadow-sm transition-all duration-150 ${currentPage >= totalPages - 1 ? 'bg-slate-50 text-slate-400 cursor-not-allowed opacity-50' : 'bg-white text-slate-700 hover:bg-slate-50 cursor-pointer active:scale-[0.98]'}`}
             >
               下一页
               <ChevronRight size={12} />
