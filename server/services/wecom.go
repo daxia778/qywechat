@@ -28,11 +28,10 @@ type WeComClient struct {
 	workApp    *work.Work // corpSecret: 消息/群聊/部门
 	contactApp *work.Work // contactSecret: 外部联系人
 
-	corpID        string
-	agentID       int
-	contactSecret string // 客户联系 secret（用于 raw HTTP fallback）
-	baseURL       string
-	httpClient    *http.Client
+	corpID     string
+	agentID    int
+	baseURL    string
+	httpClient *http.Client
 
 	appConfigured     bool
 	contactConfigured bool
@@ -75,11 +74,10 @@ func InitWecom() {
 	aesKey := config.C.WecomEncodingAESKey
 
 	w := &WeComClient{
-		corpID:        corpID,
-		agentID:       agentID,
-		contactSecret: contactSecret,
-		baseURL:       "https://qyapi.weixin.qq.com/cgi-bin",
-		httpClient:    &http.Client{Timeout: 15 * time.Second},
+		corpID:     corpID,
+		agentID:    agentID,
+		baseURL:    "https://qyapi.weixin.qq.com/cgi-bin",
+		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
 
 	// 初始化自建应用实例（消息/群聊/部门）
@@ -111,13 +109,11 @@ func InitWecom() {
 			Cache:   cache.NewMemCache("pdd-contact", 0, ""),
 		})
 		if err != nil {
-			log.Printf("企微客户联系 SDK 实例初始化失败(non-fatal): %v", err)
-			// SDK 初始化失败不阻断：raw HTTP 方式仍可用
+			log.Printf("企微客户联系实例初始化失败: %v", err)
 		} else {
 			w.contactApp = app
+			w.contactConfigured = true
 		}
-		// 只要有 secret 就标记为已配置，raw HTTP API 不依赖 SDK 实例
-		w.contactConfigured = true
 	}
 
 	Wecom = w
@@ -162,34 +158,12 @@ func (w *WeComClient) GetContactAccessToken() (string, error) {
 	if !w.contactConfigured {
 		return "", fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
 	}
-	// 优先用 SDK 实例获取 token
-	if w.contactApp != nil {
-		ctx := context.Background()
-		tokenResp, err := w.contactApp.GetAccessToken().GetToken(ctx, false)
-		if err == nil {
-			return tokenResp.AccessToken, nil
-		}
-		log.Printf("SDK 获取客户联系token失败，回退 raw HTTP: %v", err)
-	}
-	// Fallback: 直接调用企微 gettoken 接口
-	url := fmt.Sprintf("%s/gettoken?corpid=%s&corpsecret=%s", w.baseURL, w.corpID, w.contactSecret)
-	resp, err := w.httpClient.Get(url)
+	ctx := context.Background()
+	tokenResp, err := w.contactApp.GetAccessToken().GetToken(ctx, false)
 	if err != nil {
 		return "", fmt.Errorf("获取客户联系token失败: %w", err)
 	}
-	defer resp.Body.Close()
-	var result struct {
-		ErrCode     int    `json:"errcode"`
-		ErrMsg      string `json:"errmsg"`
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("解析token响应失败: %w", err)
-	}
-	if result.ErrCode != 0 {
-		return "", fmt.Errorf("获取客户联系token失败: errcode=%d errmsg=%s", result.ErrCode, result.ErrMsg)
-	}
-	return result.AccessToken, nil
+	return tokenResp.AccessToken, nil
 }
 
 // ─── 消息发送 ──────────────────────────
@@ -293,8 +267,8 @@ func (w *WeComClient) SendGroupMessage(chatID, content string) error {
 // ─── 外部联系人 ──────────────────────────
 
 func (w *WeComClient) CreateContactWay(state string, userIDs []string) (configID, qrCode string, err error) {
-	if !w.contactConfigured || w.contactApp == nil {
-		return "", "", fmt.Errorf("客户联系功能未开通或 SDK 未初始化")
+	if !w.contactConfigured {
+		return "", "", fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
 	}
 	ctx := context.Background()
 	resp, err := w.contactApp.ExternalContactContactWay.Add(ctx, &cwReq.RequestAddContactWay{
@@ -315,80 +289,37 @@ func (w *WeComClient) GetExternalContactList(userID string) ([]string, error) {
 	if !w.contactConfigured {
 		return nil, fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
 	}
-	// 优先用 SDK
-	if w.contactApp != nil {
-		ctx := context.Background()
-		resp, err := w.contactApp.ExternalContact.List(ctx, userID)
-		if err == nil {
-			return resp.ExternalUserID, nil
-		}
-		log.Printf("SDK 获取外部联系人列表失败，回退 raw HTTP: %v", err)
-	}
-	// Fallback: raw HTTP
-	token, err := w.GetContactAccessToken()
-	if err != nil {
-		return nil, err
-	}
-	url := fmt.Sprintf("%s/externalcontact/list?access_token=%s&userid=%s", w.baseURL, token, userID)
-	resp, err := w.httpClient.Get(url)
+	ctx := context.Background()
+	resp, err := w.contactApp.ExternalContact.List(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("获取外部联系人列表失败: %w", err)
 	}
-	defer resp.Body.Close()
-	var result struct {
-		ErrCode        int      `json:"errcode"`
-		ErrMsg         string   `json:"errmsg"`
-		ExternalUserID []string `json:"external_userid"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("解析外部联系人列表失败: %w", err)
-	}
-	if result.ErrCode != 0 {
-		return nil, fmt.Errorf("获取外部联系人列表失败: errcode=%d errmsg=%s", result.ErrCode, result.ErrMsg)
-	}
-	return result.ExternalUserID, nil
+	return resp.ExternalUserID, nil
 }
 
 func (w *WeComClient) GetExternalContactDetail(externalUserID string) (map[string]any, error) {
 	if !w.contactConfigured {
 		return nil, fmt.Errorf("客户联系功能未开通，请在企微后台配置 WECOM_CONTACT_SECRET")
 	}
-	// 优先用 SDK
-	if w.contactApp != nil {
-		ctx := context.Background()
-		resp, err := w.contactApp.ExternalContact.Get(ctx, externalUserID, "")
-		if err == nil {
-			data, _ := json.Marshal(resp)
-			var result map[string]any
-			json.Unmarshal(data, &result)
-			return result, nil
-		}
-		log.Printf("SDK 获取外部联系人详情失败，回退 raw HTTP: %v", err)
-	}
-	// Fallback: raw HTTP
-	token, err := w.GetContactAccessToken()
-	if err != nil {
-		return nil, err
-	}
-	url := fmt.Sprintf("%s/externalcontact/get?access_token=%s&external_userid=%s", w.baseURL, token, externalUserID)
-	resp, err := w.httpClient.Get(url)
+	ctx := context.Background()
+	resp, err := w.contactApp.ExternalContact.Get(ctx, externalUserID, "")
 	if err != nil {
 		return nil, fmt.Errorf("获取外部联系人详情失败: %w", err)
 	}
-	defer resp.Body.Close()
-	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("解析外部联系人详情失败: %w", err)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return nil, fmt.Errorf("序列化外部联系人数据失败: %w", err)
 	}
-	if errCode, ok := result["errcode"].(float64); ok && errCode != 0 {
-		return nil, fmt.Errorf("获取外部联系人详情失败: errcode=%.0f errmsg=%v", errCode, result["errmsg"])
+	var result map[string]any
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("反序列化外部联系人数据失败: %w", err)
 	}
 	return result, nil
 }
 
 func (w *WeComClient) SendWelcomeMessage(ctx context.Context, welcomeCode string, text string, attachments []WelcomeAttachment) error {
-	if !w.contactConfigured || w.contactApp == nil {
-		return fmt.Errorf("客户联系功能未配置或 SDK 未初始化")
+	if !w.contactConfigured {
+		return fmt.Errorf("客户联系功能未配置")
 	}
 	req := &mtReq.RequestSendWelcomeMsg{
 		WelcomeCode: welcomeCode,
@@ -405,8 +336,8 @@ func (w *WeComClient) SendWelcomeMessage(ctx context.Context, welcomeCode string
 }
 
 func (w *WeComClient) UpdateExternalContactRemark(userID, externalUserID string, remark, description, remarkCompany string) error {
-	if !w.contactConfigured || w.contactApp == nil {
-		return fmt.Errorf("客户联系功能未配置或 SDK 未初始化")
+	if !w.contactConfigured {
+		return fmt.Errorf("客户联系功能未配置")
 	}
 	ctx := context.Background()
 	_, err := w.contactApp.ExternalContact.Remark(ctx, &ecReq.RequestExternalContactRemark{
@@ -423,8 +354,8 @@ func (w *WeComClient) UpdateExternalContactRemark(userID, externalUserID string,
 }
 
 func (w *WeComClient) GetGroupChatDetail(chatID string) (map[string]any, error) {
-	if !w.contactConfigured || w.contactApp == nil {
-		return nil, fmt.Errorf("客户联系功能未配置或 SDK 未初始化")
+	if !w.contactConfigured {
+		return nil, fmt.Errorf("客户联系功能未配置")
 	}
 	ctx := context.Background()
 	resp, err := w.contactApp.ExternalContactGroupChat.Get(ctx, chatID, 1)
@@ -650,82 +581,6 @@ func (w *WeComClient) ConfigureNewGroup(chatID, groupName, newOwner string) erro
 		}
 	}
 	return nil
-}
-
-// ─── 在职继承（客户转接） ──────────────────────────
-
-// TransferCustomer 分配在职成员的客户给其他成员（在职继承）
-// handoverUserID: 原跟进成员 userid（如机器人账号）
-// takeoverUserID: 接替成员 userid（如吴泽华）
-// externalUserIDs: 客户的 external_userid 列表，每次最多100个
-// transferMsg: 转接成功后发送给客户的消息（可选）
-func (w *WeComClient) TransferCustomer(handoverUserID, takeoverUserID string, externalUserIDs []string, transferMsg string) ([]map[string]any, error) {
-	if !w.contactConfigured {
-		return nil, fmt.Errorf("客户联系功能未配置")
-	}
-	token, err := w.GetContactAccessToken()
-	if err != nil {
-		return nil, fmt.Errorf("获取客户联系token失败: %w", err)
-	}
-	url := fmt.Sprintf("%s/externalcontact/transfer_customer?access_token=%s", w.baseURL, token)
-	reqBody := map[string]any{
-		"handover_userid": handoverUserID,
-		"takeover_userid": takeoverUserID,
-		"external_userid": externalUserIDs,
-	}
-	if transferMsg != "" {
-		reqBody["transfer_success_msg"] = transferMsg
-	}
-	respBytes, err := w.postJSONRaw(url, reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("客户转接请求失败: %w", err)
-	}
-	var result struct {
-		ErrCode  int              `json:"errcode"`
-		ErrMsg   string           `json:"errmsg"`
-		Customer []map[string]any `json:"customer"`
-	}
-	if err := json.Unmarshal(respBytes, &result); err != nil {
-		return nil, fmt.Errorf("解析客户转接响应失败: %w", err)
-	}
-	if result.ErrCode != 0 {
-		return nil, fmt.Errorf("客户转接失败: errcode=%d errmsg=%s", result.ErrCode, result.ErrMsg)
-	}
-	log.Printf("客户转接完成 | from=%s → to=%s | count=%d | result=%v",
-		handoverUserID, takeoverUserID, len(externalUserIDs), result.Customer)
-	return result.Customer, nil
-}
-
-// TransferCustomerResult 查询客户接替状态
-func (w *WeComClient) TransferCustomerResult(handoverUserID, takeoverUserID string) ([]map[string]any, error) {
-	if !w.contactConfigured {
-		return nil, fmt.Errorf("客户联系功能未配置")
-	}
-	token, err := w.GetContactAccessToken()
-	if err != nil {
-		return nil, fmt.Errorf("获取客户联系token失败: %w", err)
-	}
-	url := fmt.Sprintf("%s/externalcontact/transfer_result?access_token=%s", w.baseURL, token)
-	reqBody := map[string]any{
-		"handover_userid": handoverUserID,
-		"takeover_userid": takeoverUserID,
-	}
-	respBytes, err := w.postJSONRaw(url, reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("查询转接结果失败: %w", err)
-	}
-	var result struct {
-		ErrCode  int              `json:"errcode"`
-		ErrMsg   string           `json:"errmsg"`
-		Customer []map[string]any `json:"customer"`
-	}
-	if err := json.Unmarshal(respBytes, &result); err != nil {
-		return nil, fmt.Errorf("解析转接结果响应失败: %w", err)
-	}
-	if result.ErrCode != 0 {
-		return nil, fmt.Errorf("查询转接结果失败: errcode=%d errmsg=%s", result.ErrCode, result.ErrMsg)
-	}
-	return result.Customer, nil
 }
 
 // ─── 诊断/测试方法 ──────────────────────────

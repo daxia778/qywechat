@@ -316,11 +316,6 @@ func main() {
 			admin.PUT("/wecom/groups/:chat_id/settings", handlers.AdminUpdateGroupSettings)
 			admin.POST("/wecom/groups/:chat_id/transfer", handlers.AdminTransferGroupOwner)
 
-			// 客户转接（在职继承）
-			admin.POST("/wecom/transfer_customer", handlers.AdminTransferCustomer)
-			admin.GET("/wecom/transfer_result", handlers.AdminGetTransferResult)
-			admin.GET("/wecom/external_contacts", handlers.AdminListExternalContacts)
-
 			// 企微数据查看
 			admin.GET("/wecom/members", handlers.ListWecomMembers)
 			admin.GET("/wecom/groups", handlers.ListWecomGroups)
