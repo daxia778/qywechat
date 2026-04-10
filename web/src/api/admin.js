@@ -59,6 +59,9 @@ export const dismissGrabAlert = (id) => client.put(`/admin/grab_alerts/${id}/dis
 export const batchDismissGrabAlerts = (ids) => client.put('/admin/grab_alerts/batch_dismiss', { ids });
 export const getTeamRoster = () => client.get('/admin/team_roster');
 
+// 企微通讯录
+export const listWecomMembers = (keyword) => client.get('/admin/wecom/members', { params: { keyword } });
+
 // 联系我管理
 export const createContactWay = (data) => client.post('/admin/contact_way', data);
 export const listContactWays = () => client.get('/admin/contact_ways');

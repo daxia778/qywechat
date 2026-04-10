@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
-import { listEmployees, createEmployee, updateEmployee, toggleEmployee, unbindDevice as apiUnbind, pauseActivationCode as apiPause, batchToggleEmployees, batchDeleteEmployees, resetPassword as apiResetPassword } from '../api/admin';
+import { listEmployees, createEmployee, updateEmployee, toggleEmployee, unbindDevice as apiUnbind, pauseActivationCode as apiPause, batchToggleEmployees, batchDeleteEmployees, resetPassword as apiResetPassword, listWecomMembers } from '../api/admin';
 import { ROLE_MAP, ROLE_CLASS_MAP, ROLE_AVATAR_CLASS_MAP, BADGE_VARIANT_CLASSES } from '../utils/constants';
 import { formatDate } from '../utils/formatters';
 import ConfirmModal from '../components/ConfirmModal';
@@ -30,6 +30,16 @@ export default function EmployeesPage() {
   const [adding, setAdding] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [form, setForm] = useState({ name: '', role: 'sales' });
+
+  // 企微联系人选择相关 state
+  const [addMode, setAddMode] = useState('wecom'); // 'wecom' | 'manual'
+  const [wecomKeyword, setWecomKeyword] = useState('');
+  const [wecomMembers, setWecomMembers] = useState([]);
+  const [wecomLoading, setWecomLoading] = useState(false);
+  const [selectedWecomMember, setSelectedWecomMember] = useState(null);
+  const [showWecomDropdown, setShowWecomDropdown] = useState(false);
+  const wecomSearchRef = useRef(null);
+  const wecomDropdownRef = useRef(null);
   const [credentialModal, setCredentialModal] = useState({ show: false, username: '', password: '', notice: '' });
   const [confirmModal, setConfirmModal] = useState({ show: false, title: '', message: '', type: 'info', confirmText: '确认' });
 
@@ -185,17 +195,58 @@ export default function EmployeesPage() {
     });
   };
 
+  // 企微联系人搜索（防抖）
+  useEffect(() => {
+    if (addMode !== 'wecom' || !showAddModal) return;
+    const timer = setTimeout(async () => {
+      setWecomLoading(true);
+      try {
+        const res = await listWecomMembers(wecomKeyword || '');
+        setWecomMembers(res.data?.data || []);
+      } catch (err) {
+        console.error('Failed to fetch wecom members:', err);
+      } finally {
+        setWecomLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [wecomKeyword, addMode, showAddModal]);
+
+  // 关闭企微下拉
+  useEffect(() => {
+    const handler = (e) => {
+      if (wecomDropdownRef.current && !wecomDropdownRef.current.contains(e.target) &&
+          wecomSearchRef.current && !wecomSearchRef.current.contains(e.target)) {
+        setShowWecomDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleSelectWecomMember = (member) => {
+    setSelectedWecomMember(member);
+    setForm((f) => ({ ...f, name: member.name }));
+    setShowWecomDropdown(false);
+    setWecomKeyword(member.name);
+  };
+
   const submitAdd = async (e) => {
     e.preventDefault();
     if (!form.name) return;
     setAdding(true);
     try {
-      const res = await createEmployee({ name: form.name, role: form.role });
+      const payload = { name: form.name, role: form.role };
+      if (addMode === 'wecom' && selectedWecomMember) {
+        payload.wecom_userid = selectedWecomMember.userid;
+      }
+      const res = await createEmployee(payload);
       setShowAddModal(false);
-      // V2: 后端返回 { employee, username, password, notice }
       const { username, password, notice } = res.data;
       setCredentialModal({ show: true, username: username || '', password: password || '', notice: notice || '' });
       setForm({ name: '', role: 'sales' });
+      setSelectedWecomMember(null);
+      setWecomKeyword('');
       fetchEmployees();
     } catch (err) { toast('添加失败: ' + (err.displayMessage || err.message), 'error'); }
     finally { setAdding(false); }
@@ -485,15 +536,110 @@ export default function EmployeesPage() {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-fade-in-up">
             <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
               <h3 className="text-lg font-bold text-slate-800 font-[Outfit]">添加成员</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600 bg-transparent py-1 px-1 -mr-2 rounded hover:bg-slate-200 transition-colors">
+              <button onClick={() => { setShowAddModal(false); setSelectedWecomMember(null); setWecomKeyword(''); }} className="text-slate-400 hover:text-slate-600 bg-transparent py-1 px-1 -mr-2 rounded hover:bg-slate-200 transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
             <form onSubmit={submitAdd} className="p-6">
+              {/* 添加方式切换 */}
               <div className="mb-5">
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">姓名</label>
-                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} type="text" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10" placeholder="员工真实姓名" required />
+                <label className="block text-sm font-semibold text-slate-700 mb-2">添加方式</label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => { setAddMode('wecom'); setSelectedWecomMember(null); setForm(f => ({ ...f, name: '' })); }}
+                    className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg border transition-all duration-150 ${
+                      addMode === 'wecom' ? 'bg-brand-50 border-brand-300 text-brand-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                    }`}>企微通讯录选择</button>
+                  <button type="button" onClick={() => { setAddMode('manual'); setSelectedWecomMember(null); setForm(f => ({ ...f, name: '' })); }}
+                    className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg border transition-all duration-150 ${
+                      addMode === 'manual' ? 'bg-brand-50 border-brand-300 text-brand-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                    }`}>手动输入</button>
+                </div>
               </div>
+
+              {/* 企微选择模式 */}
+              {addMode === 'wecom' && (
+                <div className="mb-5">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">选择企微联系人</label>
+                  <div className="relative">
+                    <div className="relative" ref={wecomSearchRef}>
+                      <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                      <input
+                        value={wecomKeyword}
+                        onChange={(e) => { setWecomKeyword(e.target.value); setSelectedWecomMember(null); setShowWecomDropdown(true); }}
+                        onFocus={() => setShowWecomDropdown(true)}
+                        type="text"
+                        className="w-full pl-10 pr-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+                        placeholder="搜索姓名或企微ID..."
+                        autoComplete="off"
+                      />
+                    </div>
+                    {showWecomDropdown && (
+                      <div ref={wecomDropdownRef} className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                        {wecomLoading ? (
+                          <div className="px-4 py-6 text-center text-sm text-slate-400">
+                            <div className="inline-block w-4 h-4 border-2 border-slate-200 border-t-brand-500 rounded-full animate-spin mr-2" />搜索中...
+                          </div>
+                        ) : wecomMembers.length === 0 ? (
+                          <div className="px-4 py-6 text-center text-sm text-slate-400">暂无企微通讯录数据</div>
+                        ) : (
+                          wecomMembers.map((m) => (
+                            <button
+                              key={m.userid}
+                              type="button"
+                              disabled={m.is_employee}
+                              onClick={() => handleSelectWecomMember(m)}
+                              className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors border-b border-slate-50 last:border-b-0 ${
+                                m.is_employee
+                                  ? 'bg-slate-50 cursor-not-allowed opacity-50'
+                                  : selectedWecomMember?.userid === m.userid
+                                  ? 'bg-brand-50'
+                                  : 'hover:bg-slate-50 cursor-pointer'
+                              }`}
+                            >
+                              {m.avatar ? (
+                                <img src={m.avatar} alt={m.name} className="w-8 h-8 rounded-full object-cover shrink-0" />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ background: getAvatarColor(m.name) }}>
+                                  {(m.name || '?').slice(0, 1)}
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium text-slate-800 truncate">{m.name}</div>
+                                <div className="text-xs text-slate-400 truncate">
+                                  {m.position || m.userid}
+                                  {m.mobile && ` · ${m.mobile}`}
+                                </div>
+                              </div>
+                              {m.is_employee && (
+                                <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">已添加</span>
+                              )}
+                              {selectedWecomMember?.userid === m.userid && !m.is_employee && (
+                                <svg className="w-5 h-5 text-brand-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                              )}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {selectedWecomMember && (
+                    <div className="mt-2 flex items-center gap-2 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2">
+                      <svg className="w-4 h-4 text-brand-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                      <span className="text-sm font-medium text-brand-700">已选择: {selectedWecomMember.name}</span>
+                      <span className="text-xs text-brand-400">({selectedWecomMember.userid})</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 手动输入模式 */}
+              {addMode === 'manual' && (
+                <div className="mb-5">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">姓名</label>
+                  <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} type="text" className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10" placeholder="员工真实姓名" required />
+                </div>
+              )}
+
               <div className="mb-5">
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">系统角色</label>
                 <div className="relative">
@@ -506,11 +652,13 @@ export default function EmployeesPage() {
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
                   </div>
                 </div>
-                <p className="text-xs text-slate-400 mt-1.5">系统将自动生成登录账号和随机密码</p>
+                <p className="text-xs text-slate-400 mt-1.5">
+                  {addMode === 'wecom' ? '将使用企微UserID作为登录账号，系统自动生成随机密码' : '系统将自动生成登录账号和随机密码'}
+                </p>
               </div>
               <div className="mt-8 flex justify-end gap-3">
-                <button type="button" onClick={() => setShowAddModal(false)} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm">取消</button>
-                <button type="submit" className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm" disabled={adding}>
+                <button type="button" onClick={() => { setShowAddModal(false); setSelectedWecomMember(null); setWecomKeyword(''); }} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 cursor-pointer shadow-sm">取消</button>
+                <button type="submit" className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-500 hover:bg-brand-600 transition-all duration-150 cursor-pointer border-none shadow-sm" disabled={adding || (addMode === 'wecom' && !selectedWecomMember)}>
                   {adding ? '保存中...' : '创建员工'}
                 </button>
               </div>

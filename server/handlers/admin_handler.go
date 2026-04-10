@@ -40,8 +40,9 @@ func GetRevenueChart(c *gin.Context) {
 // ─── 员工管理 ──────────────────────────────────────────
 
 type CreateEmployeeReq struct {
-	Name string `json:"name" binding:"required"`
-	Role string `json:"role" binding:"required"`
+	Name        string `json:"name" binding:"required"`
+	Role        string `json:"role" binding:"required"`
+	WecomUserID string `json:"wecom_userid"` // 可选: 企微通讯录 UserID，关联企微身份
 }
 
 type UpdateEmployeeReq struct {
@@ -175,18 +176,36 @@ func CreateEmployee(c *gin.Context) {
 		return
 	}
 
+	// 如果指定了企微 UserID，检查是否已被关联
+	if req.WecomUserID != "" {
+		var exists int64
+		models.DB.Model(&models.Employee{}).Where("wecom_userid = ?", req.WecomUserID).Count(&exists)
+		if exists > 0 {
+			badRequest(c, "该企微成员已关联为系统员工")
+			return
+		}
+	}
+
 	// 在同一个写事务内生成用户名并创建员工，防止并发竞态产生重复用户名
 	var emp models.Employee
 	var username string
 	if err := models.WriteTx(func(tx *gorm.DB) error {
 		if req.Role == "admin" {
 			username = "admin"
+		} else if req.WecomUserID != "" {
+			// 使用企微 UserID 作为用户名
+			username = req.WecomUserID
 		} else {
 			username = generateUsernameTx(tx, req.Role)
 		}
 
+		wecomUID := username
+		if req.WecomUserID != "" {
+			wecomUID = req.WecomUserID
+		}
+
 		emp = models.Employee{
-			WecomUserID:  username,
+			WecomUserID:  wecomUID,
 			Name:         req.Name,
 			Role:         req.Role,
 			Username:     username,
@@ -501,7 +520,7 @@ func ListActivationCodes(c *gin.Context) {
 	status := c.Query("status")
 	keyword := c.Query("keyword")
 	var employees []models.Employee
-	query := models.DB.Where("role != 'admin'")
+	query := models.DB.Where("role NOT IN ?", []string{"admin", "designer"})
 	switch status {
 	case "bound":
 		query = query.Where("machine_id != ''")
@@ -716,7 +735,7 @@ func RegenerateActivationCode(c *gin.Context) {
 // ─── 企微数据查看 ──────────────────────────────────────────
 
 // ListWecomMembers GET /api/v1/admin/wecom/members
-// 查看企微通讯录成员
+// 查看企微通讯录成员（附带是否已关联为系统员工的标记）
 func ListWecomMembers(c *gin.Context) {
 	keyword := c.Query("keyword")
 	query := models.DB.Model(&models.WecomMember{})
@@ -726,7 +745,31 @@ func ListWecomMembers(c *gin.Context) {
 	}
 	var members []models.WecomMember
 	query.Order("name ASC").Find(&members)
-	respondList(c, members, len(members))
+
+	// 查询已关联为员工的企微 UserID 集合
+	var linkedIDs []string
+	models.DB.Model(&models.Employee{}).Where("wecom_userid != ''").Pluck("wecom_userid", &linkedIDs)
+	linkedSet := make(map[string]bool, len(linkedIDs))
+	for _, id := range linkedIDs {
+		linkedSet[id] = true
+	}
+
+	// 组装响应，附加 is_employee 标记
+	result := make([]gin.H, 0, len(members))
+	for _, m := range members {
+		result = append(result, gin.H{
+			"id":          m.ID,
+			"userid":      m.UserID,
+			"name":        m.Name,
+			"department":  m.Department,
+			"position":    m.Position,
+			"mobile":      m.Mobile,
+			"avatar":      m.Avatar,
+			"status":      m.Status,
+			"is_employee": linkedSet[m.UserID],
+		})
+	}
+	respondList(c, result, len(result))
 }
 
 // ListWecomGroups GET /api/v1/admin/wecom/groups
