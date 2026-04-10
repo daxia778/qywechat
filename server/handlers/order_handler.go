@@ -1205,3 +1205,31 @@ func CreateOrderGroup(c *gin.Context) {
 		Payload: order,
 	})
 }
+
+// ─── AI 文本智能解析 ──────────────────────────────────
+
+// ParseOrderText 从自由文本中提取结构化订单信息
+// POST /api/v1/orders/parse_text
+func ParseOrderText(c *gin.Context) {
+	var body struct {
+		Text string `json:"text" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		badRequest(c, "请提供待解析文本 (text)")
+		return
+	}
+
+	if len(body.Text) > 2000 {
+		badRequest(c, "文本长度不能超过 2000 字符")
+		return
+	}
+
+	result, err := services.ParseOrderText(body.Text)
+	if err != nil {
+		log.Printf("ParseOrderText 解析失败: %v", err)
+		badRequest(c, "文本解析失败: "+err.Error())
+		return
+	}
+
+	respondOK(c, result)
+}

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react';
+import { createPortal } from 'react-dom';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { listEmployees, createEmployee, updateEmployee, toggleEmployee, unbindDevice as apiUnbind, pauseActivationCode as apiPause, batchToggleEmployees, batchDeleteEmployees, resetPassword as apiResetPassword, listWecomMembers } from '../api/admin';
@@ -350,7 +351,7 @@ export default function EmployeesPage() {
       />
 
       {/* Credential Modal (V2: shows username + password) */}
-      {credentialModal.show && (
+      {credentialModal.show && createPortal(
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center p-4"
           onClick={() => setCredentialModal({ show: false, username: '', password: '', notice: '' })}
@@ -396,7 +397,7 @@ export default function EmployeesPage() {
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
       {/* Title */}
       <PageHeader title="员工管理" subtitle="团队成员与权限管理">
@@ -531,7 +532,7 @@ export default function EmployeesPage() {
       </div>
 
       {/* Add Modal */}
-      {showAddModal && (
+      {showAddModal && createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-fade-in-up">
             <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
@@ -665,7 +666,7 @@ export default function EmployeesPage() {
             </form>
           </div>
         </div>
-      )}
+      , document.body)}
     </div>
   );
 }

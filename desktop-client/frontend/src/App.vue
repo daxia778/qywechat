@@ -121,6 +121,21 @@ const state = reactive({
   followStaffList: [],
   followStaffLoading: false,
 
+  // AI 文本解析
+  noteText: '',            // 原始输入文本
+  parsedResult: null,      // AI 解析结果 {contact, theme, pages, deadline, remark, ...}
+  parseLoading: false,     // 正在解析中
+  parsedConfirmed: false,  // 用户已确认解析结果
+  lastParsedHash: '',      // 上次解析的文本哈希（防重复调用）
+  // 确认后的可编辑字段
+  editFields: {
+    contact: '',
+    theme: '',
+    pages: '',
+    deadline: '',
+    remark: '',
+  },
+
   // 备注图片附件
   attachments: [],        // [{url: '服务端URL', preview: 'base64预览'}]
   attachmentUploading: false,
@@ -507,6 +522,80 @@ const removeAttachment = (index) => {
   state.attachments.splice(index, 1);
 };
 
+// ══ AI 文本智能解析 ══
+const simpleHash = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash |= 0;
+  }
+  return hash.toString(36);
+};
+
+const handleParseText = async () => {
+  const text = state.noteText.trim();
+  if (!text) {
+    showToast('请先输入订单备注信息', 'error');
+    return;
+  }
+
+  // 防止重复解析相同文本
+  const hash = simpleHash(text);
+  if (hash === state.lastParsedHash && state.parsedResult) {
+    showToast('文本未变化，使用上次解析结果', 'success');
+    return;
+  }
+
+  state.parseLoading = true;
+  state.parsedConfirmed = false;
+  try {
+    const res = await window.go.main.App.ParseOrderText(text);
+    if (res.error) {
+      showToast('AI 解析失败: ' + res.error, 'error');
+      return;
+    }
+    state.parsedResult = res;
+    state.lastParsedHash = hash;
+    // 填充可编辑字段
+    state.editFields = {
+      contact: res.contact || '',
+      theme: res.theme || '',
+      pages: res.pages > 0 ? String(res.pages) : '',
+      deadline: res.deadline || '',
+      remark: res.remark || '',
+    };
+    if (res.from_cache) {
+      showToast('✅ 已从缓存加载解析结果（节省 Token）');
+    } else {
+      showToast('✅ AI 智能解析完成，请确认信息');
+    }
+  } catch (err) {
+    showToast('解析异常: ' + err, 'error');
+  } finally {
+    state.parseLoading = false;
+  }
+};
+
+const confirmParsedResult = () => {
+  if (!state.editFields.contact) {
+    showToast('请填写客户联系方式（必填）', 'error');
+    return;
+  }
+  state.parsedConfirmed = true;
+  // 将确认后的联系方式同步到 form.customerContact
+  state.form.customerContact = state.editFields.contact;
+  showToast('✅ 信息已确认');
+};
+
+const resetParsedResult = () => {
+  state.parsedResult = null;
+  state.parsedConfirmed = false;
+  state.lastParsedHash = '';
+  state.editFields = { contact: '', theme: '', pages: '', deadline: '', remark: '' };
+  state.form.customerContact = '';
+};
+
 const submit = async () => {
   const manualMode = state.ocrRetryCount >= 3;
   if (!state.priceLocked && !manualMode) {
@@ -517,7 +606,8 @@ const submit = async () => {
     showToast('手动模式下请填写完整订单号和金额', 'error');
     return;
   }
-  if (!state.form.customerContact) {
+  // 确保已有联系方式（通过 AI 解析或手动输入）
+  if (!state.form.customerContact && !state.noteText.trim()) {
     showToast('请填写订单备注信息', 'error');
     return;
   }
@@ -528,15 +618,31 @@ const submit = async () => {
 
   state.submitLoading = true;
 
+  // 构造 customerContact：如果有结构化数据则格式化，否则用原始文本
+  let customerContact = state.form.customerContact || state.noteText.trim();
+  if (state.parsedConfirmed && state.editFields.contact) {
+    customerContact = state.editFields.contact;
+  }
+
   try {
+    // 提取结构化数据
+    const topic = state.parsedConfirmed ? (state.editFields.theme || '') : '';
+    const pages = state.parsedConfirmed ? (parseInt(state.editFields.pages) || 0) : 0;
+    const deadline = state.parsedConfirmed ? (state.editFields.deadline || '') : '';
+    const remark = state.parsedConfirmed ? (state.editFields.remark || '') : state.noteText.trim();
+
     const res = await window.go.main.App.SubmitOrder(
       state.orderSn,
-      state.form.customerContact,
+      customerContact,
       state.form.followStaffUID,
       state.price,
       state.attachments.map(a => a.url),
       state.screenshotUrl,
-      state.screenshotHash
+      state.screenshotHash,
+      topic,
+      pages,
+      deadline,
+      remark
     );
 
     if (res.success) {
@@ -552,6 +658,11 @@ const submit = async () => {
       state.screenshotHash = '';
       state.orderTime = '';
       state.ocrRetryCount = 0;
+      state.noteText = '';
+      state.parsedResult = null;
+      state.parsedConfirmed = false;
+      state.lastParsedHash = '';
+      state.editFields = { contact: '', theme: '', pages: '', deadline: '', remark: '' };
       state.form = { customerContact: '', followStaffUID: '' };
     } else {
       showToast(res.message, 'error');
@@ -689,13 +800,64 @@ const submit = async () => {
           <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
           顾客与建群信息
         </div>
-        <div class="form-group">
+
+        <!-- ═══ Step 1: 原始文本输入 ═══ -->
+        <div class="form-group" v-if="!state.parsedResult">
           <label class="form-label">订单备注信息 <span style="color:red">*</span></label>
-          <textarea v-model="state.form.customerContact" class="form-textarea" rows="5" placeholder="请填写以下信息：&#10;顾客微信号/手机号：&#10;PPT主题：&#10;大约页数：&#10;交付时间：&#10;其他备注：" @paste="handleAttachmentPaste"></textarea>
+          <textarea v-model="state.noteText" class="form-textarea" rows="4" placeholder="直接粘贴客户沟通内容，例如：&#10;客户微信 wxid_abc123 做一个喜茶风格路演PPT 20页 后天要&#10;&#10;输入完成后点击下方「AI 智能提取」按钮" @paste="handleAttachmentPaste"></textarea>
+          <button class="btn btn-ai-parse" @click="handleParseText" :disabled="state.parseLoading || !state.noteText.trim()">
+            <span v-if="state.parseLoading" class="spinner" style="width: 14px; height: 14px; border-width: 2px; border-top-color: #fff;"></span>
+            {{ state.parseLoading ? 'AI 正在识别...' : '✦ AI 智能提取' }}
+          </button>
         </div>
 
+        <!-- ═══ Step 2: AI 解析结果 ═══ -->
+        <template v-if="state.parsedResult">
+          <div class="parsed-status-bar">
+            <span class="parsed-badge" :class="state.parsedResult.confidence">
+              {{ state.parsedResult.confidence === 'high' ? '● AI 高置信度' : state.parsedResult.confidence === 'medium' ? '● 正则提取' : '● 低置信度' }}
+            </span>
+            <span v-if="state.parsedResult.from_cache" class="parsed-cache-tag">已缓存</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">联系方式 <span v-if="!state.editFields.contact" class="field-required">必填</span></label>
+            <input v-model="state.editFields.contact" class="form-input" :class="{ 'input-warning': !state.editFields.contact }" placeholder="微信号或手机号" :disabled="state.parsedConfirmed" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">PPT 主题</label>
+            <input v-model="state.editFields.theme" class="form-input" placeholder="设计需求描述" :disabled="state.parsedConfirmed" />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">页数</label>
+              <input v-model="state.editFields.pages" class="form-input" placeholder="页数" type="number" :disabled="state.parsedConfirmed" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">交付时间</label>
+              <input v-model="state.editFields.deadline" class="form-input" placeholder="如: 明天、后天" :disabled="state.parsedConfirmed" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">备注</label>
+            <input v-model="state.editFields.remark" class="form-input" placeholder="其他补充信息" :disabled="state.parsedConfirmed" />
+          </div>
+
+          <div class="parsed-actions">
+            <button v-if="!state.parsedConfirmed" class="btn btn-secondary" @click="resetParsedResult">重新编辑</button>
+            <button v-if="!state.parsedConfirmed" class="btn btn-primary" @click="confirmParsedResult">确认信息</button>
+            <div v-else class="parsed-confirmed-badge">
+              ✓ 信息已确认
+              <button class="btn-link" @click="state.parsedConfirmed = false">修改</button>
+            </div>
+          </div>
+        </template>
+
         <!-- 选择跟单客服建群 -->
-        <div class="form-group">
+        <div class="form-group section-divider">
           <label class="form-label">
             确认后台在线的跟单客服 <span style="color:red">*</span>
             <button class="btn-refresh-staff" @click="loadFollowStaff" :disabled="state.followStaffLoading" title="刷新列表">
@@ -1158,5 +1320,126 @@ const submit = async () => {
   border-radius: 8px;
   border: 1px dashed #e2e8f0;
 }
+
+/* ═══ AI 解析 ═══ */
+.btn-ai-parse {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px;
+  background: linear-gradient(135deg, #1A1A2E, #16213E);
+  color: white;
+  border: none;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+}
+.btn-ai-parse:hover:not(:disabled) {
+  background: linear-gradient(135deg, #16213E, #0F3460);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2);
+}
+.btn-ai-parse:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.parsed-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.parsed-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.parsed-badge.high {
+  background: rgba(7, 193, 96, 0.1);
+  color: var(--accent);
+  border: 1px solid rgba(7, 193, 96, 0.2);
+}
+.parsed-badge.medium {
+  background: rgba(255, 152, 0, 0.1);
+  color: #e68a00;
+  border: 1px solid rgba(255, 152, 0, 0.2);
+}
+.parsed-badge.low {
+  background: rgba(250, 81, 81, 0.1);
+  color: var(--danger);
+  border: 1px solid rgba(250, 81, 81, 0.15);
+}
+.parsed-cache-tag {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 3px 8px;
+  background: var(--bg-input);
+  border-radius: 10px;
+}
+.field-required {
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 500;
+}
+.input-warning {
+  border-color: var(--warning) !important;
+  background: #FFFAF0 !important;
+}
+.parsed-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 2px;
+}
+.parsed-actions .btn {
+  flex: 1;
+}
+.parsed-confirmed-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  padding: 10px;
+  background: rgba(7, 193, 96, 0.08);
+  color: var(--accent);
+  border: 1px solid rgba(7, 193, 96, 0.15);
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  font-weight: 500;
+}
+.btn-link:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+/* 区域分隔线 */
+.section-divider {
+  margin-top: 6px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+
+
 
 </style>

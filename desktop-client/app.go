@@ -497,20 +497,20 @@ type SubmitResult struct {
 	OrderSN string `json:"order_sn"`
 }
 
-func (a *App) SubmitOrder(orderSN, customerContact, followStaffUID string, price int, attachmentURLs []string, screenshotPath string, screenshotHash string) *SubmitResult {
-	result := a.doSubmitOrder(orderSN, customerContact, followStaffUID, price, attachmentURLs, screenshotPath, screenshotHash)
+func (a *App) SubmitOrder(orderSN, customerContact, followStaffUID string, price int, attachmentURLs []string, screenshotPath string, screenshotHash string, topic string, pages int, deadline string, remark string) *SubmitResult {
+	result := a.doSubmitOrder(orderSN, customerContact, followStaffUID, price, attachmentURLs, screenshotPath, screenshotHash, topic, pages, deadline, remark)
 	// 401 时自动刷新 token 重试一次
 	if !result.Success && strings.Contains(result.Message, "401") {
 		log.Println("⚠️ 提交订单 401，尝试刷新 token 重试")
 		a.deviceLogin()
 		if a.token != "" {
-			return a.doSubmitOrder(orderSN, customerContact, followStaffUID, price, attachmentURLs, screenshotPath, screenshotHash)
+			return a.doSubmitOrder(orderSN, customerContact, followStaffUID, price, attachmentURLs, screenshotPath, screenshotHash, topic, pages, deadline, remark)
 		}
 	}
 	return result
 }
 
-func (a *App) doSubmitOrder(orderSN, customerContact, followStaffUID string, price int, attachmentURLs []string, screenshotPath string, screenshotHash string) *SubmitResult {
+func (a *App) doSubmitOrder(orderSN, customerContact, followStaffUID string, price int, attachmentURLs []string, screenshotPath string, screenshotHash string, topic string, pages int, deadline string, remark string) *SubmitResult {
 	payload := map[string]interface{}{
 		"order_sn":         orderSN,
 		"customer_contact": customerContact,
@@ -519,6 +519,10 @@ func (a *App) doSubmitOrder(orderSN, customerContact, followStaffUID string, pri
 		"attachment_urls":  attachmentURLs,
 		"screenshot_url":   screenshotPath,
 		"screenshot_hash":  screenshotHash,
+		"topic":            topic,
+		"pages":            pages,
+		"deadline":         deadline,
+		"remark":           remark,
 	}
 	body, _ := json.Marshal(payload)
 
@@ -678,6 +682,82 @@ func (a *App) SelectAttachmentFile() string {
 		return ""
 	}
 	return selection
+}
+
+// ─── AI 文本智能解析 ────────────────────────
+
+type ParseTextResult struct {
+	Contact     string `json:"contact"`
+	ContactType string `json:"contact_type"`
+	Theme       string `json:"theme"`
+	Pages       int    `json:"pages"`
+	Deadline    string `json:"deadline"`
+	Remark      string `json:"remark"`
+	RawText     string `json:"raw_text"`
+	Confidence  string `json:"confidence"`
+	FromCache   bool   `json:"from_cache"`
+	Error       string `json:"error,omitempty"`
+}
+
+// ParseOrderText 调用后端 AI 文本解析接口
+func (a *App) ParseOrderText(text string) *ParseTextResult {
+	result := a.doParseOrderText(text)
+	// 401 时自动刷新 token 重试一次
+	if result.Error != "" && strings.Contains(result.Error, "401") {
+		log.Println("⚠️ 文本解析 401，尝试刷新 token 重试")
+		a.deviceLogin()
+		if a.token != "" {
+			return a.doParseOrderText(text)
+		}
+	}
+	return result
+}
+
+func (a *App) doParseOrderText(text string) *ParseTextResult {
+	payload := map[string]string{"text": text}
+	body, _ := json.Marshal(payload)
+
+	req, _ := http.NewRequest("POST", a.serverURL+"/api/v1/orders/parse_text", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if a.token != "" {
+		req.Header.Set("Authorization", "Bearer "+a.token)
+	}
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return &ParseTextResult{Error: "网络请求失败: " + err.Error()}
+	}
+	defer resp.Body.Close()
+
+	// 读取原始响应用于调试
+	respBody, _ := io.ReadAll(resp.Body)
+	log.Printf("📡 parse_text 响应: status=%d body=%s", resp.StatusCode, string(respBody))
+
+	if resp.StatusCode != 200 {
+		// 错误响应格式: {"code":"BAD_REQUEST","message":"..."}
+		var errResp struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+			Error   string `json:"error"`
+		}
+		json.Unmarshal(respBody, &errResp)
+		errMsg := "解析失败: HTTP " + strconv.Itoa(resp.StatusCode)
+		if errResp.Message != "" {
+			errMsg = errResp.Message
+		} else if errResp.Error != "" {
+			errMsg = errResp.Error
+		}
+		return &ParseTextResult{Error: errMsg}
+	}
+
+	// 成功响应: respondOK 直接返回结构体（不包裹 data 字段）
+	var result ParseTextResult
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return &ParseTextResult{Error: "解析响应失败: " + err.Error()}
+	}
+
+	return &result
 }
 
 // ─── 配置服务器地址 ────────────────────────

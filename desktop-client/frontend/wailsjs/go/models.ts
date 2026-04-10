@@ -67,6 +67,7 @@ export namespace main {
 	    order_time: string;
 	    confidence: number;
 	    screenshot_url: string;
+	    screenshot_hash: string;
 	    error?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -81,6 +82,37 @@ export namespace main {
 	        this.order_time = source["order_time"];
 	        this.confidence = source["confidence"];
 	        this.screenshot_url = source["screenshot_url"];
+	        this.screenshot_hash = source["screenshot_hash"];
+	        this.error = source["error"];
+	    }
+	}
+	export class ParseTextResult {
+	    contact: string;
+	    contact_type: string;
+	    theme: string;
+	    pages: number;
+	    deadline: string;
+	    remark: string;
+	    raw_text: string;
+	    confidence: string;
+	    from_cache: boolean;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ParseTextResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.contact = source["contact"];
+	        this.contact_type = source["contact_type"];
+	        this.theme = source["theme"];
+	        this.pages = source["pages"];
+	        this.deadline = source["deadline"];
+	        this.remark = source["remark"];
+	        this.raw_text = source["raw_text"];
+	        this.confidence = source["confidence"];
+	        this.from_cache = source["from_cache"];
 	        this.error = source["error"];
 	    }
 	}

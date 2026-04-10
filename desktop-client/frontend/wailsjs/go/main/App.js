@@ -42,6 +42,10 @@ export function IsLoggedIn() {
   return window['go']['main']['App']['IsLoggedIn']();
 }
 
+export function ParseOrderText(arg1) {
+  return window['go']['main']['App']['ParseOrderText'](arg1);
+}
+
 export function SelectAttachmentFile() {
   return window['go']['main']['App']['SelectAttachmentFile']();
 }
@@ -54,8 +58,8 @@ export function SetServerURL(arg1) {
   return window['go']['main']['App']['SetServerURL'](arg1);
 }
 
-export function SubmitOrder(arg1, arg2, arg3, arg4, arg5, arg6) {
-  return window['go']['main']['App']['SubmitOrder'](arg1, arg2, arg3, arg4, arg5, arg6);
+export function SubmitOrder(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11) {
+  return window['go']['main']['App']['SubmitOrder'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
 }
 
 export function UploadAttachmentBase64(arg1) {

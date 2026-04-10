@@ -195,6 +195,7 @@ func main() {
 		{
 			orderAuth.POST("/upload_ocr", handlers.UploadOCR)
 			orderAuth.POST("/upload_attachment", handlers.UploadAttachment)
+			orderAuth.POST("/parse_text", handlers.ParseOrderText)
 			orderAuth.GET("/list", handlers.ListOrders)
 			orderAuth.GET("/:id", handlers.GetOrder)
 			orderAuth.POST("/create", handlers.CreateOrder)

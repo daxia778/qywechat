@@ -50,3 +50,4 @@ server/server.log
 *.log
 PHASE1-DEV-GUIDE.md
 *.py
+desktop-client/build/bin/

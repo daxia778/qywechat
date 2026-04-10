@@ -22,13 +22,15 @@ export function GetServerURL():Promise<string>;
 
 export function IsLoggedIn():Promise<boolean>;
 
+export function ParseOrderText(arg1:string):Promise<main.ParseTextResult>;
+
 export function SelectAttachmentFile():Promise<string>;
 
 export function SelectScreenshotFile():Promise<string>;
 
 export function SetServerURL(arg1:string):Promise<void>;
 
-export function SubmitOrder(arg1:string,arg2:string,arg3:string,arg4:number,arg5:Array<string>,arg6:string):Promise<main.SubmitResult>;
+export function SubmitOrder(arg1:string,arg2:string,arg3:string,arg4:number,arg5:Array<string>,arg6:string,arg7:string,arg8:string,arg9:number,arg10:string,arg11:string):Promise<main.SubmitResult>;
 
 export function UploadAttachmentBase64(arg1:string):Promise<main.UploadAttachmentResult>;
 
