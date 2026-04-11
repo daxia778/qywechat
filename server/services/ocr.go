@@ -18,8 +18,8 @@ import (
 	"pdd-order-system/config"
 )
 
-var ocrClient = &http.Client{Timeout: 15 * time.Second}
-var visionClient = &http.Client{Timeout: 30 * time.Second}
+var ocrClient = &http.Client{Timeout: 30 * time.Second}    // GLM-OCR layout_parsing
+var visionClient = &http.Client{Timeout: 60 * time.Second}  // GLM-4V-Flash / 通义千问 VL
 
 // OCRResult OCR 提取结果
 type OCRResult struct {

@@ -36,21 +36,38 @@ type App struct {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	transport := &http.Transport{
+	// 自定义 DNS 解析器：zhiyuanshijue.ltd 直连真实 IP
+	// 绕过 Clash TUN fake-ip 劫持导致的 TLS 超时
+	directDialer := &net.Dialer{Timeout: 10 * time.Second}
+	customDialContext := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, _ := net.SplitHostPort(addr)
+		if host == "zhiyuanshijue.ltd" || host == "www.zhiyuanshijue.ltd" {
+			addr = net.JoinHostPort("118.31.56.141", port)
+		}
+		return directDialer.DialContext(ctx, network, addr)
+	}
+
+	apiTransport := &http.Transport{
+		DialContext:         customDialContext,
 		MaxIdleConns:        5,
 		MaxIdleConnsPerHost: 5,
-		IdleConnTimeout:     120 * time.Second,
+		IdleConnTimeout:     90 * time.Second,
+	}
+	ocrTransport := &http.Transport{
+		DialContext:         customDialContext,
+		MaxIdleConns:        2,
+		MaxIdleConnsPerHost: 2,
+		IdleConnTimeout:     60 * time.Second,
 	}
 	return &App{
 		serverURL: "https://zhiyuanshijue.ltd",
 		httpClient: &http.Client{
 			Timeout:   30 * time.Second,
-			Transport: transport,
+			Transport: apiTransport,
 		},
-		// OCR/AI 请求需要更长超时（服务端调用大模型 ~2-15s）
 		ocrClient: &http.Client{
 			Timeout:   120 * time.Second,
-			Transport: transport, // 复用连接池
+			Transport: ocrTransport,
 		},
 	}
 }
@@ -212,6 +229,15 @@ func isAuthError(errMsg string) bool {
 		strings.Contains(errMsg, "Unauthorized")
 }
 
+// isConnectionError 判断是否为连接层错误（EOF/reset/timeout），可重试
+func isConnectionError(errMsg string) bool {
+	return strings.Contains(errMsg, "EOF") ||
+		strings.Contains(errMsg, "connection reset") ||
+		strings.Contains(errMsg, "broken pipe") ||
+		strings.Contains(errMsg, "connection refused") ||
+		strings.Contains(errMsg, "stream error")
+}
+
 // isTokenExpired 解析 JWT payload 检查是否过期（提前5分钟判定为过期）
 func (a *App) isTokenExpired(tokenStr string) bool {
 	parts := strings.SplitN(tokenStr, ".", 3)
@@ -356,10 +382,17 @@ type OCRResult struct {
 
 func (a *App) UploadScreenshot(filePath string) *OCRResult {
 	total := time.Now()
-	t0 := time.Now()
 	a.ensureFreshToken()
-	log.Printf("⏱️ ensureFreshToken: %v", time.Since(t0))
 	result := a.doUploadScreenshotFile(filePath)
+
+	// EOF/连接重置 → 自动重试（Nginx 关闭了空闲连接）
+	if result.Error != "" && isConnectionError(result.Error) {
+		log.Println("⚠️ OCR 连接异常 (EOF/reset)，重试中...")
+		time.Sleep(500 * time.Millisecond)
+		result = a.doUploadScreenshotFile(filePath)
+	}
+
+	// 401 认证失败 → 刷新 token 重试
 	if result.Error != "" && isAuthError(result.Error) {
 		log.Println("⚠️ OCR 上传认证失败，尝试刷新 token 重试")
 		a.deviceLogin()
@@ -429,10 +462,17 @@ func (a *App) doUploadScreenshotFile(filePath string) *OCRResult {
 // UploadScreenshotBase64 支持从剪贴板粘贴图片 (传入完整的 base64 data URI)
 func (a *App) UploadScreenshotBase64(b64DataURL string) *OCRResult {
 	total := time.Now()
-	t0 := time.Now()
 	a.ensureFreshToken()
-	log.Printf("⏱️ ensureFreshToken: %v", time.Since(t0))
 	result := a.doUploadScreenshotBase64(b64DataURL)
+
+	// EOF/连接重置 → 自动重试
+	if result.Error != "" && isConnectionError(result.Error) {
+		log.Println("⚠️ OCR(base64) 连接异常，重试中...")
+		time.Sleep(500 * time.Millisecond)
+		result = a.doUploadScreenshotBase64(b64DataURL)
+	}
+
+	// 401 认证失败 → 刷新 token 重试
 	if result.Error != "" && isAuthError(result.Error) {
 		log.Println("⚠️ OCR 上传认证失败，尝试刷新 token 重试")
 		a.deviceLogin()
