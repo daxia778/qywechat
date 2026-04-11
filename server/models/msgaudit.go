@@ -19,6 +19,7 @@ type ChatArchiveMessage struct {
 	MediaURL   string    `gorm:"column:media_url;type:text" json:"media_url,omitempty"`          // 下载后的本地图片/文件路径
 	MsgTime    time.Time `gorm:"column:msg_time;index:idx_archive_chat_msgtime" json:"msg_time"` // 消息发送时间
 	CreatedAt  time.Time `gorm:"index" json:"created_at"`                                        // 入库时间
+	IsDesigner bool      `gorm:"-" json:"is_designer,omitempty"`                                 // 是否为兼职设计师（仅响应展示，不入库）
 }
 
 // ChatArchiveCursor 会话存档拉取游标

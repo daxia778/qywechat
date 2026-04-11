@@ -269,7 +269,12 @@ func TestUpdateOrderStatus_CompleteFlow(t *testing.T) {
 	}
 
 	for _, step := range steps {
-		body, _ := json.Marshal(map[string]string{"status": step.status})
+		payload := map[string]string{"status": step.status}
+		// 退款状态需要填写原因
+		if step.status == models.StatusRefunded {
+			payload["refund_reason"] = "测试退款原因"
+		}
+		body, _ := json.Marshal(payload)
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Params = gin.Params{{Key: "id", Value: "1"}}

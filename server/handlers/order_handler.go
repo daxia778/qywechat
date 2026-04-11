@@ -230,6 +230,45 @@ func CreateOrder(c *gin.Context) {
 	}
 
 	respondOK(c, order)
+
+	// 异步通知跟单客服有新订单（WebSocket + 企微消息）
+	go func() {
+		// WebSocket 广播给所有在线用户
+		services.Hub.Broadcast(services.WSEvent{
+			Type:    "order_created",
+			Payload: order,
+		})
+
+		// 企微消息通知跟单客服
+		if order.FollowOperatorID != "" && services.Wecom.IsConfigured() {
+			operName := ""
+			if name, exists := c.Get("name"); exists {
+				operName, _ = name.(string)
+			}
+			msg := fmt.Sprintf("📋 新订单分配\n订单号: %s\n主题: %s\n价格: %.2f 元\n页数: %d\n谈单: %s\n客户联系方式: %s\n━━━━━━━━━━━━\n请尽快联系客户！",
+				order.OrderSN,
+				order.Topic,
+				float64(order.Price)/100,
+				order.Pages,
+				operName,
+				order.CustomerContact,
+			)
+			if err := services.Wecom.SendTextMessage([]string{order.FollowOperatorID}, msg); err != nil {
+				log.Printf("⚠️ 新订单通知跟单客服失败: sn=%s follow=%s err=%v", order.OrderSN, order.FollowOperatorID, err)
+			}
+
+			// 写入站内通知
+			models.WriteTx(func(tx *gorm.DB) error {
+				return tx.Create(&models.Notification{
+					UserID:   order.FollowOperatorID,
+					Title:    "新订单分配",
+					Content:  fmt.Sprintf("订单 %s (%s) 已分配给您，请尽快联系客户", order.OrderSN, order.Topic),
+					Category: "order",
+					RefID:    fmt.Sprintf("%d", order.ID),
+				}).Error
+			})
+		}
+	}()
 }
 
 type GrabOrderReq struct {

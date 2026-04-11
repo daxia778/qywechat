@@ -40,7 +40,7 @@ func (m *GrabMonitor) checkTimeoutGrabs() {
 	var orders []models.Order
 	models.DB.Where(
 		"status = ? AND assigned_at IS NOT NULL AND assigned_at < ? AND grab_alert_sent = ?",
-		models.StatusGroupCreated, threshold, false,
+		models.StatusPending, threshold, false,
 	).Find(&orders)
 
 	if len(orders) == 0 {
@@ -252,7 +252,7 @@ func GetGrabAlertsPaged(filter GrabAlertFilter) ([]map[string]any, int64, error)
 	if filter.AlertType == "" || filter.AlertType == "grab" {
 		q := models.DB.Where(
 			"status = ? AND assigned_at IS NOT NULL AND assigned_at < ?",
-			models.StatusGroupCreated, grabThreshold,
+			models.StatusPending, grabThreshold,
 		)
 		if filter.Dismissed == "true" {
 			q = q.Where("alert_dismissed = ?", true)
@@ -386,17 +386,17 @@ func GetGrabAlertStats() map[string]any {
 	// 抢单超时
 	models.DB.Model(&models.Order{}).Where(
 		"status = ? AND assigned_at IS NOT NULL AND assigned_at < ?",
-		models.StatusGroupCreated, grabThreshold,
+		models.StatusPending, grabThreshold,
 	).Count(&grabTotal)
 
 	models.DB.Model(&models.Order{}).Where(
 		"status = ? AND assigned_at IS NOT NULL AND assigned_at < ? AND (alert_dismissed = ? OR alert_dismissed IS NULL)",
-		models.StatusGroupCreated, grabThreshold, false,
+		models.StatusPending, grabThreshold, false,
 	).Count(&grabUndismissed)
 
 	models.DB.Model(&models.Order{}).Where(
 		"status = ? AND assigned_at IS NOT NULL AND assigned_at < ? AND assigned_at >= ?",
-		models.StatusGroupCreated, grabThreshold, todayStart,
+		models.StatusPending, grabThreshold, todayStart,
 	).Count(&grabToday)
 
 	// 设计超时
@@ -418,7 +418,7 @@ func GetGrabAlertStats() map[string]any {
 	// 本周告警总数
 	models.DB.Model(&models.Order{}).Where(
 		"(status = ? AND assigned_at IS NOT NULL AND assigned_at < ? AND assigned_at >= ?) OR (status = ? AND updated_at < ? AND updated_at >= ?)",
-		models.StatusGroupCreated, grabThreshold, weekStart,
+		models.StatusPending, grabThreshold, weekStart,
 		models.StatusDesigning, designingThreshold, weekStart,
 	).Count(&weekTotal)
 
@@ -462,7 +462,7 @@ func GetDesignerGrabStats() ([]map[string]any, error) {
 	var aggRows []AggRow
 	models.DB.Model(&models.Order{}).
 		Select("designer_id, COUNT(*) as total, SUM(CASE WHEN status = ? AND assigned_at IS NOT NULL AND assigned_at < ? THEN 1 ELSE 0 END) as timeout_count",
-			models.StatusGroupCreated, time.Now().Add(-threshold)).
+			models.StatusPending, time.Now().Add(-threshold)).
 		Where("designer_id != ''").
 		Group("designer_id").
 		Find(&aggRows)

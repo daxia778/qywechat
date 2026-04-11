@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"pdd-order-system/config"
@@ -14,7 +15,6 @@ import (
 	"pdd-order-system/services"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 // WecomMessage XML 回调消息结构
@@ -129,7 +129,7 @@ func WecomCallback(c *gin.Context) {
 }
 
 // handleAddExternalContact 处理外部联系人添加事件
-// 当客户通过「联系我」二维码添加企业员工时触发
+// 当客户通过「联系我」二维码添加企业员工时触发，或员工主动扫码添加返回
 func handleAddExternalContact(msg WecomMessage) {
 	externalUserID := msg.ExternalUserID
 	userID := msg.UserID
@@ -140,7 +140,7 @@ func handleAddExternalContact(msg WecomMessage) {
 
 	log.Printf("📥 收到外部联系人添加事件 | external_user_id=%s | user_id=%s | state=%s", externalUserID, userID, msg.State)
 
-	// 尝试从企微获取外部联系人详情（需要客户联系 Secret 已配置）
+	// 1. 尝试从企微获取外部联系人详情
 	nickname := ""
 	if services.Wecom.IsContactConfigured() {
 		detail, err := services.Wecom.GetExternalContactDetail(externalUserID)
@@ -153,43 +153,123 @@ func handleAddExternalContact(msg WecomMessage) {
 		}
 	}
 
-	// 查找是否已有该 ExternalUserID 的客户记录
-	var customer models.Customer
-	result := models.DB.Where("external_user_id = ?", externalUserID).First(&customer)
-	if result.Error != nil {
-		// 不存在，创建新客户记录
-		customer = models.Customer{
-			ExternalUserID: externalUserID,
-			Nickname:       nickname,
-			Remark:         "企微自动添加 (员工: " + userID + ")",
+	// 2. 查出跟单客服当前负责的活跃订单
+	var activeOrders []models.Order
+	models.DB.Where(
+		"(follow_operator_id = ? OR operator_id = ?) AND status IN ?",
+		userID, userID, []string{models.StatusPending, models.StatusDesigning},
+	).Find(&activeOrders)
+
+	// 获取操作人姓名（也就是收到事件的员工）
+	var emp models.Employee
+	operatorName := userID
+	if err := models.DB.Where("wecom_userid = ?", userID).First(&emp).Error; err == nil {
+		operatorName = emp.Name
+	}
+
+	// 3. 智能识别：是设计师还是客户？
+	var matchedDesigner *models.FreelanceDesigner
+	var designers []models.FreelanceDesigner
+	models.DB.Find(&designers)
+	
+	// 首先查 external_user_id 精确匹配
+	for i, d := range designers {
+		if d.ExternalUserID == externalUserID {
+			matchedDesigner = &designers[i]
+			break
 		}
-		if err := models.WriteTx(func(tx *gorm.DB) error {
-			return tx.Create(&customer).Error
-		}); err != nil {
-			log.Printf("❌ 创建客户记录失败: %v", err)
-			return
-		}
-		log.Printf("✅ 新客户记录已创建 | id=%d | external_user_id=%s | nickname=%s", customer.ID, externalUserID, nickname)
-	} else {
-		// 已存在，更新昵称（如果之前为空）
-		updates := map[string]any{}
-		if customer.Nickname == "" && nickname != "" {
-			updates["nickname"] = nickname
-		}
-		if len(updates) > 0 {
-			if err := models.WriteTx(func(tx *gorm.DB) error {
-				return tx.Model(&customer).Updates(updates).Error
-			}); err != nil {
-				log.Printf("❌ 更新客户记录失败: %v", err)
-				return
+	}
+	// 如果 external_user_id 没找到，再看昵称包含匹配
+	if matchedDesigner == nil && nickname != "" {
+		for i, d := range designers {
+			// 企微昵称包含了系统内名册的名字（如："专业修图-张三" 包含了 "张三"）
+			if strings.Contains(nickname, d.Name) {
+				matchedDesigner = &designers[i]
+				break
 			}
-			log.Printf("✅ 客户记录已更新 | id=%d | external_user_id=%s", customer.ID, externalUserID)
-		} else {
-			log.Printf("ℹ️ 客户记录已存在，无需更新 | id=%d | external_user_id=%s", customer.ID, externalUserID)
 		}
 	}
 
-	// 通过 WebSocket 推送新好友通知给对应的客服，提示匹配订单
+	if matchedDesigner != nil {
+		// ======= 场景 A：添加了设计师 =======
+		// 如果该设计师还没绑定 external_user_id，顺手更新上
+		if matchedDesigner.ExternalUserID == "" {
+			models.DB.Model(matchedDesigner).Update("external_user_id", externalUserID)
+		}
+
+		log.Printf("✅ 识别为设计师添加 | designer=%s | external_user_id=%s", matchedDesigner.Name, externalUserID)
+
+		// 写入该跟单的所有活跃订单时间线
+		for _, order := range activeOrders {
+			models.DB.Create(&models.OrderTimeline{
+				OrderID:      order.ID,
+				EventType:    "designer_contact_added",
+				OperatorID:   userID,
+				OperatorName: operatorName,
+				Remark:       fmt.Sprintf("已在企业微信上成功添加兼职设计师为好友: %s (昵称: %s)", matchedDesigner.Name, nickname),
+			})
+		}
+	} else {
+		// ======= 场景 B：添加了客户 =======
+		log.Printf("✅ 识别为客户添加 | external_user_id=%s | nickname=%s", externalUserID, nickname)
+
+		var customer models.Customer
+		result := models.DB.Where("external_user_id = ?", externalUserID).First(&customer)
+		if result.Error != nil {
+			customer = models.Customer{
+				ExternalUserID: externalUserID,
+				Nickname:       nickname,
+				Remark:         "企微自动添加 (员工: " + userID + ")",
+			}
+			models.DB.Create(&customer)
+		} else {
+			if customer.Nickname == "" && nickname != "" {
+				models.DB.Model(&customer).Update("nickname", nickname)
+			}
+		}
+
+		// 挑选出需要建群/关联客户的订单 (PENDING)
+		var pendingOrders []models.Order
+		for _, o := range activeOrders {
+			if o.Status == models.StatusPending {
+				pendingOrders = append(pendingOrders, o)
+			}
+		}
+
+		// 自动绑定逻辑：如果正好只有 1 个 PENDING 个且 CustomerID 为 0，就帮他自动绑定
+		if len(pendingOrders) == 1 && pendingOrders[0].CustomerID == 0 {
+			targetOrder := pendingOrders[0]
+			models.DB.Model(&targetOrder).Update("customer_id", customer.ID)
+			
+			models.DB.Create(&models.OrderTimeline{
+				OrderID:      targetOrder.ID,
+				EventType:    "customer_matched",
+				OperatorID:   userID,
+				OperatorName: operatorName,
+				Remark:       fmt.Sprintf("智能识别唯一待处理订单，自动关联客户: %s", nickname),
+			})
+
+			// 广播订单更新
+			services.Hub.Broadcast(services.WSEvent{
+				Type:    "order_updated",
+				Payload: targetOrder,
+			})
+			log.Printf("🎯 智能自动匹配唯一活跃订单 | sn=%s", targetOrder.OrderSN)
+		} else {
+			// 如果有 0 个或者多个，就不自动绑定，只写 Timeline 提醒记录
+			for _, order := range pendingOrders {
+				models.DB.Create(&models.OrderTimeline{
+					OrderID:      order.ID,
+					EventType:    "customer_contact_added",
+					OperatorID:   userID,
+					OperatorName: operatorName,
+					Remark:       fmt.Sprintf("有新外部联系人添加: %s，疑似本单客户，需手动确认", nickname),
+				})
+			}
+		}
+	}
+
+	// websocket 发送原有的匹配提醒，供前端显示通知
 	services.Hub.SendTo(userID, services.WSEvent{
 		Type: "new_external_contact",
 		Payload: map[string]string{
@@ -198,7 +278,6 @@ func handleAddExternalContact(msg WecomMessage) {
 			"staff_userid":     userID,
 		},
 	})
-	log.Printf("📤 已推送新好友匹配通知 | staff=%s | external_user_id=%s | nickname=%s", userID, externalUserID, nickname)
 }
 
 // maskSensitive 对敏感字符串进行部分脱敏，保留前4位，其余用***替代
@@ -313,12 +392,34 @@ func WecomDiagnostic(c *gin.Context) {
 		})
 	}
 
+	// 判断客户联系 Secret 配置状态
+	contactSecretStatus := "未配置"
+	if config.C.WecomContactSecret != "" {
+		if config.C.WecomContactSecret == config.C.WecomCorpSecret {
+			contactSecretStatus = "与应用 Secret 相同 (建议分离)"
+		} else {
+			contactSecretStatus = "独立配置 ✅"
+		}
+	}
+
+	// 会话存档引擎状态
+	msgAuditStatus := "未启用"
+	if config.C.EnableMsgAudit {
+		if config.C.WecomMsgAuditSecret != "" && config.C.WecomMsgAuditPrivateKey != "" {
+			msgAuditStatus = "已启用 ✅"
+		} else {
+			msgAuditStatus = "已启用但配置不完整"
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"configured":          true,
-		"callback_configured": callbackConfigured,
-		"corp_id":             maskSensitive(config.C.WecomCorpID),
-		"agent_id":            maskAgentID(config.C.WecomAgentID),
-		"callback_url":        fmt.Sprintf("%s/api/v1/wecom/callback", config.C.BaseURL),
-		"results":             results,
+		"configured":            true,
+		"callback_configured":   callbackConfigured,
+		"corp_id":               maskSensitive(config.C.WecomCorpID),
+		"agent_id":              maskAgentID(config.C.WecomAgentID),
+		"callback_url":          fmt.Sprintf("%s/api/v1/wecom/callback", config.C.BaseURL),
+		"contact_secret_status": contactSecretStatus,
+		"msg_audit_status":      msgAuditStatus,
+		"results":               results,
 	})
 }

@@ -1,3 +1,5 @@
+github.com/NICEXAI/WeWorkFinanceSDK v1.3.0 h1:Y0BNwTWeqR6Ghceklt+PbqwR6vkah52uR7qttTELHus=
+github.com/NICEXAI/WeWorkFinanceSDK v1.3.0/go.mod h1:pLCU/IYUy+uOy1e+o9dfoPaaNMS7D5FPx7XI0jI/DKY=
 github.com/aws/aws-sdk-go-v2 v1.41.4 h1:10f50G7WyU02T56ox1wWXq+zTX9I1zxG46HYuG1hH/k=
 github.com/aws/aws-sdk-go-v2 v1.41.4/go.mod h1:mwsPRE8ceUUpiTgF7QmQIJ7lgsKUPQOUl3o72QBrE1o=
 github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.7 h1:3kGOqnh1pPeddVa/E37XNTaWJ8W6vrbYV9lJEkCnhuY=

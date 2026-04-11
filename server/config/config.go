@@ -166,6 +166,15 @@ func Init() {
 
 	log.Printf("✅ 配置加载完成 | DBType=%s | 企微=%v | OCR=%s | MODE=%s", C.DBType, C.WecomCorpID != "", C.OCRProvider, C.DeployMode)
 
+	// 🔒 安全校验: 客户联系 Secret 配置
+	if C.WecomContactSecret != "" && C.WecomContactSecret == C.WecomCorpSecret {
+		log.Println("⚠️  警告: WECOM_CONTACT_SECRET 与 WECOM_CORP_SECRET 相同！")
+		log.Println("   客户联系 API 需要独立的 Secret，请前往企微管理后台 → 客户与上下游 → 客户联系 → API 获取。")
+		log.Println("   当前配置可能导致部分客户联系接口返回权限错误 (errcode=48002/60020)。")
+	} else if C.WecomContactSecret == "" && C.WecomCorpID != "" {
+		log.Println("ℹ️  提示: WECOM_CONTACT_SECRET 未配置，客户联系相关功能(联系我/好友回调/客户转接)将不可用")
+	}
+
 	// 分润费率范围校验 (0-100)
 	validateRate := func(name string, val int) {
 		if val < 0 || val > 100 {

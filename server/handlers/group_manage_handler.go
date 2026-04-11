@@ -15,6 +15,7 @@ import (
 // ─── 群聊管理 ──────────────────────────────────
 
 // GetGroupChatDetail 获取群聊详情（从企微 API 实时获取）
+// 如果成员是外部联系人且在设计师花名册中，会附加 is_designer 标识
 func GetGroupChatDetail(c *gin.Context) {
 	chatID := c.Param("chat_id")
 	if chatID == "" {
@@ -33,6 +34,44 @@ func GetGroupChatDetail(c *gin.Context) {
 		log.Printf("获取群聊详情失败: chat_id=%s err=%v", chatID, err)
 		internalError(c, "获取群聊详情失败: "+err.Error())
 		return
+	}
+
+	// 获取兼职设计师名单用于匹配
+	var designers []models.FreelanceDesigner
+	models.DB.Find(&designers)
+
+	// 尝试增强 detail 中的成员列表，标记设计师
+	if chatInfo, ok := detail["chat_info"].(map[string]any); ok {
+		if memberList, ok := chatInfo["member_list"].([]any); ok {
+			for i, member := range memberList {
+				mMap, isMap := member.(map[string]any)
+				if !isMap {
+					continue
+				}
+				
+				// 获取可能的名字或 external_user_id
+				// 注意：/appchat/get 的 member_list 里只有 userid
+				// 如果是正常群聊 API 可能会有 name / external_userid
+				userid, _ := mMap["userid"].(string)
+				
+				isDesigner := false
+				for _, d := range designers {
+					if d.ExternalUserID != "" && d.ExternalUserID == userid {
+						isDesigner = true
+						break
+					}
+					if d.WechatID != "" && d.WechatID == userid {
+						isDesigner = true
+						break
+					}
+				}
+				if isDesigner {
+					mMap["is_designer"] = true
+					memberList[i] = mMap
+				}
+			}
+			chatInfo["member_list"] = memberList
+		}
 	}
 
 	// 同时返回本地数据库中的关联信息
@@ -187,6 +226,26 @@ func GetArchiveMessages(c *gin.Context) {
 	query := models.DB.Model(&models.ChatArchiveMessage{}).Where("chat_id = ?", chatID)
 	query.Count(&total)
 	query.Order(orderClause).Offset(offset).Limit(limit).Find(&messages)
+
+	// 获取兼职设计师名单用于匹配
+	var designers []models.FreelanceDesigner
+	models.DB.Find(&designers)
+
+	// 后处理：标记每条消息发送方是否兼职设计师
+	for i := range messages {
+		isDesigner := false
+		for _, d := range designers {
+			if d.ExternalUserID != "" && d.ExternalUserID == messages[i].SenderID {
+				isDesigner = true
+				break
+			}
+			if d.Name != "" && strings.Contains(messages[i].SenderName, d.Name) {
+				isDesigner = true
+				break
+			}
+		}
+		messages[i].IsDesigner = isDesigner
+	}
 
 	// 查找群聊基本信息
 	var group models.WecomGroupChat
