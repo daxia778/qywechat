@@ -29,6 +29,7 @@ type Config struct {
 	WecomToken             string // 回调 Token (用于签名验证)
 	WecomEncodingAESKey    string // 回调 EncodingAESKey (用于消息解密)
 	WecomContactSecret     string // 客户联系 Secret（与应用 Secret 不同）
+	WecomAuditChatID       string // 跟单运营监控群 ChatID（审计播报）
 
 	// OCR / AI Vision
 	OCRProvider    string // "zhipu" | "dashscope"
@@ -52,6 +53,10 @@ type Config struct {
 	DesignerCommissionRate  int // 设计师抽成
 	SalesCommissionRate     int // 谈单客服提成
 	FollowCommissionRate    int // 跟单客服提成
+
+	// 风控配置
+	RiskPriceDropThreshold  int // 金额下调风险阈值 (%)，超过此值触发告警
+	RiskRefundRateThreshold int // 跟单7天退款率风险阈值 (%)，超过此值触发告警
 
 	// Server
 	ServerPort string
@@ -92,6 +97,7 @@ func Init() {
 		WecomToken:              getEnv("WECOM_TOKEN", ""),
 		WecomEncodingAESKey:     getEnv("WECOM_ENCODING_AES_KEY", ""),
 		WecomContactSecret:     getEnv("WECOM_CONTACT_SECRET", ""),
+		WecomAuditChatID:       getEnv("WECOM_AUDIT_CHAT_ID", ""),
 		OCRProvider:             getEnv("OCR_PROVIDER", "zhipu"),
 		ZhipuAPIKey:             getEnv("ZHIPU_API_KEY", ""),
 		DashscopeAPIKey:         getEnv("DASHSCOPE_API_KEY", ""),
@@ -105,6 +111,8 @@ func Init() {
 		DesignerCommissionRate:  getEnvInt("DESIGNER_COMMISSION_RATE", 25),
 		SalesCommissionRate:     getEnvInt("SALES_COMMISSION_RATE", 10),
 		FollowCommissionRate:    getEnvInt("FOLLOW_COMMISSION_RATE", 5),
+		RiskPriceDropThreshold:  getEnvInt("RISK_PRICE_DROP_THRESHOLD", 20),
+		RiskRefundRateThreshold: getEnvInt("RISK_REFUND_RATE_THRESHOLD", 20),
 		ServerPort:              getEnv("SERVER_PORT", "8201"),
 		BaseURL:                 getEnv("BASE_URL", "http://localhost:8200"),
 		OSSProvider:             getEnv("OSS_PROVIDER", "local"),

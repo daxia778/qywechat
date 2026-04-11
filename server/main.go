@@ -98,6 +98,12 @@ func main() {
 	// 启动自动转接调度器 (每6小时)
 	services.StartTransferScheduler(ctx)
 
+	// 初始化审计监控群 (跟单运营监控)
+	services.InitAuditGroup()
+
+	// 启动风控扫描引擎 (每小时扫描退款率/死单等)
+	services.StartRiskScanner(ctx)
+
 	// 确保目录存在
 	os.MkdirAll("uploads", 0o750) // #nosec G301 — 服务进程专用目录
 	os.MkdirAll("data", 0o750)    // #nosec G301 — 服务进程专用目录
@@ -335,6 +341,19 @@ func main() {
 					"goroutines":     runtime.NumGoroutine(),
 				})
 			})
+
+			// 风控中心 API
+			admin.GET("/risk/dashboard", handlers.GetRiskDashboard)
+			admin.GET("/risk/alerts", handlers.ListRiskAlerts)
+			admin.PUT("/risk/alerts/:id/resolve", handlers.ResolveRiskAlert)
+			admin.PUT("/risk/alerts/batch-resolve", handlers.BatchResolveRiskAlerts)
+			admin.GET("/risk/audit-log", handlers.GetRiskAuditLog)
+			admin.GET("/risk/staff-stats", handlers.GetStaffRiskStats)
+			admin.GET("/risk/summary", handlers.GetRiskSummary)
+			admin.GET("/risk/audit-config", handlers.GetAuditConfig)
+			admin.PUT("/risk/audit-config", handlers.UpdateAuditConfig)
+			admin.GET("/risk/follow-staff", handlers.ListFollowStaff)
+			admin.POST("/risk/test-broadcast", handlers.SendTestBroadcast)
 		}
 	}
 

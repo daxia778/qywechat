@@ -355,6 +355,32 @@ func UpdateOrderStatus(c *gin.Context) {
 
 	// 8. 异步发送状态变更通知 (企微 + 站内)
 	SendOrderStatusNotification(updatedOrder, body.Status)
+
+	// 9. 审计播报: 跟单操作留痕
+	if roleStr == "follow" || roleStr == "admin" {
+		eventType := services.AuditStatusChanged
+		extra := map[string]string{}
+
+		if body.Status == models.StatusRefunded {
+			eventType = services.AuditRefundProcessed
+			extra["reason"] = body.RefundReason
+			extra["amount"] = services.FormatPrice(updatedOrder.Price)
+			// 风控检测: 异常时间操作
+			services.CheckAbnormalTime(updatedOrder.ID, updatedOrder.OrderSN, "refund", uidStr, operatorName)
+		}
+
+		services.BroadcastAuditEvent(services.AuditEvent{
+			Type:         eventType,
+			OrderSN:      updatedOrder.OrderSN,
+			OrderID:      updatedOrder.ID,
+			OperatorID:   uidStr,
+			OperatorName: operatorName,
+			OperatorRole: roleStr,
+			OldValue:     oldStatus,
+			NewValue:     body.Status,
+			Extra:        extra,
+		})
+	}
 }
 
 // ─── 批量状态更新 ──────────────────────────────────
@@ -736,6 +762,30 @@ func UpdateOrderAmount(c *gin.Context) {
 	// 金额变更后触发分润重算（异步）
 	if req.Price != nil && *req.Price != oldPrice {
 		services.TriggerProfitRecalculation(order.ID)
+
+		// 审计播报: 金额修改
+		dropPct := 0
+		if oldPrice > 0 && *req.Price < oldPrice {
+			dropPct = (oldPrice - *req.Price) * 100 / oldPrice
+		}
+		services.BroadcastAuditEvent(services.AuditEvent{
+			Type:         services.AuditAmountChanged,
+			OrderSN:      order.OrderSN,
+			OrderID:      order.ID,
+			OperatorID:   uidStr,
+			OperatorName: operatorName,
+			OperatorRole: roleStr,
+			OldValue:     services.FormatPrice(oldPrice),
+			NewValue:     services.FormatPrice(*req.Price),
+			Extra: map[string]string{
+				"reason":   req.Remark,
+				"drop_pct": strconv.Itoa(dropPct),
+			},
+		})
+
+		// 风控检测: 金额异常下调 + 异常时间
+		services.CheckPriceDrop(order.ID, order.OrderSN, oldPrice, *req.Price, uidStr, operatorName)
+		services.CheckAbnormalTime(order.ID, order.OrderSN, "amount_changed", uidStr, operatorName)
 	}
 
 	respondOK(c, gin.H{"message": "订单金额/页数已更新", "order": order})

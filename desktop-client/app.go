@@ -162,6 +162,23 @@ func (a *App) deviceLogin() {
 	log.Printf("✅ 设备指纹静默登录成功: %s", a.empName)
 }
 
+// ensureFreshToken 在发起认证请求前检查 token 是否即将过期，提前刷新
+func (a *App) ensureFreshToken() {
+	if a.token == "" || a.isTokenExpired(a.token) {
+		log.Println("⚠️ Token 已过期或不存在，主动刷新")
+		a.deviceLogin()
+	}
+}
+
+// isAuthError 判断错误是否为认证失败（401 或 Token 相关错误）
+func isAuthError(errMsg string) bool {
+	return strings.Contains(errMsg, "401") ||
+		strings.Contains(errMsg, "Token") ||
+		strings.Contains(errMsg, "token") ||
+		strings.Contains(errMsg, "未授权") ||
+		strings.Contains(errMsg, "Unauthorized")
+}
+
 // isTokenExpired 解析 JWT payload 检查是否过期（提前5分钟判定为过期）
 func (a *App) isTokenExpired(tokenStr string) bool {
 	parts := strings.SplitN(tokenStr, ".", 3)
@@ -305,10 +322,10 @@ type OCRResult struct {
 }
 
 func (a *App) UploadScreenshot(filePath string) *OCRResult {
+	a.ensureFreshToken()
 	result := a.doUploadScreenshotFile(filePath)
-	// 401 时自动刷新 token 重试一次
-	if result.Error != "" && strings.Contains(result.Error, "401") {
-		log.Println("⚠️ OCR 上传 401，尝试刷新 token 重试")
+	if result.Error != "" && isAuthError(result.Error) {
+		log.Println("⚠️ OCR 上传认证失败，尝试刷新 token 重试")
 		a.deviceLogin()
 		if a.token != "" {
 			return a.doUploadScreenshotFile(filePath)
@@ -357,10 +374,10 @@ func (a *App) doUploadScreenshotFile(filePath string) *OCRResult {
 
 // UploadScreenshotBase64 支持从剪贴板粘贴图片 (传入完整的 base64 data URI)
 func (a *App) UploadScreenshotBase64(b64DataURL string) *OCRResult {
+	a.ensureFreshToken()
 	result := a.doUploadScreenshotBase64(b64DataURL)
-	// 401 时自动刷新 token 重试一次
-	if result.Error != "" && strings.Contains(result.Error, "401") {
-		log.Println("⚠️ OCR 上传 401，尝试刷新 token 重试")
+	if result.Error != "" && isAuthError(result.Error) {
+		log.Println("⚠️ OCR 上传认证失败，尝试刷新 token 重试")
 		a.deviceLogin()
 		if a.token != "" {
 			return a.doUploadScreenshotBase64(b64DataURL)
@@ -701,10 +718,10 @@ type ParseTextResult struct {
 
 // ParseOrderText 调用后端 AI 文本解析接口
 func (a *App) ParseOrderText(text string) *ParseTextResult {
+	a.ensureFreshToken()
 	result := a.doParseOrderText(text)
-	// 401 时自动刷新 token 重试一次
-	if result.Error != "" && strings.Contains(result.Error, "401") {
-		log.Println("⚠️ 文本解析 401，尝试刷新 token 重试")
+	if result.Error != "" && isAuthError(result.Error) {
+		log.Println("⚠️ 文本解析认证失败，尝试刷新 token 重试")
 		a.deviceLogin()
 		if a.token != "" {
 			return a.doParseOrderText(text)

@@ -10,6 +10,7 @@ import Button from '../components/ui/Button';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const TRANSFER_STATUS_MAP = {
+  scheduled: { label: '定时中', variant: 'primary' },
   pending: { label: '等待中', variant: 'warning' },
   waiting: { label: '处理中', variant: 'primary' },
   success: { label: '已完成', variant: 'success' },
@@ -36,6 +37,9 @@ export default function CustomerTransferPage() {
 
   // Step 4: transfer message
   const [transferMsg, setTransferMsg] = useState('');
+
+  // Step 5: transfer time (empty = immediate)
+  const [transferTime, setTransferTime] = useState('');
 
   // Submitting
   const [submitting, setSubmitting] = useState(false);
@@ -265,6 +269,7 @@ export default function CustomerTransferPage() {
           takeover_user_id: takeoverUserId,
           external_user_ids: [...selectedContactIds],
           transfer_msg: transferMsg || undefined,
+          scheduled_time: transferTime || undefined,
         });
         toast(res.data.message || '转接任务已提交', 'success');
         // Reset form
@@ -272,6 +277,7 @@ export default function CustomerTransferPage() {
         setTakeoverUserId('');
         setSelectedContactIds(new Set());
         setTransferMsg('');
+        setTransferTime('');
         setContacts([]);
         // Refresh records
         fetchRecords(1);
@@ -465,6 +471,57 @@ export default function CustomerTransferPage() {
               />
             </div>
 
+            {/* Step 5: Transfer Time */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+                <StepBadge n={5} />
+                转接时间
+              </label>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="transfer_time_mode"
+                    checked={!transferTime}
+                    onChange={() => setTransferTime('')}
+                    className="accent-[#434fcf]"
+                  />
+                  <span className="text-sm text-slate-700 font-medium">立即执行</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="transfer_time_mode"
+                    checked={!!transferTime}
+                    onChange={() => {
+                      const now = new Date();
+                      now.setHours(now.getHours() + 1, 0, 0, 0);
+                      setTransferTime(now.toISOString().slice(0, 16));
+                    }}
+                    className="accent-[#434fcf]"
+                  />
+                  <span className="text-sm text-slate-700 font-medium">定时转接</span>
+                </label>
+              </div>
+              {transferTime && (
+                <div className="mt-3 flex items-center gap-3">
+                  <div className="relative flex-1">
+                    <input
+                      type="datetime-local"
+                      value={transferTime}
+                      onChange={(e) => setTransferTime(e.target.value)}
+                      min={new Date().toISOString().slice(0, 16)}
+                      className="w-full px-4 py-2.5 text-sm text-slate-800 bg-white border border-slate-200 rounded-xl outline-none transition-all duration-150 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 font-medium"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl">
+                    <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <span className="text-xs font-medium text-amber-700 whitespace-nowrap">将在指定时间自动执行</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Submit */}
             <div className="pt-2">
               <Button
@@ -481,7 +538,7 @@ export default function CustomerTransferPage() {
                 ) : (
                   <>
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" /></svg>
-                    确认转接 ({selectedContactIds.size} 位客户)
+                    {transferTime ? `定时转接 (${selectedContactIds.size} 位客户)` : `确认转接 (${selectedContactIds.size} 位客户)`}
                   </>
                 )}
               </Button>

@@ -25,7 +25,7 @@ export default function ActivationCodesPage() {
   const fetchData = useCallback(async (manual = false) => {
     if (manual) setLoading(true);
     try {
-      const res = await listActivationCodes(statusFilter || undefined);
+      const res = await listActivationCodes(statusFilter ? { status: statusFilter } : {});
       setEmployees(res.data.data || []);
       if (manual) toast('设备列表已刷新', 'success');
     } catch (err) {

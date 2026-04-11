@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"time"
 
 	"pdd-order-system/models"
 	"pdd-order-system/services"
@@ -91,6 +92,7 @@ func ExecuteTransfer(c *gin.Context) {
 		TakeoverUserID  string   `json:"takeover_user_id" binding:"required"`
 		ExternalUserIDs []string `json:"external_user_ids" binding:"required"`
 		TransferMsg     string   `json:"transfer_msg"`
+		ScheduledTime   string   `json:"scheduled_time"` // ISO 格式的定时时间，空=立即执行
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		log.Printf("ExecuteTransfer 参数绑定失败: %v", err)
@@ -108,7 +110,75 @@ func ExecuteTransfer(c *gin.Context) {
 		return
 	}
 
-	// 调用企微 API 执行转移
+	// 解析定时时间
+	var scheduledTime *time.Time
+	if body.ScheduledTime != "" {
+		t, err := time.ParseInLocation("2006-01-02T15:04", body.ScheduledTime, time.Now().Location())
+		if err != nil {
+			badRequest(c, "定时时间格式错误")
+			return
+		}
+		if t.Before(time.Now()) {
+			badRequest(c, "定时时间不能早于当前时间")
+			return
+		}
+		scheduledTime = &t
+	}
+
+	// 定时转接：保存记录并延迟执行
+	if scheduledTime != nil {
+		nameMap := make(map[string]string)
+		for _, eid := range body.ExternalUserIDs {
+			detail, err := services.Wecom.GetExternalContactDetail(eid)
+			if err == nil {
+				if extInfo, ok := detail["external_contact"].(map[string]any); ok {
+					if name, ok := extInfo["name"].(string); ok {
+						nameMap[eid] = name
+					}
+				}
+			}
+		}
+
+		if err := models.WriteTx(func(tx *gorm.DB) error {
+			for _, eid := range body.ExternalUserIDs {
+				record := models.CustomerTransfer{
+					HandoverUserID: body.HandoverUserID,
+					TakeoverUserID: body.TakeoverUserID,
+					ExternalUserID: eid,
+					CustomerName:   nameMap[eid],
+					Status:         "scheduled",
+					TransferMsg:    body.TransferMsg,
+					ScheduledTime:  scheduledTime,
+				}
+				if err := tx.Create(&record).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			log.Printf("保存定时转接记录失败: %v", err)
+			internalError(c, "保存定时转接任务失败")
+			return
+		}
+
+		// 启动后台定时任务
+		go func() {
+			delay := time.Until(*scheduledTime)
+			if delay > 0 {
+				time.Sleep(delay)
+			}
+			executeScheduledTransfers(body.HandoverUserID, body.TakeoverUserID, body.ExternalUserIDs, body.TransferMsg)
+		}()
+
+		respondOK(c, gin.H{
+			"message":        fmt.Sprintf("已设置 %d 个客户的定时转接任务", len(body.ExternalUserIDs)),
+			"scheduled_time": scheduledTime,
+		})
+		return
+	}
+
+
+	// 调用企微 API 执行转移（立即执行模式）
 	customers, err := services.Wecom.TransferCustomer(body.HandoverUserID, body.TakeoverUserID, body.ExternalUserIDs, body.TransferMsg)
 	if err != nil {
 		log.Printf("执行客户转移失败: %v", err)
@@ -500,4 +570,50 @@ func DeleteTransferRule(c *gin.Context) {
 	}
 
 	respondMessage(c, "规则已删除")
+}
+
+// ─── 定时转接执行 ──────────────────────────────────────
+
+// executeScheduledTransfers 执行定时转接任务
+func executeScheduledTransfers(handoverID, takeoverID string, externalIDs []string, transferMsg string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[ScheduledTransfer] panic recovered: %v", r)
+		}
+	}()
+
+	log.Printf("⏰ 执行定时转接任务 | from=%s to=%s count=%d", handoverID, takeoverID, len(externalIDs))
+
+	customers, err := services.Wecom.TransferCustomer(handoverID, takeoverID, externalIDs, transferMsg)
+	if err != nil {
+		log.Printf("❌ 定时转接执行失败: %v", err)
+		_ = models.WriteTx(func(tx *gorm.DB) error {
+			return tx.Model(&models.CustomerTransfer{}).
+				Where("handover_user_id = ? AND takeover_user_id = ? AND status = ? AND external_user_id IN ?",
+					handoverID, takeoverID, "scheduled", externalIDs).
+				Updates(map[string]any{"status": "failed", "fail_reason": err.Error()}).Error
+		})
+		return
+	}
+
+	// 更新记录状态
+	_ = models.WriteTx(func(tx *gorm.DB) error {
+		for _, cust := range customers {
+			eid, _ := cust["external_userid"].(string)
+			errCode, _ := cust["errcode"].(float64)
+			status := "waiting"
+			failReason := ""
+			if int(errCode) != 0 {
+				status = "failed"
+				failReason = fmt.Sprintf("errcode=%d", int(errCode))
+			}
+			tx.Model(&models.CustomerTransfer{}).
+				Where("handover_user_id = ? AND takeover_user_id = ? AND external_user_id = ? AND status = ?",
+					handoverID, takeoverID, eid, "scheduled").
+				Updates(map[string]any{"status": status, "fail_reason": failReason})
+		}
+		return nil
+	})
+
+	log.Printf("✅ 定时转接任务完成 | from=%s to=%s count=%d", handoverID, takeoverID, len(externalIDs))
 }

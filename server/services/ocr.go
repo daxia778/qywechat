@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,8 +19,13 @@ import (
 	"pdd-order-system/config"
 )
 
-// ocrClient OCR 专用 HTTP 客户端
+// ocrClient OCR 专用 HTTP 客户端（Files OCR 快速接口）
 var ocrClient = &http.Client{
+	Timeout: 30 * time.Second,
+}
+
+// visionClient 多模态大模型客户端（GLM-4V 兜底）
+var visionClient = &http.Client{
 	Timeout: 120 * time.Second,
 }
 
@@ -32,7 +38,7 @@ type OCRResult struct {
 	Confidence float64 `json:"confidence"`
 }
 
-// ocrPrompt 统一的 OCR 提取 prompt
+// ocrPrompt GLM-4V 兜底用 prompt
 const ocrPrompt = `请仔细分析这张电商订单截图，提取以下3个关键信息：
 
 1. order_sn: 订单号（一串连续数字，通常15-20位，可能出现在"订单号"、"单号"附近）
@@ -46,14 +52,30 @@ const ocrPrompt = `请仔细分析这张电商订单截图，提取以下3个关
 
 {"order_sn": "123456789012345", "price": "183.98", "order_time": "2026-01-15 14:30:00"}`
 
-// ExtractOrderFromImage 从截图提取订单信息（智谱GLM-4V优先，DashScope备用）
+// ExtractOrderFromImage 从截图提取订单信息
+// 优先级: 智谱 Files OCR（快，1-3秒）→ GLM-4V 多模态（慢，10-20秒）→ 通义千问 VL
 func ExtractOrderFromImage(imagePath string) (*OCRResult, error) {
-	// 读取图片转 base64（两个模型都需要）
+	if config.C.ZhipuAPIKey == "" && config.C.DashscopeAPIKey == "" {
+		return nil, fmt.Errorf("未配置任何 OCR 密钥 (ZHIPU_API_KEY 或 DASHSCOPE_API_KEY)")
+	}
+
+	// 1. 优先智谱 Files OCR 快速接口（专用 OCR，响应 1-3 秒）
+	if config.C.ZhipuAPIKey != "" {
+		start := time.Now()
+		result, err := extractViaZhipuFilesOCR(imagePath)
+		elapsed := time.Since(start)
+		if err == nil && result.OrderSN != "" {
+			log.Printf("✅ Files OCR 成功 (%v): 订单号=%s 金额=%s", elapsed, result.OrderSN, result.RawPrice)
+			return result, nil
+		}
+		log.Printf("⚠️ Files OCR 失败 (%v): %v — 回退 GLM-4V", elapsed, err)
+	}
+
+	// 读取图片转 base64（GLM-4V / DashScope 需要）
 	imgData, err := os.ReadFile(imagePath)
 	if err != nil {
 		return nil, fmt.Errorf("读取截图文件失败: %w", err)
 	}
-
 	ext := strings.ToLower(filepath.Ext(imagePath))
 	mimeType := "image/png"
 	switch ext {
@@ -64,30 +86,120 @@ func ExtractOrderFromImage(imagePath string) (*OCRResult, error) {
 	}
 	b64Img := fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(imgData))
 
-	// 1. 优先智谱 GLM-4V 多模态聊天（比 Files OCR 接口稳定）
+	// 2. 回退智谱 GLM-4V 多模态（慢但更智能）
 	if config.C.ZhipuAPIKey != "" {
+		start := time.Now()
 		result, err := extractViaZhipuVL(b64Img)
 		if err == nil {
+			log.Printf("✅ GLM-4V 成功 (%v)", time.Since(start))
 			return result, nil
 		}
-		log.Printf("⚠️ 智谱 GLM-4V 失败: %v", err)
+		log.Printf("⚠️ 智谱 GLM-4V 失败 (%v): %v", time.Since(start), err)
 	}
 
-	// 2. 回退通义千问 VL
+	// 3. 终极回退通义千问 VL
 	if config.C.DashscopeAPIKey != "" {
 		result, err := extractViaDashscope(b64Img)
 		if err == nil {
 			return result, nil
 		}
 		log.Printf("❌ 通义千问 VL 也失败: %v", err)
-		return nil, fmt.Errorf("所有 OCR 模型均失败")
 	}
 
-	if config.C.ZhipuAPIKey == "" && config.C.DashscopeAPIKey == "" {
-		return nil, fmt.Errorf("未配置任何 OCR 密钥 (ZHIPU_API_KEY 或 DASHSCOPE_API_KEY)")
+	return nil, fmt.Errorf("所有 OCR 模型均失败")
+}
+
+// ─── 智谱 Files OCR 快速接口（1-3秒）────────────────────
+
+// extractViaZhipuFilesOCR 使用智谱 Files OCR API（专用文字识别，速度快）
+func extractViaZhipuFilesOCR(imagePath string) (*OCRResult, error) {
+	file, err := os.Open(imagePath)
+	if err != nil {
+		return nil, fmt.Errorf("打开截图文件失败: %w", err)
+	}
+	defer file.Close()
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	part, err := writer.CreateFormFile("file", filepath.Base(imagePath))
+	if err != nil {
+		return nil, fmt.Errorf("创建 form file 失败: %w", err)
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return nil, fmt.Errorf("复制文件内容失败: %w", err)
 	}
 
-	return nil, fmt.Errorf("OCR 解析失败")
+	_ = writer.WriteField("tool_type", "hand_write")
+	_ = writer.WriteField("language_type", "CHN_ENG")
+	_ = writer.WriteField("probability", "true")
+	writer.Close()
+
+	req, err := http.NewRequest("POST", "https://open.bigmodel.cn/api/paas/v4/files/ocr", &buf)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+config.C.ZhipuAPIKey)
+
+	resp, err := ocrClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("OCR 请求发送失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取 OCR 响应失败: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		log.Printf("❌ 智谱 Files OCR API 返回 %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("OCR API 返回错误 (HTTP %d)", resp.StatusCode)
+	}
+
+	log.Printf("✅ Files OCR 响应: status=%d len=%d", resp.StatusCode, len(respBody))
+	return parseZhipuFilesOCRResponse(respBody)
+}
+
+// parseZhipuFilesOCRResponse 解析智谱 Files OCR 的返回
+func parseZhipuFilesOCRResponse(body []byte) (*OCRResult, error) {
+	var ocrResp struct {
+		WordsResult []struct {
+			Words       string `json:"words"`
+			Probability struct {
+				Average float64 `json:"average"`
+			} `json:"probability"`
+		} `json:"words_result"`
+		WordsResultNum int `json:"words_result_num"`
+	}
+
+	if err := json.Unmarshal(body, &ocrResp); err != nil {
+		log.Printf("⚠️ Files OCR 标准格式解析失败，尝试通用文本提取: %v", err)
+		return extractFromRawText(string(body)), nil
+	}
+
+	if ocrResp.WordsResultNum == 0 || len(ocrResp.WordsResult) == 0 {
+		return nil, fmt.Errorf("OCR 未识别到任何文字")
+	}
+
+	var allText strings.Builder
+	var totalConf float64
+	for _, w := range ocrResp.WordsResult {
+		allText.WriteString(w.Words)
+		allText.WriteString("\n")
+		totalConf += w.Probability.Average
+	}
+	avgConf := totalConf / float64(len(ocrResp.WordsResult))
+
+	fullText := allText.String()
+	log.Printf("📝 Files OCR 识别文本:\n%s", fullText)
+
+	result := extractFromRawText(fullText)
+	if avgConf > 0 {
+		result.Confidence = avgConf
+	}
+	return result, nil
 }
 
 // extractViaZhipuVL 使用智谱 GLM-4V 多模态聊天接口（OpenAI 兼容格式，base64 传图）
@@ -113,7 +225,7 @@ func extractViaZhipuVL(b64Img string) (*OCRResult, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+config.C.ZhipuAPIKey)
 
-	resp, err := ocrClient.Do(req)
+	resp, err := visionClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("请求发送失败: %w", err)
 	}
@@ -156,7 +268,7 @@ func extractViaDashscope(b64Img string) (*OCRResult, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+config.C.DashscopeAPIKey)
 
-	resp, err := ocrClient.Do(req)
+	resp, err := visionClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("请求发送失败: %w", err)
 	}

@@ -330,6 +330,32 @@ func AssignDesigner(c *gin.Context) {
 		Payload: order,
 	})
 
+	// 审计播报: 关联/换设计师
+	if isReassign {
+		services.BroadcastAuditEvent(services.AuditEvent{
+			Type:         services.AuditDesignerReassigned,
+			OrderSN:      order.OrderSN,
+			OrderID:      order.ID,
+			OperatorID:   uidStr,
+			OperatorName: operatorName,
+			OldValue:     oldDesignerName,
+			NewValue:     designer.Name,
+		})
+		// 风控检测: 频繁换设计师
+		services.CheckFrequentReassign(order.ID, order.OrderSN, uidStr, operatorName)
+	} else {
+		services.BroadcastAuditEvent(services.AuditEvent{
+			Type:         services.AuditDesignerAssigned,
+			OrderSN:      order.OrderSN,
+			OrderID:      order.ID,
+			OperatorID:   uidStr,
+			OperatorName: operatorName,
+			Extra: map[string]string{
+				"designer_name": designer.Name,
+			},
+		})
+	}
+
 	// 异步建群: 关联设计师且状态流转为 DESIGNING 时，自动建企微群
 	if order.Status == models.StatusDesigning && order.WecomChatID == "" {
 		go func() {
@@ -473,6 +499,18 @@ func AdjustCommission(c *gin.Context) {
 		Type:    "order_updated",
 		Payload: order,
 	})
+
+	// 审计播报: 佣金调整
+	services.BroadcastAuditEvent(services.AuditEvent{
+		Type:         services.AuditCommissionAdjusted,
+		OrderSN:      order.OrderSN,
+		OrderID:      order.ID,
+		OperatorID:   uidStr,
+		OperatorName: operatorName,
+		OldValue:     services.FormatPrice(oldCommission),
+		NewValue:     services.FormatPrice(newCommission),
+	})
+	services.CheckAbnormalTime(order.ID, order.OrderSN, "commission", uidStr, operatorName)
 }
 
 // UpdateDesigner 编辑设计师花名册信息（跟单客服/管理员权限）
