@@ -27,6 +27,8 @@ jobs:
             platform: windows/amd64
           - arch: arm64
             platform: windows/arm64
+          - arch: x86
+            platform: windows/386
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
