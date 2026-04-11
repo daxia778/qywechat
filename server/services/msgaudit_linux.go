@@ -3,7 +3,6 @@
 package services
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -14,7 +13,7 @@ import (
 
 // linuxMsgAuditPoller Linux 下使用真实 Finance SDK 实现
 type linuxMsgAuditPoller struct {
-	client     *wxfinance.Client
+	client     wxfinance.Client
 	privateKey string
 }
 
@@ -42,8 +41,8 @@ func (p *linuxMsgAuditPoller) FetchMessages(lastSeq uint64, limit int) ([]RawArc
 		return nil, lastSeq, fmt.Errorf("Finance SDK 未初始化")
 	}
 
-	// 拉取加密消息
-	chatDatas, err := p.client.GetChatData(lastSeq, uint32(limit), "", "", 30)
+	// 拉取加密消息 (v1.3.0 API: seq uint64, limit uint64, proxy, passwd string, timeout int)
+	chatDatas, err := p.client.GetChatData(lastSeq, uint64(limit), "", "", 30)
 	if err != nil {
 		return nil, lastSeq, fmt.Errorf("GetChatData 失败: %w", err)
 	}
@@ -56,21 +55,27 @@ func (p *linuxMsgAuditPoller) FetchMessages(lastSeq uint64, limit int) ([]RawArc
 	var maxSeq uint64 = lastSeq
 
 	for _, chatData := range chatDatas {
-		// 解密消息
-		decrypted, err := p.client.DecryptData(chatData.EncryptRandomKey, chatData.EncryptChatMsg)
+		// 解密消息 (v1.3.0 API: encryptRandomKey, encryptMsg, specificPrivateKey string)
+		chatMsg, err := p.client.DecryptData(chatData.EncryptRandomKey, chatData.EncryptChatMsg, p.privateKey)
 		if err != nil {
 			log.Printf("⚠️ 会话存档消息解密失败: seq=%d err=%v", chatData.Seq, err)
 			continue
 		}
 
-		// 解析 JSON
+		// ChatMessage 结构体转 JSON 再解析为 RawArchiveMsg
+		jsonBytes, err := json.Marshal(chatMsg)
+		if err != nil {
+			log.Printf("⚠️ 会话存档消息序列化失败: seq=%d err=%v", chatData.Seq, err)
+			continue
+		}
+
 		var msg RawArchiveMsg
-		if err := json.Unmarshal(decrypted, &msg); err != nil {
+		if err := json.Unmarshal(jsonBytes, &msg); err != nil {
 			log.Printf("⚠️ 会话存档消息JSON解析失败: seq=%d err=%v", chatData.Seq, err)
 			continue
 		}
 		msg.Seq = chatData.Seq
-		msg.RawJSON = string(decrypted)
+		msg.RawJSON = string(jsonBytes)
 
 		result = append(result, msg)
 
@@ -87,13 +92,27 @@ func (p *linuxMsgAuditPoller) DownloadMedia(sdkFileID, fileExt string) (string, 
 		return "", fmt.Errorf("Finance SDK 未初始化")
 	}
 
-	var buf bytes.Buffer
-	if err := p.client.GetMediaData("", "", sdkFileID, "", "", 30, &buf); err != nil {
-		return "", fmt.Errorf("GetMediaData 失败: %w", err)
+	// v1.3.0 API: GetMediaData(indexBuf, sdkFileId, proxy, passwd string, timeout int) (*MediaData, error)
+	// 需要循环拉取直到 IsFinish
+	var allData []byte
+	indexBuf := ""
+
+	for {
+		mediaData, err := p.client.GetMediaData(indexBuf, sdkFileID, "", "", 30)
+		if err != nil {
+			return "", fmt.Errorf("GetMediaData 失败: %w", err)
+		}
+
+		allData = append(allData, mediaData.Data...)
+
+		if mediaData.IsFinish {
+			break
+		}
+		indexBuf = mediaData.OutIndexBuf
 	}
 
 	// 保存到本地
-	localPath, err := SaveArchiveMediaFile(buf.Bytes(), fileExt)
+	localPath, err := SaveArchiveMediaFile(allData, fileExt)
 	if err != nil {
 		return "", err
 	}
