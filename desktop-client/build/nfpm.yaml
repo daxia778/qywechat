@@ -1,0 +1,14 @@
+name: pdd-dispatch
+version: ${VERSION:-1.7.0}
+maintainer: daxia778
+description: PDD 派单管理桌面客户端 — 订单OCR识别、智能派单、企微集成
+homepage: https://github.com/daxia778/qywechat
+vendor: daxia778
+license: MIT
+contents:
+  - src: ./pdd-dispatch
+    dst: /usr/bin/pdd-dispatch
+  - src: ./appicon.png
+    dst: /usr/share/icons/hicolor/256x256/apps/pdd-dispatch.png
+  - src: ./pdd-dispatch.desktop
+    dst: /usr/share/applications/pdd-dispatch.desktop

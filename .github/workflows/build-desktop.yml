@@ -6,109 +6,236 @@ on:
     paths:
       - 'desktop-client/**'
       - '.github/workflows/build-desktop.yml'
-  workflow_dispatch: # 手动触发
+  workflow_dispatch:
+
+env:
+  APP_NAME: pdd-dispatch
+  APP_VERSION: "1.7.0"
 
 jobs:
-  build:
-    name: Build ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+  # ═══════════════════════════════════════════════
+  # Windows 构建 — .exe (amd64 + arm64)
+  # ═══════════════════════════════════════════════
+  build-windows:
+    name: Windows ${{ matrix.arch }}
+    runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          # ─── Windows ───
-          - name: Windows-amd64
-            os: windows-latest
+          - arch: amd64
             platform: windows/amd64
-            artifact: pdd-dispatch-windows-amd64
-            ext: .exe
-            tags: ""
-          - name: Windows-arm64
-            os: windows-latest
+          - arch: arm64
             platform: windows/arm64
-            artifact: pdd-dispatch-windows-arm64
-            ext: .exe
-            tags: ""
-
-          # ─── macOS ───
-          - name: macOS-arm64-AppleSilicon
-            os: macos-latest
-            platform: darwin/arm64
-            artifact: pdd-dispatch-macos-arm64
-            ext: .app
-            tags: ""
-          - name: macOS-amd64-Intel
-            os: macos-latest
-            platform: darwin/amd64
-            artifact: pdd-dispatch-macos-amd64
-            ext: .app
-            tags: ""
-
-          # ─── Linux ───
-          - name: Linux-amd64
-            os: ubuntu-latest
-            platform: linux/amd64
-            artifact: pdd-dispatch-linux-amd64
-            ext: ""
-            tags: webkit2_41
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
           cache-dependency-path: desktop-client/go.sum
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # Linux 需要 GTK/WebKit 依赖（Ubuntu 24.04 用 4.1）
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Build
+        working-directory: desktop-client
+        run: wails build -platform ${{ matrix.platform }} -o ${{ env.APP_NAME }}.exe
+
+      - name: Create portable zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "desktop-client/build/bin/${{ env.APP_NAME }}.exe" -DestinationPath "${{ env.APP_NAME }}_${{ env.APP_VERSION }}_windows_${{ matrix.arch }}.zip"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: |
+            ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_windows_${{ matrix.arch }}.zip
+          retention-days: 90
+
+  # ═══════════════════════════════════════════════
+  # macOS 构建 — .app + .dmg (arm64 + amd64)
+  # ═══════════════════════════════════════════════
+  build-macos:
+    name: macOS ${{ matrix.arch }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            platform: darwin/arm64
+          - arch: amd64
+            platform: darwin/amd64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: desktop-client/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Build .app
+        working-directory: desktop-client
+        run: wails build -platform ${{ matrix.platform }}
+
+      - name: Create .dmg
+        run: |
+          APP_PATH="desktop-client/build/bin/单管家.app"
+          DMG_NAME="${{ env.APP_NAME }}_${{ env.APP_VERSION }}_macos_${{ matrix.arch }}.dmg"
+          if [ -d "$APP_PATH" ]; then
+            create-dmg \
+              --volname "PDD单管家" \
+              --window-size 600 400 \
+              --icon-size 128 \
+              --no-internet-enable \
+              "$DMG_NAME" \
+              "$APP_PATH" || true
+          fi
+          # Fallback: zip the .app if dmg fails
+          if [ ! -f "$DMG_NAME" ]; then
+            cd desktop-client/build/bin
+            zip -r "../../../${{ env.APP_NAME }}_${{ env.APP_VERSION }}_macos_${{ matrix.arch }}.zip" *.app
+            cd ../../..
+          fi
+
+      - name: Create .tar.gz
+        run: |
+          cd desktop-client/build/bin
+          tar -czf "../../../${{ env.APP_NAME }}_${{ env.APP_VERSION }}_macos_${{ matrix.arch }}.tar.gz" *.app
+          cd ../../..
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_macos_${{ matrix.arch }}.*
+          retention-days: 90
+
+  # ═══════════════════════════════════════════════
+  # Linux 构建 — binary + .deb + .rpm + .tar.gz
+  # ═══════════════════════════════════════════════
+  build-linux:
+    name: Linux amd64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: desktop-client/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
 
-      - name: Install Wails CLI
+      - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
-      - name: Build (with tags)
-        if: matrix.tags != ''
+      - name: Install nfpm (package builder)
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+      - name: Build binary
         working-directory: desktop-client
-        run: wails build -platform ${{ matrix.platform }} -tags ${{ matrix.tags }}
+        run: wails build -platform linux/amd64 -tags webkit2_41
 
-      - name: Build (without tags)
-        if: matrix.tags == ''
-        working-directory: desktop-client
-        run: wails build -platform ${{ matrix.platform }}
+      - name: Prepare packaging
+        run: |
+          mkdir -p pkg-stage
+          cp desktop-client/build/bin/${{ env.APP_NAME }} pkg-stage/
+          cp desktop-client/build/appicon.png pkg-stage/ 2>/dev/null || echo "No icon"
+          cp desktop-client/build/pdd-dispatch.desktop pkg-stage/
 
-      # Windows: 上传 .exe
-      - name: Upload Windows artifact
-        if: runner.os == 'Windows'
+      - name: Create .tar.gz
+        run: |
+          cd pkg-stage
+          tar -czf "../${{ env.APP_NAME }}_${{ env.APP_VERSION }}_linux_amd64.tar.gz" ${{ env.APP_NAME }}
+          cd ..
+
+      - name: Build .deb package
+        run: |
+          cd pkg-stage
+          nfpm package -p deb -f ../desktop-client/build/nfpm.yaml \
+            --target "../${{ env.APP_NAME }}_${{ env.APP_VERSION }}_linux_amd64.deb"
+          cd ..
+        env:
+          VERSION: ${{ env.APP_VERSION }}
+
+      - name: Build .rpm package
+        run: |
+          cd pkg-stage
+          nfpm package -p rpm -f ../desktop-client/build/nfpm.yaml \
+            --target "../${{ env.APP_NAME }}_${{ env.APP_VERSION }}_linux_amd64.rpm"
+          cd ..
+        env:
+          VERSION: ${{ env.APP_VERSION }}
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: desktop-client/build/bin/*.exe
+          name: linux-amd64
+          path: |
+            ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_linux_amd64.*
           retention-days: 90
 
-      # macOS: 上传 .app 目录
-      - name: Upload macOS artifact
-        if: runner.os == 'macOS'
+  # ═══════════════════════════════════════════════
+  # 生成校验和 + 汇总所有产物
+  # ═══════════════════════════════════════════════
+  checksums:
+    name: Generate Checksums
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+          merge-multiple: true
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd all-artifacts
+          sha256sum * > ../${{ env.APP_NAME }}_${{ env.APP_VERSION }}_checksums.sha256
+          cat ../${{ env.APP_NAME }}_${{ env.APP_VERSION }}_checksums.sha256
+          cd ..
+
+      - name: Upload checksums
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: desktop-client/build/bin/*.app
+          name: checksums
+          path: ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_checksums.sha256
           retention-days: 90
 
-      # Linux: 上传二进制
-      - name: Upload Linux artifact
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: desktop-client/build/bin/pdd-dispatch*
-          retention-days: 90
+      - name: Summary
+        run: |
+          echo "## 🎉 Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | Architecture | Format |" >> $GITHUB_STEP_SUMMARY
+          echo "|:---------|:-------------|:-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Windows | amd64 | .exe (portable zip) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Windows | arm64 | .exe (portable zip) |" >> $GITHUB_STEP_SUMMARY
+          echo "| macOS | arm64 (Apple Silicon) | .dmg / .tar.gz |" >> $GITHUB_STEP_SUMMARY
+          echo "| macOS | amd64 (Intel) | .dmg / .tar.gz |" >> $GITHUB_STEP_SUMMARY
+          echo "| Linux | amd64 | .tar.gz / .deb / .rpm |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### SHA256 Checksums" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_checksums.sha256 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

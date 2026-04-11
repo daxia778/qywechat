@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=PDD单管家
+Comment=PDD 派单管理桌面客户端
+Exec=/usr/bin/pdd-dispatch
+Icon=pdd-dispatch
+Type=Application
+Categories=Office;Utility;
+StartupNotify=true
