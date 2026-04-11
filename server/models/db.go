@@ -78,7 +78,7 @@ func InitDB() {
 	}
 
 	// 自动建表与迁移
-	if err := DB.AutoMigrate(&Employee{}, &Order{}, &Customer{}, &AuditLog{}, &WecomGroupChat{}, &WecomMember{}, &WecomMessageLog{}, &AppVersion{}, &Notification{}, &OrderTimeline{}, &PaymentRecord{}, &TokenBlacklist{}, &UserMinIssuedAtRecord{}, &FreelanceDesigner{}, &ContactWay{}, &CustomerTransfer{}, &TransferRule{}, &RiskAlert{}, &AuditConfig{}); err != nil {
+	if err := DB.AutoMigrate(&Employee{}, &Order{}, &Customer{}, &AuditLog{}, &WecomGroupChat{}, &WecomMember{}, &WecomMessageLog{}, &AppVersion{}, &Notification{}, &OrderTimeline{}, &PaymentRecord{}, &TokenBlacklist{}, &UserMinIssuedAtRecord{}, &FreelanceDesigner{}, &ContactWay{}, &CustomerTransfer{}, &TransferRule{}, &RiskAlert{}, &AuditConfig{}, &ChatArchiveMessage{}, &ChatArchiveCursor{}); err != nil {
 		log.Fatalf("❌ 数据库迁移失败: %v", err)
 	}
 
@@ -105,6 +105,7 @@ func ensureIndexes() {
 		"CREATE UNIQUE INDEX IF NOT EXISTS idx_employees_username ON employees(username) WHERE username != ''",
 		"CREATE INDEX IF NOT EXISTS idx_orders_wecom_chat_id ON orders(wecom_chat_id) WHERE wecom_chat_id != ''",
 		"CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read)",
+		"CREATE INDEX IF NOT EXISTS idx_archive_msg_sender ON chat_archive_messages(sender_id, msg_time)",
 	}
 	for _, sql := range indexes {
 		if err := DB.Exec(sql).Error; err != nil {

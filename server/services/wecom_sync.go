@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,7 +16,7 @@ import (
 )
 
 const (
-	wecomDataRetention  = 90 * 24 * time.Hour // 保留 90 天
+	wecomDataRetention  = 80 * 24 * time.Hour // 保留 80 天
 	wecomCleanInterval  = 24 * time.Hour       // 每 24 小时清理一次
 	wecomSyncInterval   = 1 * time.Hour        // 每 1 小时同步一次通讯录
 )
@@ -258,7 +260,7 @@ func StartWecomDataCleanupScheduler(ctx context.Context) {
 func cleanWecomData() {
 	threshold := time.Now().Add(-wecomDataRetention)
 
-	var r1Affected, r2Affected, r3Affected int64
+	var r1Affected, r2Affected, r3Affected, r4Affected int64
 	if err := models.WriteTx(func(tx *gorm.DB) error {
 		// 清理过期群聊快照
 		r1 := tx.Where("synced_at < ?", threshold).Delete(&models.WecomGroupChat{})
@@ -281,15 +283,76 @@ func cleanWecomData() {
 		}
 		r3Affected = r3.RowsAffected
 
+		// 清理过期会话存档消息
+		r4 := tx.Where("msg_time < ?", threshold).Delete(&models.ChatArchiveMessage{})
+		if r4.Error != nil {
+			return r4.Error
+		}
+		r4Affected = r4.RowsAffected
+
 		return nil
 	}); err != nil {
 		log.Printf("❌ 企微数据清理失败: %v", err)
 		return
 	}
 
-	total := r1Affected + r2Affected + r3Affected
+	total := r1Affected + r2Affected + r3Affected + r4Affected
 	if total > 0 {
-		log.Printf("🗑️ 企微数据清理完成 | 群聊快照=%d, 成员快照=%d, 消息日志=%d",
-			r1Affected, r2Affected, r3Affected)
+		log.Printf("🗑️ 企微数据清理完成 | 群聊快照=%d, 成员快照=%d, 消息日志=%d, 会话存档=%d",
+			r1Affected, r2Affected, r3Affected, r4Affected)
+	}
+
+	// 清理过期的存档媒体文件
+	cleanArchiveMedia(threshold)
+}
+
+// cleanArchiveMedia 清理过期的存档媒体文件 (uploads/archive/ 目录下按月份组织)
+func cleanArchiveMedia(threshold time.Time) {
+	archiveDir := "uploads/archive"
+	if _, err := os.Stat(archiveDir); os.IsNotExist(err) {
+		return // 目录不存在，跳过
+	}
+
+	removed := 0
+	// 遍历 uploads/archive/ 下的月份子目录
+	entries, err := os.ReadDir(archiveDir)
+	if err != nil {
+		log.Printf("⚠️ 读取存档目录失败: %v", err)
+		return
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		subDir := filepath.Join(archiveDir, entry.Name())
+		files, err := os.ReadDir(subDir)
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			if f.IsDir() {
+				continue
+			}
+			info, err := f.Info()
+			if err != nil {
+				continue
+			}
+			if info.ModTime().Before(threshold) {
+				fullPath := filepath.Join(subDir, f.Name())
+				if err := os.Remove(fullPath); err == nil {
+					removed++
+				}
+			}
+		}
+		// 如果子目录为空，删除子目录
+		remaining, _ := os.ReadDir(subDir)
+		if len(remaining) == 0 {
+			os.Remove(subDir)
+		}
+	}
+
+	if removed > 0 {
+		log.Printf("🗑️ 存档媒体文件清理完成 | 删除 %d 个过期文件", removed)
 	}
 }

@@ -104,6 +104,12 @@ func main() {
 	// 启动风控扫描引擎 (每小时扫描退款率/死单等)
 	services.StartRiskScanner(ctx)
 
+	// 初始化会话存档引擎
+	services.InitMsgAudit()
+
+	// 启动会话存档定时拉取
+	services.StartMsgAuditPoller(ctx)
+
 	// 确保目录存在
 	os.MkdirAll("uploads", 0o750) // #nosec G301 — 服务进程专用目录
 	os.MkdirAll("data", 0o750)    // #nosec G301 — 服务进程专用目录
@@ -322,6 +328,17 @@ func main() {
 				go services.SyncWecomMembers()
 				c.JSON(http.StatusOK, gin.H{"message": "通讯录同步已触发，请查看日志"})
 			})
+
+			// 群聊管理
+			admin.GET("/wecom/groups/:chat_id/detail", handlers.GetGroupChatDetail)
+			admin.POST("/wecom/groups/:chat_id/members", handlers.UpdateGroupMembers)
+			admin.PUT("/wecom/groups/:chat_id/rename", handlers.RenameGroupChat)
+			admin.POST("/wecom/groups/:chat_id/associate", handlers.AssociateGroupToOrder)
+
+			// 会话存档
+			admin.GET("/wecom/archive/groups", handlers.ListArchivedGroups)
+			admin.GET("/wecom/groups/:chat_id/archive", handlers.GetArchiveMessages)
+			admin.GET("/wecom/archive/media/*filepath", handlers.GetArchiveMediaFile)
 
 			// Phase 2: 通知
 			admin.GET("/notifications", handlers.ListNotifications)

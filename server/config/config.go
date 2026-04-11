@@ -30,6 +30,9 @@ type Config struct {
 	WecomEncodingAESKey    string // 回调 EncodingAESKey (用于消息解密)
 	WecomContactSecret     string // 客户联系 Secret（与应用 Secret 不同）
 	WecomAuditChatID       string // 跟单运营监控群 ChatID（审计播报）
+	WecomMsgAuditSecret    string // 会话存档 Secret
+	WecomMsgAuditPrivateKey string // 会话存档 RSA 私钥 (PEM 格式)
+	EnableMsgAudit         bool   // 是否启用会话存档引擎
 
 	// OCR / AI Vision
 	OCRProvider    string // "zhipu" | "dashscope"
@@ -98,6 +101,9 @@ func Init() {
 		WecomEncodingAESKey:     getEnv("WECOM_ENCODING_AES_KEY", ""),
 		WecomContactSecret:     getEnv("WECOM_CONTACT_SECRET", ""),
 		WecomAuditChatID:       getEnv("WECOM_AUDIT_CHAT_ID", ""),
+		WecomMsgAuditSecret:    getEnv("WECOM_MSGAUDIT_SECRET", ""),
+		WecomMsgAuditPrivateKey: getEnv("WECOM_MSGAUDIT_PRIVATE_KEY", ""),
+		EnableMsgAudit:         getEnv("ENABLE_MSG_AUDIT", "false") == "true",
 		OCRProvider:             getEnv("OCR_PROVIDER", "zhipu"),
 		ZhipuAPIKey:             getEnv("ZHIPU_API_KEY", ""),
 		DashscopeAPIKey:         getEnv("DASHSCOPE_API_KEY", ""),

@@ -184,6 +184,74 @@ func (w *WeComClient) CreateGroupChat(name, ownerID string, memberIDs []string) 
 	return result.ChatID, nil
 }
 
+// UpdateGroupChat 更新群聊（改名、加人、踢人）
+// 文档: https://developer.work.weixin.qq.com/document/path/90258
+func (w *WeComClient) UpdateGroupChat(chatID string, name string, addUsers []string, delUsers []string) error {
+	if !w.IsConfigured() {
+		return fmt.Errorf("企微未配置")
+	}
+	token, err := w.GetAccessToken()
+	if err != nil {
+		return err
+	}
+
+	payload := map[string]any{
+		"chatid": chatID,
+	}
+	if name != "" {
+		payload["name"] = name
+	}
+	if len(addUsers) > 0 {
+		payload["add_user_list"] = addUsers
+	}
+	if len(delUsers) > 0 {
+		payload["del_user_list"] = delUsers
+	}
+
+	err = w.postJSON(fmt.Sprintf("%s/appchat/update?access_token=%s", w.baseURL, token), payload)
+	if err != nil {
+		return fmt.Errorf("更新群聊失败: %w", err)
+	}
+	log.Printf("✅ 企微群聊更新成功 | chatid=%s name=%s add=%v del=%v", chatID, name, addUsers, delUsers)
+	return nil
+}
+
+// GetGroupChatInfo 获取群聊详情
+// 文档: https://developer.work.weixin.qq.com/document/path/90259
+func (w *WeComClient) GetGroupChatInfo(chatID string) (map[string]any, error) {
+	if !w.IsConfigured() {
+		return nil, fmt.Errorf("企微未配置")
+	}
+	token, err := w.GetAccessToken()
+	if err != nil {
+		return nil, err
+	}
+
+	url := fmt.Sprintf("%s/appchat/get?access_token=%s&chatid=%s", w.baseURL, token, chatID)
+	resp, err := w.client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("获取群聊详情失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return nil, err
+	}
+
+	if errCode, ok := result["errcode"].(float64); ok && int(errCode) != 0 {
+		errMsg, _ := result["errmsg"].(string)
+		return nil, fmt.Errorf("获取群聊详情错误: %d %s", int(errCode), errMsg)
+	}
+
+	return result, nil
+}
+
 // SendGroupMessage 群聊发消息
 func (w *WeComClient) SendGroupMessage(chatID, content string) error {
 	if !w.IsConfigured() {
