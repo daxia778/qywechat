@@ -1283,3 +1283,35 @@ func ParseOrderText(c *gin.Context) {
 
 	respondOK(c, result)
 }
+
+// ─── 转派订单 ──────────────────────────────────────────
+
+// ReassignOrder 管理员转派订单给另一个设计师
+// PUT /api/v1/orders/:id/reassign
+func ReassignOrder(c *gin.Context) {
+	idStr := c.Param("id")
+	orderID, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		badRequest(c, "无效的订单 ID")
+		return
+	}
+
+	var body struct {
+		DesignerUserID string `json:"designer_userid" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		badRequest(c, "请提供目标设计师 designer_userid")
+		return
+	}
+
+	operatorID, _ := c.Get("user_id")
+	uidStr := fmt.Sprintf("%v", operatorID)
+
+	order, err := services.ReassignOrder(uint(orderID), body.DesignerUserID, uidStr)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+
+	respondOK(c, order)
+}

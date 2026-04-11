@@ -147,7 +147,10 @@ const state = reactive({
 
   // OTA Update
   updateInfo: null,
-  showUpdateModal: false
+  showUpdateModal: false,
+
+  // 平台检测
+  isMac: true, // 默认 macOS, 启动时更新
 });
 
 // ══ 缩放弹窗 watch（必须在 state 定义之后）══
@@ -176,6 +179,11 @@ onMounted(async () => {
   try {
     state.macAddress = await window.go.main.App.GetMacAddress();
 
+    // 检测平台
+    try {
+      const platform = await window.go.main.App.GetPlatform();
+      state.isMac = platform === 'darwin';
+    } catch(e) { state.isMac = navigator.platform.includes('Mac'); }
     // 先检查内存中是否有会话（Go 层 loadSession 恢复的）
     const loggedIn = await window.go.main.App.IsLoggedIn();
     if (loggedIn) {
@@ -746,7 +754,7 @@ const submit = async () => {
           <!-- 无图片时显示默认提示 -->
           <div v-else>
             <div class="upload-icon">📸</div>
-            <div class="upload-text">点击选择、或直接 <kbd>Cmd+V</kbd> 粘贴截图</div>
+            <div class="upload-text">点击选择、或直接 <kbd>{{ state.isMac ? 'Cmd' : 'Ctrl' }}+V</kbd> 粘贴截图</div>
             <div class="upload-hint">支持从剪贴板直接粘贴图片自动识别</div>
           </div>
         </div>

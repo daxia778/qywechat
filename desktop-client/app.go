@@ -30,12 +30,28 @@ type App struct {
 	empName    string
 	wecomUID   string
 	machineID  string // 缓存的设备指纹，启动时生成
+	httpClient *http.Client // 复用连接，避免重复 TLS 握手
+	ocrClient  *http.Client // OCR 专用，超时 120s
 }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
+	transport := &http.Transport{
+		MaxIdleConns:        5,
+		MaxIdleConnsPerHost: 5,
+		IdleConnTimeout:     120 * time.Second,
+	}
 	return &App{
 		serverURL: "https://zhiyuanshijue.ltd",
+		httpClient: &http.Client{
+			Timeout:   30 * time.Second,
+			Transport: transport,
+		},
+		// OCR/AI 请求需要更长超时（服务端调用大模型 ~2-15s）
+		ocrClient: &http.Client{
+			Timeout:   120 * time.Second,
+			Transport: transport, // 复用连接池
+		},
 	}
 }
 
@@ -77,8 +93,25 @@ type sessionData struct {
 }
 
 func sessionFilePath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".pdd-session.json")
+	// Windows: %APPDATA%/pdd-dispatch/session.json
+	// macOS:   ~/Library/Application Support/pdd-dispatch/session.json
+	// Linux:   ~/.config/pdd-dispatch/session.json
+	dir := ""
+	if runtime.GOOS == "windows" {
+		dir = os.Getenv("APPDATA")
+		if dir == "" {
+			dir, _ = os.UserHomeDir()
+		}
+	} else if runtime.GOOS == "darwin" {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, "Library", "Application Support")
+	} else {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".config")
+	}
+	appDir := filepath.Join(dir, "pdd-dispatch")
+	_ = os.MkdirAll(appDir, 0700)
+	return filepath.Join(appDir, "session.json")
 }
 
 func (a *App) saveSession() {
@@ -322,19 +355,24 @@ type OCRResult struct {
 }
 
 func (a *App) UploadScreenshot(filePath string) *OCRResult {
+	total := time.Now()
+	t0 := time.Now()
 	a.ensureFreshToken()
+	log.Printf("⏱️ ensureFreshToken: %v", time.Since(t0))
 	result := a.doUploadScreenshotFile(filePath)
 	if result.Error != "" && isAuthError(result.Error) {
 		log.Println("⚠️ OCR 上传认证失败，尝试刷新 token 重试")
 		a.deviceLogin()
 		if a.token != "" {
-			return a.doUploadScreenshotFile(filePath)
+			result = a.doUploadScreenshotFile(filePath)
 		}
 	}
+	log.Printf("⏱️ UploadScreenshot 总耗时: %v", time.Since(total))
 	return result
 }
 
 func (a *App) doUploadScreenshotFile(filePath string) *OCRResult {
+	t0 := time.Now()
 	file, err := os.Open(filePath)
 	if err != nil {
 		return &OCRResult{Error: "文件打开失败: " + err.Error()}
@@ -349,6 +387,7 @@ func (a *App) doUploadScreenshotFile(filePath string) *OCRResult {
 	}
 	io.Copy(part, file)
 	writer.Close()
+	log.Printf("⏱️ 构建表单: %v (大小: %d bytes)", time.Since(t0), buf.Len())
 
 	req, _ := http.NewRequest("POST", a.serverURL+"/api/v1/orders/upload_ocr", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -356,33 +395,52 @@ func (a *App) doUploadScreenshotFile(filePath string) *OCRResult {
 		req.Header.Set("Authorization", "Bearer "+a.token)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	t1 := time.Now()
+	resp, err := a.ocrClient.Do(req)
 	if err != nil {
 		return &OCRResult{Error: "上传失败: " + err.Error()}
 	}
 	defer resp.Body.Close()
 
-	var result OCRResult
-	json.NewDecoder(resp.Body).Decode(&result)
+	respBody, _ := io.ReadAll(resp.Body)
+	log.Printf("⏱️ HTTP 请求: %v | status=%d | 响应=%d bytes", time.Since(t1), resp.StatusCode, len(respBody))
+	log.Printf("📡 upload_ocr 响应: status=%d body=%s", resp.StatusCode, string(respBody))
 
 	if resp.StatusCode != 200 {
-		result.Error = "OCR 解析失败: HTTP " + strconv.Itoa(resp.StatusCode)
+		var errResp struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}
+		json.Unmarshal(respBody, &errResp)
+		errMsg := "OCR 解析失败: HTTP " + strconv.Itoa(resp.StatusCode)
+		if errResp.Message != "" {
+			errMsg = errResp.Message
+		}
+		return &OCRResult{Error: errMsg}
+	}
+
+	var result OCRResult
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return &OCRResult{Error: "解析响应失败: " + err.Error()}
 	}
 	return &result
 }
 
 // UploadScreenshotBase64 支持从剪贴板粘贴图片 (传入完整的 base64 data URI)
 func (a *App) UploadScreenshotBase64(b64DataURL string) *OCRResult {
+	total := time.Now()
+	t0 := time.Now()
 	a.ensureFreshToken()
+	log.Printf("⏱️ ensureFreshToken: %v", time.Since(t0))
 	result := a.doUploadScreenshotBase64(b64DataURL)
 	if result.Error != "" && isAuthError(result.Error) {
 		log.Println("⚠️ OCR 上传认证失败，尝试刷新 token 重试")
 		a.deviceLogin()
 		if a.token != "" {
-			return a.doUploadScreenshotBase64(b64DataURL)
+			result = a.doUploadScreenshotBase64(b64DataURL)
 		}
 	}
+	log.Printf("⏱️ UploadScreenshotBase64 总耗时: %v", time.Since(total))
 	return result
 }
 
@@ -417,18 +475,33 @@ func (a *App) doUploadScreenshotBase64(b64DataURL string) *OCRResult {
 		req.Header.Set("Authorization", "Bearer "+a.token)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	t1 := time.Now()
+	resp, err := a.ocrClient.Do(req)
 	if err != nil {
 		return &OCRResult{Error: "上传失败: " + err.Error()}
 	}
 	defer resp.Body.Close()
 
-	var result OCRResult
-	json.NewDecoder(resp.Body).Decode(&result)
+	respBody, _ := io.ReadAll(resp.Body)
+	log.Printf("⏱️ HTTP 请求(base64): %v | status=%d", time.Since(t1), resp.StatusCode)
+	log.Printf("📡 upload_ocr(base64) 响应: status=%d body=%s", resp.StatusCode, string(respBody))
 
 	if resp.StatusCode != 200 {
-		result.Error = "OCR 解析失败: HTTP " + strconv.Itoa(resp.StatusCode)
+		var errResp struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}
+		json.Unmarshal(respBody, &errResp)
+		errMsg := "OCR 解析失败: HTTP " + strconv.Itoa(resp.StatusCode)
+		if errResp.Message != "" {
+			errMsg = errResp.Message
+		}
+		return &OCRResult{Error: errMsg}
+	}
+
+	var result OCRResult
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return &OCRResult{Error: "解析响应失败: " + err.Error()}
 	}
 
 	// 如果 OCR 没有提取出内容，给予明确提示
@@ -486,7 +559,7 @@ func (a *App) doGetFollowStaff() []FollowStaffItem {
 		req.Header.Set("Authorization", "Bearer "+a.token)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := a.httpClient
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Println("获取跟单客服列表失败:", err)
@@ -550,7 +623,7 @@ func (a *App) doSubmitOrder(orderSN, customerContact, followStaffUID string, pri
 		req.Header.Set("Authorization", "Bearer "+a.token)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := a.httpClient
 	resp, err := client.Do(req)
 	if err != nil {
 		return &SubmitResult{Success: false, Message: "提交失败: " + err.Error()}
@@ -594,6 +667,19 @@ type UploadAttachmentResult struct {
 
 // UploadAttachmentBase64 上传备注图片（base64），返回服务端 URL
 func (a *App) UploadAttachmentBase64(b64DataURL string) *UploadAttachmentResult {
+	a.ensureFreshToken()
+	result := a.doUploadAttachmentBase64(b64DataURL)
+	if result.Error != "" && isAuthError(result.Error) {
+		log.Println("⚠️ 附件上传认证失败，尝试刷新 token 重试")
+		a.deviceLogin()
+		if a.token != "" {
+			return a.doUploadAttachmentBase64(b64DataURL)
+		}
+	}
+	return result
+}
+
+func (a *App) doUploadAttachmentBase64(b64DataURL string) *UploadAttachmentResult {
 	parts := strings.SplitN(b64DataURL, ",", 2)
 	if len(parts) != 2 {
 		return &UploadAttachmentResult{Error: "无效的图片数据"}
@@ -619,19 +705,30 @@ func (a *App) UploadAttachmentBase64(b64DataURL string) *UploadAttachmentResult 
 		req.Header.Set("Authorization", "Bearer "+a.token)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := a.httpClient
 	resp, err := client.Do(req)
 	if err != nil {
 		return &UploadAttachmentResult{Error: "上传失败: " + err.Error()}
 	}
 	defer resp.Body.Close()
 
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != 200 {
-		return &UploadAttachmentResult{Error: "上传失败"}
+		var errResp struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}
+		json.Unmarshal(respBody, &errResp)
+		errMsg := "上传失败: HTTP " + strconv.Itoa(resp.StatusCode)
+		if errResp.Message != "" {
+			errMsg = errResp.Message
+		}
+		return &UploadAttachmentResult{Error: errMsg}
 	}
+
+	var result map[string]interface{}
+	json.Unmarshal(respBody, &result)
 
 	url := ""
 	if v, ok := result["url"]; ok {
@@ -642,6 +739,19 @@ func (a *App) UploadAttachmentBase64(b64DataURL string) *UploadAttachmentResult 
 
 // UploadAttachmentFile 通过文件路径上传备注图片
 func (a *App) UploadAttachmentFile(filePath string) *UploadAttachmentResult {
+	a.ensureFreshToken()
+	result := a.doUploadAttachmentFile(filePath)
+	if result.Error != "" && isAuthError(result.Error) {
+		log.Println("⚠️ 附件上传认证失败，尝试刷新 token 重试")
+		a.deviceLogin()
+		if a.token != "" {
+			return a.doUploadAttachmentFile(filePath)
+		}
+	}
+	return result
+}
+
+func (a *App) doUploadAttachmentFile(filePath string) *UploadAttachmentResult {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return &UploadAttachmentResult{Error: "文件打开失败"}
@@ -663,19 +773,30 @@ func (a *App) UploadAttachmentFile(filePath string) *UploadAttachmentResult {
 		req.Header.Set("Authorization", "Bearer "+a.token)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := a.httpClient
 	resp, err := client.Do(req)
 	if err != nil {
 		return &UploadAttachmentResult{Error: "上传失败: " + err.Error()}
 	}
 	defer resp.Body.Close()
 
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != 200 {
-		return &UploadAttachmentResult{Error: "上传失败"}
+		var errResp struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}
+		json.Unmarshal(respBody, &errResp)
+		errMsg := "上传失败: HTTP " + strconv.Itoa(resp.StatusCode)
+		if errResp.Message != "" {
+			errMsg = errResp.Message
+		}
+		return &UploadAttachmentResult{Error: errMsg}
 	}
+
+	var result map[string]interface{}
+	json.Unmarshal(respBody, &result)
 
 	url := ""
 	if v, ok := result["url"]; ok {
@@ -740,7 +861,7 @@ func (a *App) doParseOrderText(text string) *ParseTextResult {
 		req.Header.Set("Authorization", "Bearer "+a.token)
 	}
 
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := a.ocrClient
 	resp, err := client.Do(req)
 	if err != nil {
 		return &ParseTextResult{Error: "网络请求失败: " + err.Error()}

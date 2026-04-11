@@ -224,6 +224,7 @@ func main() {
 			orderAuth.POST("/:id/match", handlers.MatchOrderContact)
 			orderAuth.POST("/:id/note", handlers.AddOrderNote)
 			orderAuth.POST("/:id/create-group", handlers.CreateOrderGroup)
+			orderAuth.PUT("/:id/reassign", handlers.ReassignOrder)
 			orderAuth.PUT("/designers/:id", handlers.UpdateDesigner)
 
 		orderAuth.GET("/my-stats", handlers.GetMyStats)
