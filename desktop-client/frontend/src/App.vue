@@ -353,6 +353,10 @@ const handleGlobalPaste = async (e) => {
   // 如果焦点在备注 textarea 内，交给 handleAttachmentPaste 处理
   if (e.target && e.target.tagName === 'TEXTAREA') return;
 
+  // 如果粘贴事件来自附件区域容器，交给 handleAttachmentZonePaste 处理
+  const attachZone = e.target?.closest?.('.attachment-zone, .attachment-section');
+  if (attachZone) return;
+
   const items = e.clipboardData?.items;
   if (!items) return;
 
@@ -362,42 +366,25 @@ const handleGlobalPaste = async (e) => {
       const file = items[i].getAsFile();
       if (!file) continue;
 
-      // OCR 已锁定或已有预览图时，粘贴的图片走备注附件逻辑
-      if (state.priceLocked || state.previewUrl) {
-        if (state.attachments.length >= 5) {
-          showToast('最多添加 5 张备注图片', 'error');
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          const base64Data = event.target.result;
-          state.attachmentUploading = true;
-          showToast('正在上传备注图片...', 'success');
-          try {
-            const res = await window.go.main.App.UploadAttachmentBase64(base64Data);
-            if (res.error) {
-              showToast('图片上传失败: ' + res.error, 'error');
-            } else {
-              state.attachments.push({ url: res.url, preview: base64Data });
-              showToast('备注图片已添加');
-            }
-          } catch (err) {
-            showToast('图片上传异常: ' + err, 'error');
-          } finally {
-            state.attachmentUploading = false;
-          }
-        };
-        reader.readAsDataURL(file);
+      // OCR 已锁定：所有全局粘贴走备注附件
+      if (state.priceLocked) {
+        uploadClipboardAsAttachment(file);
         return;
       }
 
-      // OCR 未完成时，粘贴走 OCR 识别
+      // OCR 未完成但已有预览图（说明 OCR 正在进行或已有截图）：走备注附件
+      if (state.previewUrl) {
+        uploadClipboardAsAttachment(file);
+        return;
+      }
+
+      // OCR 完全未开始：走 OCR 识别
       const reader = new FileReader();
       reader.onload = async (event) => {
         const base64Data = event.target.result;
         state.previewUrl = base64Data;
         state.uploading = true;
-        showToast('检测到剪贴板图片，正在解析...', 'success');
+        showToast('检测到剪贴板图片，正在OCR解析...', 'success');
         try {
           const res = await window.go.main.App.UploadScreenshotBase64(base64Data);
           handleOCRResponse(res);
@@ -408,6 +395,51 @@ const handleGlobalPaste = async (e) => {
         }
       };
       reader.readAsDataURL(file);
+      break;
+    }
+  }
+};
+
+// 通用的剪贴板图片上传为备注附件
+const uploadClipboardAsAttachment = (file) => {
+  if (state.attachments.length >= 5) {
+    showToast('最多添加 5 张备注图片', 'error');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async (event) => {
+    const base64Data = event.target.result;
+    state.attachmentUploading = true;
+    showToast('正在上传备注图片...', 'success');
+    try {
+      const res = await window.go.main.App.UploadAttachmentBase64(base64Data);
+      if (res.error) {
+        showToast('图片上传失败: ' + res.error, 'error');
+      } else {
+        state.attachments.push({ url: res.url, preview: base64Data });
+        showToast('备注图片已添加');
+      }
+    } catch (err) {
+      showToast('图片上传异常: ' + err, 'error');
+    } finally {
+      state.attachmentUploading = false;
+    }
+  };
+  reader.readAsDataURL(file);
+};
+
+// 附件区域独立粘贴处理器：无论 OCR 状态如何，粘贴到此区域的图片都走附件
+const handleAttachmentZonePaste = async (e) => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type.indexOf('image') !== -1) {
+      e.preventDefault();
+      e.stopPropagation();
+      const file = items[i].getAsFile();
+      if (!file) continue;
+      uploadClipboardAsAttachment(file);
       break;
     }
   }
@@ -919,13 +951,13 @@ const submit = async () => {
         </div>
 
         <!-- 备注图片附件 -->
-        <div class="form-group" style="margin-bottom: 0; margin-top: 12px;">
+        <div class="form-group attachment-section" style="margin-bottom: 0; margin-top: 12px;" @paste="handleAttachmentZonePaste">
           <label class="form-label">
             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="vertical-align: -2px; margin-right: 4px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
             备注图片 ({{ state.attachments.length }}/5)
-            <span style="color: #94a3b8; font-weight: 400; margin-left: 6px;">粘贴或选择客户发来的图片</span>
+            <span style="color: #94a3b8; font-weight: 400; margin-left: 6px;">在此区域粘贴客户二维码等图片</span>
           </label>
-          <div class="attachment-zone">
+          <div class="attachment-zone" tabindex="0" @paste="handleAttachmentZonePaste">
             <!-- 已上传的图片缩略图 -->
             <div v-for="(att, idx) in state.attachments" :key="idx" class="attachment-thumb">
               <img :src="att.preview || att.url" class="attachment-img" />
@@ -1161,6 +1193,15 @@ const submit = async () => {
   border-radius: 8px;
   min-height: 56px;
   align-items: center;
+  transition: border-color 0.2s, background-color 0.2s;
+  outline: none;
+  cursor: pointer;
+}
+.attachment-zone:focus,
+.attachment-zone:hover {
+  border-color: var(--accent);
+  border-style: solid;
+  background: #f0fdf4;
 }
 .attachment-thumb {
   position: relative;
