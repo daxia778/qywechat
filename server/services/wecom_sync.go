@@ -193,13 +193,18 @@ func StartWecomSyncScheduler(ctx context.Context) {
 				log.Printf("[WecomSync] panic recovered: %v", r)
 			}
 		}()
-		// 启动 30 秒后首次同步 (等企微客户端初始化完成)
+		// 启动 2 秒后立即预热缓存
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(30 * time.Second):
+		case <-time.After(2 * time.Second):
 		}
+
+		// 1) 同步通讯录到数据库
 		SyncWecomMembers()
+
+		// 2) 预热内存缓存，避免首次搜索触发 API 调用
+		_ = getWeComTeamMembers()
 
 		ticker := time.NewTicker(wecomSyncInterval)
 		defer ticker.Stop()

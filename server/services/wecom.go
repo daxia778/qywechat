@@ -705,6 +705,59 @@ func (w *WeComClient) GetExternalContactDetail(externalUserID string) (map[strin
 	return result, nil
 }
 
+// WeComDeptUser 企微通讯录成员简要信息
+type WeComDeptUser struct {
+	UserID string `json:"userid"`
+	Name   string `json:"name"`
+	Avatar string `json:"avatar"`
+}
+
+// GetDepartmentUsers 获取指定部门的成员列表（含子部门）
+// departmentID=1 表示根部门（全公司）
+func (w *WeComClient) GetDepartmentUsers(departmentID int) ([]WeComDeptUser, error) {
+	if !w.IsConfigured() {
+		return nil, fmt.Errorf("企微未配置")
+	}
+
+	token, err := w.GetAccessToken()
+	if err != nil {
+		return nil, err
+	}
+
+	url := fmt.Sprintf("%s/user/simplelist?access_token=%s&department_id=%d&fetch_child=1", w.baseURL, token, departmentID)
+	resp, err := w.client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("获取通讯录成员失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		ErrCode  int    `json:"errcode"`
+		ErrMsg   string `json:"errmsg"`
+		UserList []struct {
+			UserID string `json:"userid"`
+			Name   string `json:"name"`
+		} `json:"userlist"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	if result.ErrCode != 0 {
+		return nil, fmt.Errorf("获取通讯录成员错误: %d %s", result.ErrCode, result.ErrMsg)
+	}
+
+	users := make([]WeComDeptUser, 0, len(result.UserList))
+	for _, u := range result.UserList {
+		users = append(users, WeComDeptUser{
+			UserID: u.UserID,
+			Name:   u.Name,
+		})
+	}
+
+	log.Printf("✅ 获取企微通讯录成员 | dept=%d | count=%d", departmentID, len(users))
+	return users, nil
+}
+
 func (w *WeComClient) postJSON(url string, payload any) error {
 	body, err := w.postJSONRaw(url, payload)
 	if err != nil {

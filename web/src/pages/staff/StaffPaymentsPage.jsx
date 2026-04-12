@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -489,136 +489,151 @@ export default function StaffPaymentsPage() {
               {payments.map((p) => {
                 const isExpanded = expandedId === p.id;
                 return (
-                  <tr key={p.id} className={`border-b border-slate-50 hover:bg-slate-50/60 transition-colors group ${isExpanded ? 'bg-[#434FCF]/[0.03]' : ''}`}>
-                    <td style={{ paddingLeft: 24 }}>
-                      <div className="text-[13px] font-medium text-slate-700 font-mono truncate" title={p.transaction_id}>
-                        {p.transaction_id.length > 20 ? p.transaction_id.substring(0, 20) + '...' : p.transaction_id}
-                      </div>
-                      <div className="text-[12px] text-slate-400 mt-0.5 tabular-nums">{formatTime(p.paid_at)}</div>
-                    </td>
-                    <td className="text-center">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${SOURCE_STYLE[p.source] || SOURCE_STYLE.manual}`}>
-                        {SOURCE_MAP[p.source] || p.source}
-                      </span>
-                    </td>
-                    <td className="text-right">
-                      <span className="text-[14px] font-bold text-slate-800 font-[Outfit] tabular-nums">
-                        &yen;{formatCurrency(p.amount / 100)}
-                      </span>
-                    </td>
-                    <td className="text-center">
-                      {p.order_id ? (
-                        <div>
-                          <button
-                            onClick={() => toggleExpand(p.id, p.order_id)}
-                            className={`inline-flex items-center gap-1.5 text-[13px] font-bold transition-colors cursor-pointer bg-transparent border-none p-0 ${isExpanded ? 'text-[#3640b5]' : 'text-[#434FCF] hover:text-[#3640b5]'}`}
-                          >
-                            <ChevronDown
-                              size={12}
-                              className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                            />
-                            #{p.order_id}
-                          </button>
-                          {p.customer_id > 0 && (
-                            <div className="text-[11px] text-slate-400 mt-0.5">
-                              顾客 #{p.customer_id}
-                            </div>
-                          )}
+                  <Fragment key={p.id}>
+                    <tr className={`border-b border-slate-50 hover:bg-slate-50/60 transition-colors group ${isExpanded ? 'bg-[#434FCF]/[0.03]' : ''}`}>
+                      <td style={{ paddingLeft: 24 }}>
+                        <div className="text-[13px] font-medium text-slate-700 font-mono truncate" title={p.transaction_id}>
+                          {p.transaction_id.length > 20 ? p.transaction_id.substring(0, 20) + '...' : p.transaction_id}
                         </div>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-red-500 bg-red-50 px-2.5 py-1 rounded-lg border border-red-100">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-                          未关联
+                        <div className="text-[12px] text-slate-400 mt-0.5 tabular-nums">{formatTime(p.paid_at)}</div>
+                      </td>
+                      <td className="text-center">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${SOURCE_STYLE[p.source] || SOURCE_STYLE.manual}`}>
+                          {SOURCE_MAP[p.source] || p.source}
                         </span>
-                      )}
-                    </td>
-                    <td className="hidden lg:table-cell truncate" title={p.remark}>
-                      <span className="text-[12px] text-slate-500">{p.remark || '-'}</span>
-                    </td>
-                    <td className="text-center">
-                      {p.order_id ? (
-                        <div className="text-[12px] text-slate-400 tabular-nums">
-                          {p.matched_at ? formatTime(p.matched_at) : '已匹配'}
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => { setMatchPaymentItem(p); setMatchOrderId(''); setMatchModalVisible(true); }}
-                          className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-[12px] font-semibold text-[#434FCF] bg-[#434FCF]/[0.06] border border-[#434FCF]/20 rounded-xl hover:bg-[#434FCF]/[0.12] transition-all shadow-sm cursor-pointer active:scale-[0.97]"
-                        >
-                          <Link2 size={11} />
-                          手动关联
-                        </button>
-                      )}
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="text-right">
+                        <span className="text-[14px] font-bold text-slate-800 font-[Outfit] tabular-nums">
+                          &yen;{formatCurrency(p.amount / 100)}
+                        </span>
+                      </td>
+                      <td className="text-center">
+                        {p.order_id ? (
+                          <div>
+                            <button
+                              onClick={() => toggleExpand(p.id, p.order_id)}
+                              className={`inline-flex items-center gap-1.5 text-[13px] font-bold transition-colors cursor-pointer bg-transparent border-none p-0 ${isExpanded ? 'text-[#3640b5]' : 'text-[#434FCF] hover:text-[#3640b5]'}`}
+                            >
+                              <ChevronDown
+                                size={12}
+                                className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                              />
+                              #{p.order_id}
+                            </button>
+                            {p.customer_id > 0 && (
+                              <div className="text-[11px] text-slate-400 mt-0.5">
+                                顾客 #{p.customer_id}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-red-500 bg-red-50 px-2.5 py-1 rounded-lg border border-red-100">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                            未关联
+                          </span>
+                        )}
+                      </td>
+                      <td className="hidden lg:table-cell truncate" title={p.remark}>
+                        <span className="text-[12px] text-slate-500">{p.remark || '-'}</span>
+                      </td>
+                      <td className="text-center">
+                        {p.order_id ? (
+                          <div className="text-[12px] text-slate-400 tabular-nums">
+                            {p.matched_at ? formatTime(p.matched_at) : '已匹配'}
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => { setMatchPaymentItem(p); setMatchOrderId(''); setMatchModalVisible(true); }}
+                            className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-[12px] font-semibold text-[#434FCF] bg-[#434FCF]/[0.06] border border-[#434FCF]/20 rounded-xl hover:bg-[#434FCF]/[0.12] transition-all shadow-sm cursor-pointer active:scale-[0.97]"
+                          >
+                            <Link2 size={11} />
+                            手动关联
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+
+                    {/* Expanded order detail — card style */}
+                    {isExpanded && p.order_id > 0 && (
+                      <tr>
+                        <td colSpan={6} className="p-0">
+                          <div className="px-6 lg:px-8 py-4 bg-[#434FCF]/[0.02] border-b border-slate-100 animate-fade-in-up">
+                            {expandLoading ? (
+                              <div className="flex items-center justify-center gap-2 py-6 text-slate-400">
+                                <RefreshCw size={16} className="animate-spin text-[#434FCF]" />
+                                <span className="text-sm font-medium">加载订单详情...</span>
+                              </div>
+                            ) : expandedOrder ? (() => {
+                              const sc = STATUS_COLORS[expandedOrder.status] || STATUS_COLORS.PENDING;
+                              return (
+                                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                                  <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[14px] font-bold text-slate-700">订单详情</span>
+                                      <span className="text-[12px] text-slate-400 font-mono">{expandedOrder.order_sn}</span>
+                                      <span
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border"
+                                        style={{ background: sc.bg, color: sc.text, borderColor: sc.border }}
+                                      >
+                                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: sc.dot }} />
+                                        {STATUS_MAP[expandedOrder.status] || expandedOrder.status}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-4">
+                                    <div>
+                                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">订单金额</span>
+                                      <p className="text-[14px] font-bold text-slate-800 mt-0.5 tabular-nums">&yen;{formatCurrency((expandedOrder.price || 0) / 100)}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">客户</span>
+                                      <p className="text-[13px] font-semibold text-slate-700 mt-0.5 truncate">{expandedOrder.customer_contact || '-'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">主题</span>
+                                      <p className="text-[13px] text-slate-700 mt-0.5 truncate" title={expandedOrder.topic}>{expandedOrder.topic || '-'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">设计师</span>
+                                      <p className="text-[13px] text-slate-700 mt-0.5">{expandedOrder.freelance_designer_name || '待分配'}</p>
+                                    </div>
+                                    {expandedOrder.pages > 0 && (
+                                      <div>
+                                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">页数</span>
+                                        <p className="text-[13px] text-slate-700 mt-0.5">{expandedOrder.pages} 页</p>
+                                      </div>
+                                    )}
+                                    {expandedOrder.remark && (
+                                      <div className="col-span-2">
+                                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">备注</span>
+                                        <p className="text-[13px] text-slate-600 mt-0.5 line-clamp-2">{expandedOrder.remark}</p>
+                                      </div>
+                                    )}
+                                    <div>
+                                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">创建时间</span>
+                                      <p className="text-[13px] text-slate-600 mt-0.5 tabular-nums">{formatTime(expandedOrder.created_at)}</p>
+                                    </div>
+                                    {expandedOrder.deadline && (
+                                      <div>
+                                        <span className="text-[10px] font-semibold text-red-400 uppercase tracking-wider">截止时间</span>
+                                        <p className="text-[13px] text-red-600 mt-0.5 tabular-nums">{formatTime(expandedOrder.deadline)}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })() : (
+                              <div className="text-center text-sm text-slate-400 py-6">订单详情加载失败</div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
-
-          {/* Expanded order detail rows */}
-          {payments.map((p) => {
-            if (expandedId !== p.id || !p.order_id) return null;
-            return (
-              <div key={`exp-${p.id}`} className="px-6 lg:px-8 py-5 bg-[#434FCF]/[0.02] border-b border-slate-100 animate-fade-in-up">
-                {expandLoading ? (
-                  <div className="flex items-center justify-center gap-2 py-6 text-slate-400">
-                    <RefreshCw size={16} className="animate-spin text-[#434FCF]" />
-                    <span className="text-sm font-medium">加载订单详情...</span>
-                  </div>
-                ) : expandedOrder ? (() => {
-                  const sc = STATUS_COLORS[expandedOrder.status] || STATUS_COLORS.PENDING;
-                  return (
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[14px] font-bold text-slate-700">订单详情</span>
-                          <span className="text-[12px] text-slate-400 font-mono">{expandedOrder.order_sn}</span>
-                          <span
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border"
-                            style={{ background: sc.bg, color: sc.text, borderColor: sc.border }}
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full" style={{ background: sc.dot }} />
-                            {STATUS_MAP[expandedOrder.status] || expandedOrder.status}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-4">
-                        <div>
-                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">订单金额</span>
-                          <p className="text-[14px] font-bold text-slate-800 mt-0.5 tabular-nums">&yen;{formatCurrency((expandedOrder.price || 0) / 100)}</p>
-                        </div>
-                        <div>
-                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">客户</span>
-                          <p className="text-[13px] font-semibold text-slate-700 mt-0.5 truncate">{expandedOrder.customer_contact || '-'}</p>
-                        </div>
-                        <div>
-                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">主题</span>
-                          <p className="text-[13px] text-slate-700 mt-0.5 truncate" title={expandedOrder.topic}>{expandedOrder.topic || '-'}</p>
-                        </div>
-                        <div>
-                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">设计师</span>
-                          <p className="text-[13px] text-slate-700 mt-0.5">{expandedOrder.freelance_designer_name || '待分配'}</p>
-                        </div>
-                        <div>
-                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">创建时间</span>
-                          <p className="text-[13px] text-slate-600 mt-0.5 tabular-nums">{formatTime(expandedOrder.created_at)}</p>
-                        </div>
-                        {expandedOrder.deadline && (
-                          <div>
-                            <span className="text-[10px] font-semibold text-red-400 uppercase tracking-wider">截止时间</span>
-                            <p className="text-[13px] text-red-600 mt-0.5 tabular-nums">{formatTime(expandedOrder.deadline)}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })() : (
-                  <div className="text-center text-sm text-slate-400 py-6">订单详情加载失败</div>
-                )}
-              </div>
-            );
-          })}
         </div>
 
         {/* Pagination */}

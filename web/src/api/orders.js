@@ -18,6 +18,7 @@ export const getMyStats = (config) => client.get('/orders/my-stats', config);
 
 // 花名册
 export const searchDesigners = (q) => client.get('/orders/designers', { params: { q } });
+export const searchDesignersUnified = (q, source = 'all') => client.get('/orders/designers/search', { params: { q, source } });
 export const listDesignerRoster = (params) => client.get('/orders/designers/list', { params });
 export const createDesigner = (data) => client.post('/orders/designers', data);
 

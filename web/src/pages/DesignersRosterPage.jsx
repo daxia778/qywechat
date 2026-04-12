@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Users, TrendingUp, BadgeCheck, Hash, Search, Plus, Pencil, X } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
+import { useWebSocket } from '../hooks/useWebSocket';
 import { listDesignerRoster, createDesigner } from '../api/orders';
 import client from '../api/client';
 import { fmtYuan } from '../utils/constants';
@@ -25,6 +26,7 @@ const getAvatarColor = (id) => {
 export default function DesignersRosterPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { on, off } = useWebSocket();
   const [designers, setDesigners] = useState([]);
   const [summary, setSummary] = useState({});
   const [loading, setLoading] = useState(true);
@@ -56,6 +58,13 @@ export default function DesignersRosterPage() {
     const timer = setTimeout(fetchRoster, 300);
     return () => clearTimeout(timer);
   }, [fetchRoster]);
+
+  // ── WebSocket: 订单更新时自动刷新花名册数据 ──
+  useEffect(() => {
+    const handler = () => fetchRoster();
+    on('order_updated', handler);
+    return () => off('order_updated', handler);
+  }, [on, off, fetchRoster]);
 
   const sorted = [...designers].sort((a, b) => {
     const va = a[sortKey] ?? 0, vb = b[sortKey] ?? 0;
@@ -199,7 +208,7 @@ export default function DesignersRosterPage() {
                 <tr>
                   <th className="text-left" style={{ paddingLeft: 28 }}>设计师</th>
                   <SortHeader label="接单数" field="total_orders" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
-                  <SortHeader label="退款数" field="refund_orders" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                  <SortHeader label="退款数" field="refunded_orders" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
                   <SortHeader label="累计金额" field="total_revenue" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
                   <SortHeader label="累计佣金" field="total_commission" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
                   <th />
@@ -317,8 +326,8 @@ const DesignerRow = memo(function DesignerRow({ d, onEdit }) {
 
       {/* Refund orders (count) */}
       <td className="text-center">
-        {(d.refund_orders ?? 0) > 0 ? (
-          <span className="inline-flex items-center justify-center bg-red-50 text-red-600 text-xs font-bold px-2.5 py-0.5 rounded-full">{d.refund_orders}</span>
+        {(d.refunded_orders ?? 0) > 0 ? (
+          <span className="inline-flex items-center justify-center bg-red-50 text-red-600 text-xs font-bold px-2.5 py-0.5 rounded-full">{d.refunded_orders}</span>
         ) : (
           <span className="text-slate-300">0</span>
         )}

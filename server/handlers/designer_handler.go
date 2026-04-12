@@ -36,6 +36,308 @@ func SearchDesigners(c *gin.Context) {
 	respondList(c, designers, len(designers))
 }
 
+// ─── 聚合搜索：花名册 + 企微团队 + 外部联系人 ───────────────────
+
+// UnifiedDesignerItem 统一搜索结果条目
+type UnifiedDesignerItem struct {
+	Source         string `json:"source"`                    // "roster" | "team" | "contacts"
+	ID             uint   `json:"id"`                        // 花名册 ID (roster) / 员工 ID (team) / 缓存 ID (contacts)
+	Name           string `json:"name"`                      // 显示名
+	ExtraInfo      string `json:"extra_info,omitempty"`      // 附加信息（微信号/手机/企业名）
+	WechatID       string `json:"wechat_id,omitempty"`       // 微信号
+	Avatar         string `json:"avatar,omitempty"`          // 头像 URL
+	Specialty      string `json:"specialty,omitempty"`       // 擅长方向（花名册）
+	TotalOrders    int    `json:"total_orders"`              // 累计订单数（花名册）
+	Role           string `json:"role,omitempty"`            // 角色（团队成员）
+	ExternalUserID string `json:"external_user_id,omitempty"` // 企微外部联系人 ID
+	WecomUserID    string `json:"wecom_userid,omitempty"`    // 企微 UserID（团队成员）
+}
+
+// SearchDesignersUnified 聚合搜索设计师（花名册 + 企微团队 + 外部联系人）
+// GET /api/v1/orders/designers/search?q=关键字&source=all|roster|team|contacts
+func SearchDesignersUnified(c *gin.Context) {
+	q := c.Query("q")
+	source := c.DefaultQuery("source", "all")
+
+	var results []UnifiedDesignerItem
+
+	// ── Source 1: 花名册 ──
+	if source == "all" || source == "roster" {
+		query := models.DB.Model(&models.FreelanceDesigner{})
+		if q != "" {
+			like := "%" + escapeLike(q) + "%"
+			query = query.Where("name LIKE ? ESCAPE '\\' OR wechat_id LIKE ? ESCAPE '\\' OR mobile LIKE ? ESCAPE '\\'", like, like, like)
+		}
+		var designers []models.FreelanceDesigner
+		if err := query.Order("total_orders DESC").Limit(30).Find(&designers).Error; err != nil {
+			log.Printf("SearchDesignersUnified roster 查询失败: %v", err)
+		} else {
+			for _, d := range designers {
+				extra := d.WechatID
+				if extra == "" && d.Mobile != "" {
+					extra = d.Mobile
+				}
+				results = append(results, UnifiedDesignerItem{
+					Source:      "roster",
+					ID:          d.ID,
+					Name:        d.Name,
+					ExtraInfo:   extra,
+					WechatID:    d.WechatID,
+					Specialty:   d.Specialty,
+					TotalOrders: d.TotalOrders,
+				})
+			}
+		}
+	}
+
+	// ── Source 2: 企微团队成员 ──
+	if source == "all" || source == "team" {
+		teamMembers, err := services.SearchTeamMembers(q, 20)
+		if err != nil {
+			log.Printf("SearchDesignersUnified team 查询失败: %v", err)
+		} else {
+			// 去重：排除已在花名册中的成员（通过 WecomUserID 匹配 employees）
+			for _, emp := range teamMembers {
+				// 检查是否已在花名册结果中（按名字粗略去重）
+				dup := false
+				for _, r := range results {
+					if r.Source == "roster" && r.Name == emp.Name {
+						dup = true
+						break
+					}
+				}
+				if dup {
+					continue
+				}
+				results = append(results, UnifiedDesignerItem{
+					Source:      "team",
+					ID:          emp.ID,
+					Name:        emp.Name,
+					ExtraInfo:   emp.Role,
+					Role:        emp.Role,
+					WecomUserID: emp.WecomUserID,
+				})
+			}
+		}
+	}
+
+	// ── Source 3: 企微外部联系人（缓存表）──
+	if source == "all" || source == "contacts" {
+		contacts, err := services.SearchCachedExternalContacts(q, 20)
+		if err != nil {
+			log.Printf("SearchDesignersUnified contacts 查询失败: %v", err)
+		} else {
+			for _, ct := range contacts {
+				// 去重：排除已在花名册中的（通过 external_user_id 匹配）
+				dup := false
+				if ct.ExternalUserID != "" {
+					var count int64
+					models.DB.Model(&models.FreelanceDesigner{}).
+						Where("external_user_id = ?", ct.ExternalUserID).Count(&count)
+					if count > 0 {
+						dup = true
+					}
+				}
+				// 也按名字去重
+				if !dup {
+					for _, r := range results {
+						if r.Name == ct.Name {
+							dup = true
+							break
+						}
+					}
+				}
+				if dup {
+					continue
+				}
+
+				displayName := ct.Name
+				if ct.RemarkName != "" {
+					displayName = ct.RemarkName + " (" + ct.Name + ")"
+				}
+				extra := ct.CorpName
+				if extra == "" {
+					extra = "微信好友"
+				}
+
+				results = append(results, UnifiedDesignerItem{
+					Source:         "contacts",
+					ID:             ct.ID,
+					Name:           displayName,
+					ExtraInfo:      extra,
+					Avatar:         ct.Avatar,
+					ExternalUserID: ct.ExternalUserID,
+				})
+			}
+		}
+
+		// 触发异步缓存刷新（如果缓存为空且企微已配置）
+		if len(contacts) == 0 && q != "" {
+			userID, _ := c.Get("wecom_userid")
+			if uid, ok := userID.(string); ok && uid != "" {
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("[SearchDesignersUnified] sync panic: %v", r)
+						}
+					}()
+					services.SyncExternalContacts(uid)
+				}()
+			}
+		}
+	}
+
+	// 汇总统计
+	rosterCount, teamCount, contactsCount := 0, 0, 0
+	for _, r := range results {
+		switch r.Source {
+		case "roster":
+			rosterCount++
+		case "team":
+			teamCount++
+		case "contacts":
+			contactsCount++
+		}
+	}
+
+	// ── 智能推荐：搜索为空时，基于加权评分推荐前3名设计师 ──
+	var recommendations []gin.H
+	if q == "" {
+		recommendations = calcDesignerRecommendations(3)
+	}
+
+	respondOK(c, gin.H{
+		"data": results,
+		"summary": gin.H{
+			"total":    len(results),
+			"roster":   rosterCount,
+			"team":     teamCount,
+			"contacts": contactsCount,
+		},
+		"recommendations": recommendations,
+	})
+}
+
+// ── 设计师智能推荐引擎 ──────────────────────────────────────
+// 权重算法：Score = 接单数×0.5 + 完成率×0.35 - 退款率×0.15
+// 完成率 = 已完成 / (已完成 + 退款)
+// 退款率 = 退款 / (已完成 + 退款)
+// 过滤条件：至少有1个历史订单的设计师
+
+type designerScore struct {
+	ID              uint
+	Name            string
+	WechatID        string
+	Specialty       string
+	TotalOrders     int
+	CompletedOrders int
+	RefundedOrders  int
+	CompletionRate  float64
+	RefundRate      float64
+	Score           float64
+}
+
+func calcDesignerRecommendations(topN int) []gin.H {
+	// 从 orders 表实时聚合每个设计师的接单数据
+	type AggResult struct {
+		FreelanceDesignerID   uint   `gorm:"column:freelance_designer_id"`
+		FreelanceDesignerName string `gorm:"column:freelance_designer_name"`
+		Total                 int    `gorm:"column:total"`
+		Completed             int    `gorm:"column:completed"`
+		Refunded              int    `gorm:"column:refunded"`
+	}
+
+	var aggResults []AggResult
+	err := models.DB.Table("orders").
+		Select("freelance_designer_id, freelance_designer_name, COUNT(*) as total, SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completed, SUM(CASE WHEN status = 'REFUNDED' THEN 1 ELSE 0 END) as refunded").
+		Where("freelance_designer_id > 0").
+		Group("freelance_designer_id").
+		Find(&aggResults).Error
+	if err != nil {
+		log.Printf("calcDesignerRecommendations 查询失败: %v", err)
+		return nil
+	}
+
+	log.Printf("📊 设计师推荐聚合 | 结果数=%d", len(aggResults))
+
+	if len(aggResults) == 0 {
+		return nil
+	}
+
+	// 计算加权评分
+	scores := make([]designerScore, 0, len(aggResults))
+	for _, agg := range aggResults {
+		ds := designerScore{
+			ID:              agg.FreelanceDesignerID,
+			Name:            agg.FreelanceDesignerName,
+			TotalOrders:     agg.Total,
+			CompletedOrders: agg.Completed,
+			RefundedOrders:  agg.Refunded,
+		}
+
+		// 计算完成率和退款率
+		doneTotal := agg.Completed + agg.Refunded
+		if doneTotal > 0 {
+			ds.CompletionRate = float64(agg.Completed) / float64(doneTotal) * 100
+			ds.RefundRate = float64(agg.Refunded) / float64(doneTotal) * 100
+		} else {
+			ds.CompletionRate = 100 // 无结案订单时默认 100%
+		}
+
+		// 加权评分公式：
+		// - 接单数归一化 (对数尺度, 防止超大订单量垄断) × 权重 0.50
+		// - 完成率 × 权重 0.35
+		// - 退款率 × 负权重 -0.15
+		orderScore := 0.0
+		if ds.TotalOrders > 0 {
+			orderScore = math.Log2(float64(ds.TotalOrders)+1) * 10 // 对数归一化
+		}
+		ds.Score = orderScore*0.50 + ds.CompletionRate*0.35 - ds.RefundRate*0.15
+
+		scores = append(scores, ds)
+	}
+
+	// 按评分降序排列
+	for i := 0; i < len(scores)-1; i++ {
+		for j := i + 1; j < len(scores); j++ {
+			if scores[j].Score > scores[i].Score {
+				scores[i], scores[j] = scores[j], scores[i]
+			}
+		}
+	}
+
+	// 补充花名册详情（微信号、擅长方向）
+	if topN > len(scores) {
+		topN = len(scores)
+	}
+	result := make([]gin.H, 0, topN)
+	for i := 0; i < topN; i++ {
+		s := scores[i]
+		// 查花名册补充信息
+		var designer models.FreelanceDesigner
+		if err := models.DB.First(&designer, s.ID).Error; err == nil {
+			s.WechatID = designer.WechatID
+			s.Specialty = designer.Specialty
+		}
+
+		result = append(result, gin.H{
+			"id":              s.ID,
+			"name":            s.Name,
+			"wechat_id":       s.WechatID,
+			"specialty":       s.Specialty,
+			"total_orders":    s.TotalOrders,
+			"completed_orders": s.CompletedOrders,
+			"refunded_orders":  s.RefundedOrders,
+			"completion_rate": math.Round(s.CompletionRate*10) / 10,
+			"refund_rate":     math.Round(s.RefundRate*10) / 10,
+			"score":           math.Round(s.Score*100) / 100,
+			"rank":            i + 1,
+		})
+	}
+
+	return result
+}
+
 // DesignerStats 设计师花名册聚合统计结构
 type DesignerStats struct {
 	models.FreelanceDesigner
@@ -213,6 +515,10 @@ func AssignDesigner(c *gin.Context) {
 	var body struct {
 		FreelanceDesignerID uint   `json:"freelance_designer_id"`
 		DesignerName        string `json:"designer_name"`
+		Wechat              string `json:"wechat"`           // 从统一搜索传入
+		Phone               string `json:"phone"`            // 从统一搜索传入
+		Specialty           string `json:"specialty"`        // 从统一搜索传入
+		ExternalUserID      string `json:"external_user_id"` // 企微外部联系人 ID
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		badRequest(c, "请提供设计师ID或名字")
@@ -251,14 +557,23 @@ func AssignDesigner(c *gin.Context) {
 				return fmt.Errorf("设计师不存在")
 			}
 		} else {
-			// 按名字查找，不存在则自动创建
+			// 按名字查找，不存在则自动创建（携带从统一搜索传入的额外信息）
 			result := tx.Where("name = ?", body.DesignerName).First(&designer)
 			if result.Error != nil {
-				designer = models.FreelanceDesigner{Name: body.DesignerName}
+				designer = models.FreelanceDesigner{
+					Name:           body.DesignerName,
+					WechatID:       body.Wechat,
+					Mobile:         body.Phone,
+					Specialty:      body.Specialty,
+					ExternalUserID: body.ExternalUserID,
+				}
 				if err := tx.Create(&designer).Error; err != nil {
 					return fmt.Errorf("自动创建设计师失败: %w", err)
 				}
-				log.Printf("自动创建设计师 | name=%s | id=%d", designer.Name, designer.ID)
+				log.Printf("自动创建设计师 | name=%s | id=%d | source=unified_search", designer.Name, designer.ID)
+			} else if body.ExternalUserID != "" && designer.ExternalUserID == "" {
+				// 已有花名册记录但缺少 external_user_id，补充填入
+				tx.Model(&designer).Update("external_user_id", body.ExternalUserID)
 			}
 		}
 

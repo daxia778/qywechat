@@ -104,6 +104,9 @@ func main() {
 	// 启动风控扫描引擎 (每小时扫描退款率/死单等)
 	services.StartRiskScanner(ctx)
 
+	// 启动企微外部联系人缓存定时同步（每 6 小时）
+	services.StartExternalContactSync(ctx)
+
 	// 初始化会话存档引擎
 	services.InitMsgAudit()
 
@@ -215,6 +218,7 @@ func main() {
 			orderAuth.GET("/follow-staff", handlers.ListFollowStaff)
 			// 花名册
 			orderAuth.GET("/designers", handlers.SearchDesigners)
+			orderAuth.GET("/designers/search", handlers.SearchDesignersUnified) // 三源聚合搜索
 			orderAuth.GET("/designers/list", handlers.ListDesignersWithStats)
 			orderAuth.POST("/designers", handlers.CreateDesigner)
 			// 跟单操作

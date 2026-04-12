@@ -87,6 +87,13 @@ func ListPayments(c *gin.Context) {
 		}
 	}
 
+	// 只显示已完成订单的收款记录（排除待处理/设计中/退款等未确认收入）
+	// order_id = 0 表示未关联，保留显示以便手动关联
+	query = query.Where(
+		"order_id = 0 OR order_id IN (?)",
+		models.DB.Model(&models.Order{}).Select("id").Where("status = ?", models.StatusCompleted),
+	)
+
 	var total int64
 	query.Count(&total)
 
@@ -294,6 +301,12 @@ func GetPaymentSummary(c *gin.Context) {
 			query = query.Where("paid_at < ?", t.Add(24*time.Hour))
 		}
 	}
+
+	// 只统计已完成订单的收款记录
+	query = query.Where(
+		"order_id = 0 OR order_id IN (?)",
+		models.DB.Model(&models.Order{}).Select("id").Where("status = ?", models.StatusCompleted),
+	)
 
 	// 总收款金额
 	var totalAmount int64
