@@ -2,6 +2,8 @@ name: Build Desktop Client (Extended)
 
 on:
   push:
+    tags:
+      - 'v*'
     branches: [main]
     paths:
       - 'desktop-client/**'
@@ -10,7 +12,7 @@ on:
 
 env:
   APP_NAME: pdd-dispatch
-  APP_VERSION: "1.7.0"
+  APP_VERSION: "1.6.3.2"
 
 jobs:
   # ═══════════════════════════════════════════════
@@ -268,3 +270,56 @@ jobs:
           name: full-releases
           path: all-artifacts/*
           retention-days: 90
+
+  # ═══════════════════════════════════════════════
+  # 发布到 GitHub Releases
+  # ═══════════════════════════════════════════════
+  release:
+    name: Publish GitHub Release
+    needs: [checksums]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: full-releases
+          path: release-files
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "PDD 单管家 v${{ env.APP_VERSION }}"
+          body: |
+            ## PDD 派单助手 v${{ env.APP_VERSION }} — 谈单客服全功能完成版
+
+            ### 🔧 核心修复
+            - **金额精度**: `math.Round` 修复浮点数 1 分钱偏差
+            - **Deadline 解析**: 支持 今天/明天/后天/周X/M月D日 等自然语言
+            - **联系方式**: 改为可选字段，适配客户只发二维码的场景
+            - **附件图片转发**: 创建订单时备注图片+截图自动推送给跟单客服
+            - **粘贴路由**: 附件区域独立粘贴，不再被 OCR 截获
+            - **文件类型检测**: 根据 MIME 类型动态设置扩展名，修复 JPEG 上传失败
+
+            ### ⚡ 性能优化
+            - OCR 并发信号量 (max=3)，防止多客服同时操作时 API 限流
+            - 401/403 错误码分类，跳过同供应商后续模型
+            - 文本解析缓存硬上限保护 (200条/50%淘汰)
+
+            ### 📦 下载说明
+            | 平台 | 文件 |
+            |------|------|
+            | macOS Apple Silicon | `*_macos_arm64.dmg` |
+            | macOS Intel | `*_macos_amd64.dmg` |
+            | macOS 通用 | `*_macos_universal.dmg` |
+            | Windows x64 | `*_windows_amd64_portable.exe` |
+            | Windows ARM | `*_windows_arm64_portable.exe` |
+            | Linux x64 | `*_linux_amd64.tar.gz` |
+          draft: false
+          prerelease: false
+          files: release-files/*
+          fail_on_unmatched_files: false
