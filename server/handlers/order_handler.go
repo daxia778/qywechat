@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -189,10 +190,7 @@ func CreateOrder(c *gin.Context) {
 
 	var deadline *time.Time
 	if req.Deadline != "" {
-		t, err := time.Parse("2006-01-02 15:04", req.Deadline)
-		if err == nil {
-			deadline = &t
-		}
+		deadline = parseFlexibleDeadline(req.Deadline)
 	}
 
 	// 检查订单号是否已存在，避免 UNIQUE constraint 错误返回 500
@@ -245,16 +243,58 @@ func CreateOrder(c *gin.Context) {
 			if name, exists := c.Get("name"); exists {
 				operName, _ = name.(string)
 			}
-			msg := fmt.Sprintf("📋 新订单分配\n订单号: %s\n主题: %s\n价格: %.2f 元\n页数: %d\n谈单: %s\n客户联系方式: %s\n━━━━━━━━━━━━\n请尽快联系客户！",
+
+			// 构建通知消息（包含备注信息）
+			remarkLine := ""
+			if order.Remark != "" {
+				remarkLine = fmt.Sprintf("\n**备注**: %s", order.Remark)
+			}
+			msg := fmt.Sprintf("# 📋 新订单分配\n**订单号**: `%s`\n**主题**: %s\n**价格**: <font color=\"warning\">%.2f 元</font>\n**页数**: %d\n**谈单**: %s\n>**客户联系方式**: <font color=\"info\">%s</font>%s\n\n请尽快联系客户！",
 				order.OrderSN,
 				order.Topic,
 				float64(order.Price)/100,
 				order.Pages,
 				operName,
 				order.CustomerContact,
+				remarkLine,
 			)
-			if err := services.Wecom.SendTextMessage([]string{order.FollowOperatorID}, msg); err != nil {
+			if err := services.Wecom.SendMarkdownMessage([]string{order.FollowOperatorID}, msg); err != nil {
 				log.Printf("⚠️ 新订单通知跟单客服失败: sn=%s follow=%s err=%v", order.OrderSN, order.FollowOperatorID, err)
+			}
+
+			// 发送订单截图给跟单客服（如果有）
+			if order.ScreenshotPath != "" {
+				if mediaID, err := services.Wecom.UploadMediaFromURL(order.ScreenshotPath); err != nil {
+					log.Printf("⚠️ 订单截图上传企微失败: sn=%s err=%v", order.OrderSN, err)
+				} else {
+					if err := services.Wecom.SendImageMessage([]string{order.FollowOperatorID}, mediaID); err != nil {
+						log.Printf("⚠️ 订单截图发送跟单客服失败: sn=%s err=%v", order.OrderSN, err)
+					} else {
+						log.Printf("✅ 订单截图已发送跟单客服 | sn=%s follow=%s", order.OrderSN, order.FollowOperatorID)
+					}
+				}
+			}
+
+			// 发送备注附件图片给跟单客服（如客户微信二维码、参考图等）
+			if order.AttachmentURLs != "" {
+				var imgURLs []string
+				if err := json.Unmarshal([]byte(order.AttachmentURLs), &imgURLs); err == nil {
+					for i, imgURL := range imgURLs {
+						if imgURL == "" {
+							continue
+						}
+						mediaID, err := services.Wecom.UploadMediaFromURL(imgURL)
+						if err != nil {
+							log.Printf("⚠️ 备注图片上传企微失败 [%d/%d]: sn=%s url=%s err=%v", i+1, len(imgURLs), order.OrderSN, imgURL, err)
+							continue
+						}
+						if err := services.Wecom.SendImageMessage([]string{order.FollowOperatorID}, mediaID); err != nil {
+							log.Printf("⚠️ 备注图片发送跟单客服失败 [%d/%d]: sn=%s err=%v", i+1, len(imgURLs), order.OrderSN, err)
+						} else {
+							log.Printf("✅ 备注图片已发送跟单客服 [%d/%d] | sn=%s follow=%s", i+1, len(imgURLs), order.OrderSN, order.FollowOperatorID)
+						}
+					}
+				}
 			}
 
 			// 写入站内通知
@@ -1239,6 +1279,14 @@ func CreateOrderGroup(c *gin.Context) {
 		deadlineStr = order.Deadline.Format("2006-01-02 15:04")
 	}
 
+	// 解析附件图片 URL 列表
+	var attachmentURLs []string
+	if order.AttachmentURLs != "" {
+		if err := json.Unmarshal([]byte(order.AttachmentURLs), &attachmentURLs); err != nil {
+			log.Printf("⚠️ 解析订单附件URL失败: order_id=%d err=%v", id, err)
+		}
+	}
+
 	chatID, err := services.Wecom.SetupOrderGroup(
 		order.OrderSN,
 		order.OperatorID,
@@ -1249,6 +1297,7 @@ func CreateOrderGroup(c *gin.Context) {
 		deadlineStr,
 		order.Remark,
 		order.CustomerContact,
+		attachmentURLs,
 	)
 	if err != nil {
 		log.Printf("CreateOrderGroup 建群失败: order_id=%d err=%v", id, err)
@@ -1353,4 +1402,101 @@ func ReassignOrder(c *gin.Context) {
 	}
 
 	respondOK(c, order)
+}
+
+// ─── 自然语言 Deadline 解析 ──────────────────────────
+
+// parseFlexibleDeadline 解析多种格式的交付时间
+// 支持: "2026-04-15 18:00" / "明天" / "后天" / "大后天" / "周五" / "4月15日" / "4/15" / "4-15"
+func parseFlexibleDeadline(raw string) *time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	now := time.Now()
+	loc := now.Location()
+	defaultHour := 18 // 默认交付时间 18:00
+
+	// 1. 尝试标准格式
+	standardFormats := []string{
+		"2006-01-02 15:04",
+		"2006-01-02 15:04:05",
+		"2006/01/02 15:04",
+		"2006-01-02",
+		"2006/01/02",
+	}
+	for _, layout := range standardFormats {
+		if t, err := time.ParseInLocation(layout, raw, loc); err == nil {
+			// 如果只有日期没有时间，补上默认交付时间
+			if !strings.Contains(raw, ":") {
+				t = time.Date(t.Year(), t.Month(), t.Day(), defaultHour, 0, 0, 0, loc)
+			}
+			return &t
+		}
+	}
+
+	// 2. 相对日期: 今天/明天/后天/大后天
+	relativeMap := map[string]int{
+		"今天": 0, "今日": 0,
+		"明天": 1, "明日": 1,
+		"后天": 2,
+		"大后天": 3,
+	}
+	if days, ok := relativeMap[raw]; ok {
+		t := time.Date(now.Year(), now.Month(), now.Day()+days, defaultHour, 0, 0, 0, loc)
+		return &t
+	}
+
+	// 3. 周X: "周一"~"周日" / "下周一"~"下周日"
+	weekdayMap := map[string]time.Weekday{
+		"周一": time.Monday, "周二": time.Tuesday, "周三": time.Wednesday,
+		"周四": time.Thursday, "周五": time.Friday, "周六": time.Saturday,
+		"周日": time.Sunday, "周天": time.Sunday,
+	}
+	nextWeek := false
+	weekStr := raw
+	if strings.HasPrefix(raw, "下") {
+		nextWeek = true
+		weekStr = strings.TrimPrefix(raw, "下")
+	}
+	if targetDay, ok := weekdayMap[weekStr]; ok {
+		currentDay := now.Weekday()
+		daysUntil := int(targetDay) - int(currentDay)
+		if daysUntil <= 0 {
+			daysUntil += 7 // 本周已过，跳到下周
+		}
+		if nextWeek {
+			daysUntil += 7
+		}
+		t := time.Date(now.Year(), now.Month(), now.Day()+daysUntil, defaultHour, 0, 0, 0, loc)
+		return &t
+	}
+
+	// 4. M月D日 / M月D号 格式
+	cnDateRe := regexp.MustCompile(`(\d{1,2})\s*[月/.]\s*(\d{1,2})\s*[日号]?(?:\s*(\d{1,2})[点:时](\d{0,2}))?`)
+	if m := cnDateRe.FindStringSubmatch(raw); len(m) > 2 {
+		month, _ := strconv.Atoi(m[1])
+		day, _ := strconv.Atoi(m[2])
+		hour := defaultHour
+		minute := 0
+		if len(m) > 3 && m[3] != "" {
+			hour, _ = strconv.Atoi(m[3])
+			if len(m) > 4 && m[4] != "" {
+				minute, _ = strconv.Atoi(m[4])
+			}
+		}
+		if month >= 1 && month <= 12 && day >= 1 && day <= 31 {
+			year := now.Year()
+			candidate := time.Date(year, time.Month(month), day, hour, minute, 0, 0, loc)
+			// 如果日期已过，默认取明年
+			if candidate.Before(now) {
+				candidate = candidate.AddDate(1, 0, 0)
+			}
+			return &candidate
+		}
+	}
+
+	log.Printf("⚠️ 无法解析 deadline: %q，将不设置截止时间", raw)
+	return nil
 }

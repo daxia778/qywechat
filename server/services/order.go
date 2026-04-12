@@ -95,7 +95,7 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 	// 初始分润计算（异步，不阻塞订单创建响应）
 	TriggerProfitRecalculation(order.ID)
 
-	// 异步通知跟单客服：新订单 + 客户联系方式
+	// 异步通知跟单客服：新订单 + 客户联系方式（Markdown 格式，联系方式高亮可复制）
 	if followUID != "" && Wecom != nil && Wecom.IsConfigured() {
 		go func() {
 			defer func() {
@@ -104,12 +104,12 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 				}
 			}()
 			priceYuan := fmt.Sprintf("%.2f", float64(price)/100)
-			msg := fmt.Sprintf("📦 新订单提醒\n━━━━━━━━━━━━━━━━━\n📋 订单号: %s\n🎯 主题: %s\n💰 金额: ¥%s", orderSN, topic, priceYuan)
+			msg := fmt.Sprintf("# 📦 新订单提醒\n**订单号**: `%s`\n**主题**: %s\n**金额**: <font color=\"warning\">¥%s</font>", orderSN, topic, priceYuan)
 			if customerContact != "" {
-				msg += fmt.Sprintf("\n👤 客户联系方式: %s", customerContact)
+				msg += fmt.Sprintf("\n>**客户联系方式**: <font color=\"info\">%s</font>", customerContact)
 			}
-			msg += "\n━━━━━━━━━━━━━━━━━\n请及时跟进！"
-			if err := Wecom.SendTextMessage([]string{followUID}, msg); err != nil {
+			msg += "\n\n请及时跟进！"
+			if err := Wecom.SendMarkdownMessage([]string{followUID}, msg); err != nil {
 				log.Printf("⚠️ 通知跟单客服失败: follow=%s err=%v", followUID, err)
 			}
 		}()

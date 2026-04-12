@@ -41,3 +41,7 @@ export const wecomDiagnostic = () =>
 /** 企微通讯录成员列表 */
 export const listWecomMembers = (keyword) =>
   client.get('/admin/wecom/members', { params: { keyword } });
+
+/** 自定义建群（管理员选人建群） */
+export const createCustomGroup = (data) =>
+  client.post('/admin/wecom/groups/create', data);

@@ -75,11 +75,27 @@ func (pc *parseCache) set(hash string, result *TextParseResult) {
 		result:    result,
 		createdAt: time.Now(),
 	}
-	// 简单清理：超过 200 条时删除最旧的一半
+	// 超过 200 条时清理：先删过期项，仍超限则删最旧的一半
 	if len(pc.items) > 200 {
 		for k, v := range pc.items {
 			if time.Since(v.createdAt) > parseCacheTTL {
 				delete(pc.items, k)
+			}
+		}
+		// 仍然超限：强制清除最旧 50%（防止高峰期内存无限增长）
+		if len(pc.items) > 200 {
+			cutoff := time.Now()
+			for _, v := range pc.items {
+				if v.createdAt.Before(cutoff) {
+					cutoff = v.createdAt
+				}
+			}
+			// 找到中位时间点，删除早于中位的
+			mid := cutoff.Add(time.Since(cutoff) / 2)
+			for k, v := range pc.items {
+				if v.createdAt.Before(mid) {
+					delete(pc.items, k)
+				}
 			}
 		}
 	}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -363,6 +364,11 @@ func AssignDesigner(c *gin.Context) {
 			if order.Deadline != nil {
 				deadlineStr = order.Deadline.Format("01-02 15:04")
 			}
+			// 解析附件图片 URL 列表
+			var attachURLs []string
+			if order.AttachmentURLs != "" {
+				_ = json.Unmarshal([]byte(order.AttachmentURLs), &attachURLs)
+			}
 			chatID, err := services.Wecom.SetupOrderGroup(
 				order.OrderSN,
 				order.OperatorID,
@@ -373,6 +379,7 @@ func AssignDesigner(c *gin.Context) {
 				deadlineStr,
 				order.Remark,
 				order.CustomerContact,
+				attachURLs,
 			)
 			if err != nil {
 				log.Printf("⚠️ 自动建群失败: sn=%s err=%v", order.OrderSN, err)

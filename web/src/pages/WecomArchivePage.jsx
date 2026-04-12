@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import {
@@ -8,7 +9,9 @@ import {
   updateGroupMembers,
   renameGroupChat,
   associateGroupToOrder,
-  getArchiveMediaUrl
+  getArchiveMediaUrl,
+  listWecomMembers,
+  createCustomGroup
 } from '../api/wecom';
 import { formatTime } from '../utils/formatters';
 
@@ -31,6 +34,14 @@ export default function WecomArchivePage() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [newName, setNewName] = useState('');
   const [newOrderId, setNewOrderId] = useState('');
+
+  // 建群弹窗状态
+  const [createVisible, setCreateVisible] = useState(false);
+  const [allMembers, setAllMembers] = useState([]);
+  const [selectedMembers, setSelectedMembers] = useState([]);
+  const [searchMemberKeyword, setSearchMemberKeyword] = useState('');
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [creatingGroup, setCreatingGroup] = useState(false);
 
   const messagesEndRef = useRef(null);
 
@@ -125,12 +136,67 @@ export default function WecomArchivePage() {
     }
   };
 
+  // 搜索企微成员
+  const handleSearchMembers = async () => {
+    setSearchLoading(true);
+    try {
+      const res = await listWecomMembers(searchMemberKeyword);
+      setAllMembers(res.data.data || []);
+    } catch (err) {
+      toast('搜索成员失败', 'error');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (createVisible) {
+      handleSearchMembers();
+    }
+  }, [createVisible, searchMemberKeyword]);
+
+  const toggleMemberSelection = (member) => {
+    if (selectedMembers.find(m => m.userid === member.userid)) {
+      setSelectedMembers(selectedMembers.filter(m => m.userid !== member.userid));
+    } else {
+      setSelectedMembers([...selectedMembers, member]);
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    if (selectedMembers.length < 2) {
+      toast('请至少选择2名成员建群', 'warning');
+      return;
+    }
+    setCreatingGroup(true);
+    try {
+      const memberIds = selectedMembers.map(m => m.userid);
+      await createCustomGroup({ member_ids: memberIds });
+      toast('群聊创建成功', 'success');
+      setCreateVisible(false);
+      setSelectedMembers([]);
+      fetchGroups();
+    } catch (err) {
+      toast('群聊创建失败', 'error');
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col lg:flex-row gap-4">
       {/* 左侧群聊列表 */}
       <div className="w-full lg:w-80 bg-white border border-slate-200 rounded-xl flex flex-col shrink-0 overflow-hidden">
         <div className="p-4 border-b border-slate-100 bg-slate-50">
-          <h2 className="text-lg font-bold text-slate-800 mb-3">会话存档</h2>
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-lg font-bold text-slate-800">会话存档</h2>
+            {role === 'admin' && (
+              <button onClick={() => setCreateVisible(true)} className="px-3 py-1.5 bg-brand-500 text-white text-xs font-bold rounded hover:bg-brand-600 shadow-sm flex items-center gap-1">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
+                新建群聊
+              </button>
+            )}
+          </div>
           <div className="relative">
             <input
               type="text"
@@ -252,7 +318,7 @@ export default function WecomArchivePage() {
       </div>
 
       {/* 管理弹窗 */}
-      {manageVisible && (
+      {manageVisible && createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden animate-fade-in-up">
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
@@ -324,7 +390,118 @@ export default function WecomArchivePage() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {/* 新建群聊弹窗 */}
+      {createVisible && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[68vh] flex flex-col overflow-hidden animate-fade-in-up">
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-brand-50 to-slate-50">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">新建内部群聊</h3>
+                <p className="text-xs text-slate-500 mt-0.5">从企微通讯录选择成员，自动创建「订单信息跟进群」</p>
+              </div>
+              <button onClick={() => setCreateVisible(false)} className="text-slate-400 hover:text-slate-600 bg-white shadow-sm p-1.5 rounded-lg border border-slate-200">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-hidden flex flex-col">
+              {/* 已选成员区域 */}
+              <div className="px-6 pt-5 pb-3 bg-white shrink-0">
+                <div className="flex items-center gap-2 mb-3">
+                  <h4 className="text-sm font-bold text-slate-700">已选成员</h4>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${selectedMembers.length >= 2 ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                    {selectedMembers.length} 人{selectedMembers.length < 2 && '（至少2人）'}
+                  </span>
+                </div>
+                {selectedMembers.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedMembers.map(m => (
+                      <span key={m.userid} className="inline-flex items-center gap-1.5 bg-brand-50 text-brand-700 text-sm pl-1.5 pr-2 py-1 rounded-lg border border-brand-200 shadow-sm">
+                        <span className="w-5 h-5 rounded bg-brand-500 text-white text-[10px] flex items-center justify-center font-bold shrink-0">{m.name?.substring(0,1)}</span>
+                        {m.name}
+                        <button onClick={() => toggleMemberSelection(m)} className="text-brand-400 hover:text-brand-700 ml-0.5">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-400 py-2">请在下方列表中点击选择群成员</div>
+                )}
+              </div>
+
+              {/* 搜索 + 成员列表 */}
+              <div className="px-6 pb-5 flex-1 flex flex-col overflow-hidden">
+                <div className="relative mb-4 shrink-0">
+                  <input
+                    type="text"
+                    placeholder="输入姓名搜索企微通讯录..."
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500 focus:bg-white transition-colors"
+                    value={searchMemberKeyword}
+                    onChange={(e) => setSearchMemberKeyword(e.target.value)}
+                  />
+                  <svg className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto">
+                  {searchLoading ? (
+                    <div className="text-center py-8 text-slate-400 text-sm">加载中...</div>
+                  ) : allMembers.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400 text-sm">未查找到企微通讯录成员</div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-3">
+                      {allMembers.map(m => {
+                        const isSelected = !!selectedMembers.find(sm => sm.userid === m.userid);
+                        return (
+                          <div
+                            key={m.userid}
+                            onClick={() => toggleMemberSelection(m)}
+                            className={`flex items-center gap-3 px-3 py-3 rounded-xl cursor-pointer border-2 transition-all ${isSelected ? 'bg-brand-50 border-brand-400 shadow-md shadow-brand-100' : 'bg-white border-slate-100 hover:border-brand-200 hover:shadow-sm'}`}
+                          >
+                            <div className={`w-10 h-10 rounded-lg shrink-0 flex items-center justify-center text-white text-sm font-bold ${isSelected ? 'bg-brand-500' : m.is_employee ? 'bg-brand-400' : 'bg-slate-400'}`}>
+                              {m.name?.substring(0,2)}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-slate-800 truncate">{m.name}</div>
+                              <div className="text-[11px] text-slate-400 truncate">{m.is_employee ? '系统员工' : '企微成员'}</div>
+                            </div>
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-brand-500 border-brand-500' : 'bg-white border-slate-300'}`}>
+                              {isSelected && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
+              <span className="text-xs text-slate-400">群名将自动生成为「订单信息跟进群-N」</span>
+              <div className="flex gap-3">
+                <button onClick={() => setCreateVisible(false)} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl hover:bg-slate-50 transition-colors shadow-sm">
+                  取消
+                </button>
+                <button 
+                  onClick={handleCreateGroup} 
+                  disabled={creatingGroup || selectedMembers.length < 2}
+                  className="px-5 py-2.5 bg-brand-600 text-white text-sm font-bold rounded-xl hover:bg-brand-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {creatingGroup && <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" strokeWidth="4" stroke="currentColor" strokeOpacity="0.25"></circle><path d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" fill="currentColor"></path></svg>}
+                  确认建群（{selectedMembers.length}人）
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

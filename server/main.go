@@ -334,6 +334,7 @@ func main() {
 			admin.POST("/wecom/groups/:chat_id/members", handlers.UpdateGroupMembers)
 			admin.PUT("/wecom/groups/:chat_id/rename", handlers.RenameGroupChat)
 			admin.POST("/wecom/groups/:chat_id/associate", handlers.AssociateGroupToOrder)
+			admin.POST("/wecom/groups/create", handlers.CreateCustomGroup)
 
 			// 会话存档
 			admin.GET("/wecom/archive/groups", handlers.ListArchivedGroups)

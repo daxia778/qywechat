@@ -1,11 +1,15 @@
 package services
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -270,12 +274,184 @@ func (w *WeComClient) SendGroupMessage(chatID, content string) error {
 	return w.postJSON(fmt.Sprintf("%s/appchat/send?access_token=%s", w.baseURL, token), payload)
 }
 
+// SendMarkdownMessage 发送 Markdown 消息给指定用户
+// 企微 Markdown 支持: 标题、加粗、链接、引用、字体颜色(info/comment/warning)、行内代码
+func (w *WeComClient) SendMarkdownMessage(userIDs []string, content string) error {
+	if !w.IsConfigured() {
+		return nil
+	}
+	token, err := w.GetAccessToken()
+	if err != nil {
+		return err
+	}
+
+	payload := map[string]any{
+		"touser":   strings.Join(userIDs, "|"),
+		"msgtype":  "markdown",
+		"agentid":  w.agentID,
+		"markdown": map[string]string{"content": content},
+	}
+	return w.postJSON(fmt.Sprintf("%s/message/send?access_token=%s", w.baseURL, token), payload)
+}
+
+// SendGroupMarkdownMessage 群聊发送 Markdown 消息
+func (w *WeComClient) SendGroupMarkdownMessage(chatID, content string) error {
+	if !w.IsConfigured() {
+		return nil
+	}
+	token, err := w.GetAccessToken()
+	if err != nil {
+		return err
+	}
+
+	payload := map[string]any{
+		"chatid":   chatID,
+		"msgtype":  "markdown",
+		"markdown": map[string]string{"content": content},
+	}
+	return w.postJSON(fmt.Sprintf("%s/appchat/send?access_token=%s", w.baseURL, token), payload)
+}
+
+// SendImageMessage 发送图片消息给指定用户
+func (w *WeComClient) SendImageMessage(userIDs []string, mediaID string) error {
+	if !w.IsConfigured() {
+		return nil
+	}
+	token, err := w.GetAccessToken()
+	if err != nil {
+		return err
+	}
+
+	payload := map[string]any{
+		"touser":  strings.Join(userIDs, "|"),
+		"msgtype": "image",
+		"agentid": w.agentID,
+		"image":   map[string]string{"media_id": mediaID},
+	}
+	return w.postJSON(fmt.Sprintf("%s/message/send?access_token=%s", w.baseURL, token), payload)
+}
+
+// SendGroupImageMessage 群聊发送图片消息
+func (w *WeComClient) SendGroupImageMessage(chatID, mediaID string) error {
+	if !w.IsConfigured() {
+		return nil
+	}
+	token, err := w.GetAccessToken()
+	if err != nil {
+		return err
+	}
+
+	payload := map[string]any{
+		"chatid":  chatID,
+		"msgtype": "image",
+		"image":   map[string]string{"media_id": mediaID},
+	}
+	return w.postJSON(fmt.Sprintf("%s/appchat/send?access_token=%s", w.baseURL, token), payload)
+}
+
+// UploadMedia 上传临时素材到企微 (图片类型, media_id 3天有效)
+// filePath 为服务器本地文件路径
+func (w *WeComClient) UploadMedia(filePath string) (string, error) {
+	if !w.IsConfigured() {
+		return "", fmt.Errorf("企微未配置")
+	}
+	token, err := w.GetAccessToken()
+	if err != nil {
+		return "", err
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("打开文件失败: %w", err)
+	}
+	defer file.Close()
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("media", filepath.Base(filePath))
+	if err != nil {
+		return "", fmt.Errorf("创建表单字段失败: %w", err)
+	}
+	if _, err = io.Copy(part, file); err != nil {
+		return "", fmt.Errorf("拷贝文件内容失败: %w", err)
+	}
+	writer.Close()
+
+	url := fmt.Sprintf("%s/media/upload?access_token=%s&type=image", w.baseURL, token)
+	req, err := http.NewRequest("POST", url, &buf)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := w.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("上传素材请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		ErrCode int    `json:"errcode"`
+		ErrMsg  string `json:"errmsg"`
+		MediaID string `json:"media_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	if result.ErrCode != 0 {
+		return "", fmt.Errorf("上传素材失败: %d %s", result.ErrCode, result.ErrMsg)
+	}
+	log.Printf("✅ 企微临时素材上传成功 | media_id=%s", result.MediaID)
+	return result.MediaID, nil
+}
+
+// UploadMediaFromURL 从 URL 下载图片并上传到企微临时素材
+// 用于将服务器上的附件图片转发到企微群聊
+func (w *WeComClient) UploadMediaFromURL(imageURL string) (string, error) {
+	if !w.IsConfigured() {
+		return "", fmt.Errorf("企微未配置")
+	}
+
+	// 如果是本地相对路径，转换为文件系统路径直接上传
+	if !strings.HasPrefix(imageURL, "http") {
+		// 本地路径模式: uploads/attachments/xxx.jpg
+		localPath := imageURL
+		if strings.HasPrefix(localPath, "/") {
+			localPath = localPath[1:]
+		}
+		return w.UploadMedia(localPath)
+	}
+
+	// 远程 URL: 下载到临时文件再上传
+	resp, err := w.client.Get(imageURL)
+	if err != nil {
+		return "", fmt.Errorf("下载图片失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// 创建临时文件
+	tmpFile, err := os.CreateTemp("", "wecom-media-*.jpg")
+	if err != nil {
+		return "", fmt.Errorf("创建临时文件失败: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	if _, err = io.Copy(tmpFile, resp.Body); err != nil {
+		return "", fmt.Errorf("写入临时文件失败: %w", err)
+	}
+	tmpFile.Close()
+
+	return w.UploadMedia(tmpFile.Name())
+}
+
 // Deprecated: NotifyNewOrder 已废弃，v2.0 不再有设计师抢单机制
 // func (w *WeComClient) NotifyNewOrder(...) error { ... }
 
-// SetupOrderGroup 建群 + 播报需求
+// SetupOrderGroup 建群 + 播报需求（Markdown 格式 + 附件图片转发）
 // v2.0: 群成员 = 跟单客服 + 谈单客服 + 主管/管理员（设计师后续手动拉入）
-func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID, topic string, pages int, priceFen int, deadlineStr, remark, customerContact string) (string, error) {
+// attachmentURLs: 订单附件图片URL列表（如客户微信二维码名片），建群后自动转发到群内
+func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID, topic string, pages int, priceFen int, deadlineStr, remark, customerContact string, attachmentURLs []string) (string, error) {
 	// fallback: 如果没有跟单客服，使用谈单客服作为群主
 	if followOperatorID == "" {
 		followOperatorID = salesOperatorID
@@ -335,16 +511,45 @@ func (w *WeComClient) SetupOrderGroup(orderSN, salesOperatorID, followOperatorID
 	if remark == "" {
 		remark = "无"
 	}
+
+	// 使用 Markdown 格式播报需求清单，联系方式以高亮可复制形式展示
 	contactLine := ""
 	if customerContact != "" {
-		contactLine = fmt.Sprintf("\n👤 客户联系方式: %s", customerContact)
+		contactLine = fmt.Sprintf("\n>**客户联系方式**: <font color=\"info\">%s</font>", customerContact)
 	}
-	brief := fmt.Sprintf("📋 PPT 设计需求清单\n━━━━━━━━━━━━━━━━━\n📦 订单号: %s\n🎯 主题: %s\n📄 页数: %d页\n💰 金额: ¥%.2f%s\n⏰ 交付: %s\n📝 备注: %s\n━━━━━━━━━━━━━━━━━\n请跟进设计进度，确保按时交付！",
+	brief := fmt.Sprintf("# 📋 PPT 设计需求清单\n**订单号**: `%s`\n**主题**: %s\n**页数**: <font color=\"info\">%d页</font>\n**金额**: <font color=\"warning\">¥%.2f</font>%s\n**交付时间**: %s\n**备注**: %s\n\n> 请跟进设计进度，确保按时交付！",
 		orderSN, topic, pages, priceYuan, contactLine, deadlineStr, remark)
-	_ = w.SendGroupMessage(chatID, brief)
+	_ = w.SendGroupMarkdownMessage(chatID, brief)
 
 	// 记录消息日志
-	SaveMessageLog(chatID, "system", "text", brief, orderSN, "out")
+	SaveMessageLog(chatID, "system", "markdown", brief, orderSN, "out")
+
+	// 异步发送附件图片到群聊（如客户微信二维码名片）
+	if len(attachmentURLs) > 0 {
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[SetupOrderGroup] send attachments panic: %v", r)
+				}
+			}()
+			for i, imgURL := range attachmentURLs {
+				if imgURL == "" {
+					continue
+				}
+				mediaID, err := w.UploadMediaFromURL(imgURL)
+				if err != nil {
+					log.Printf("⚠️ 群聊附件图片上传失败 [%d/%d]: url=%s err=%v", i+1, len(attachmentURLs), imgURL, err)
+					continue
+				}
+				if err := w.SendGroupImageMessage(chatID, mediaID); err != nil {
+					log.Printf("⚠️ 群聊发送附件图片失败 [%d/%d]: chatid=%s err=%v", i+1, len(attachmentURLs), chatID, err)
+				} else {
+					log.Printf("✅ 群聊附件图片已发送 [%d/%d] | chatid=%s", i+1, len(attachmentURLs), chatID)
+					SaveMessageLog(chatID, "system", "image", fmt.Sprintf("[附件图片 %d] %s", i+1, imgURL), orderSN, "out")
+				}
+			}
+		}()
+	}
 
 	return chatID, nil
 }

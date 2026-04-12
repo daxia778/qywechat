@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,6 +22,10 @@ import (
 var ocrClient = &http.Client{Timeout: 30 * time.Second}    // GLM-OCR layout_parsing
 var visionClient = &http.Client{Timeout: 60 * time.Second}  // GLM-4V-Flash / 通义千问 VL
 
+// OCR 并发控制：限制同时进行的 OCR 请求数，防止多客服同时操作时 API 限流
+// 智谱 GLM-OCR 免费版 RPM=5，设置信号量=3 留出安全余量
+var ocrSemaphore = make(chan struct{}, 3)
+
 // OCRResult OCR 提取结果
 type OCRResult struct {
 	OrderSN    string  `json:"order_sn"`
@@ -33,6 +38,10 @@ type OCRResult struct {
 // ExtractOrderFromImage 从截图提取订单信息
 // 优先级：GLM-OCR（快速文字提取~2s）→ GLM-4V-Flash（视觉理解~5s）→ 通义千问 VL
 func ExtractOrderFromImage(imagePath string) (*OCRResult, error) {
+	// 并发控制：获取信号量（超过3个并发时排队等待，不会报错）
+	ocrSemaphore <- struct{}{}
+	defer func() { <-ocrSemaphore }()
+
 	if config.C.ZhipuAPIKey == "" && config.C.DashscopeAPIKey == "" {
 		return nil, fmt.Errorf("未配置任何 OCR 密钥 (ZHIPU_API_KEY 或 DASHSCOPE_API_KEY)")
 	}
@@ -52,6 +61,7 @@ func ExtractOrderFromImage(imagePath string) (*OCRResult, error) {
 	b64Img := fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(imgData))
 
 	// 1. 优先 GLM-OCR（专用 OCR 模型，速度最快 ~2s，文字识别最准）
+	zhipuPermanentFail := false // 标记智谱 API Key 是否永久失效(401/403)
 	if config.C.ZhipuAPIKey != "" {
 		start := time.Now()
 		result, err := extractViaGLMOCR(b64Img)
@@ -61,14 +71,20 @@ func ExtractOrderFromImage(imagePath string) (*OCRResult, error) {
 			return result, nil
 		}
 		if err != nil {
+			errStr := err.Error()
 			log.Printf("⚠️ GLM-OCR 失败 (%v): %v", time.Since(start), err)
+			// 永久性错误(Key过期/无效)，跳过同供应商后续模型
+			if strings.Contains(errStr, "401") || strings.Contains(errStr, "403") {
+				log.Printf("🚫 智谱 API Key 无效(401/403)，跳过 GLM-4V-Flash")
+				zhipuPermanentFail = true
+			}
 		} else {
 			log.Printf("⚠️ GLM-OCR 未提取到订单号 (%v)，尝试视觉模型", time.Since(start))
 		}
 	}
 
 	// 2. 回退 GLM-4V-Flash 视觉理解（准确率高但较慢 ~5s）
-	if config.C.ZhipuAPIKey != "" {
+	if config.C.ZhipuAPIKey != "" && !zhipuPermanentFail {
 		start := time.Now()
 		result, err := extractViaZhipuVL(b64Img)
 		if err == nil {
@@ -167,8 +183,8 @@ func truncate(s string, maxLen int) string {
 // ─── GLM-4V-Flash 视觉理解（回退）────────────────────────
 
 const visionPrompt = `提取订单截图中的3个字段，严格只返回JSON：
-{"order_sn":"订单号数字","price":"实付金额如183.98","order_time":"2026-01-15 14:30:00"}
-注意：price取实付/合计金额，不是原价。`
+{"order_sn":"订单号数字","price":"实付金额如183.98","order_time":"YYYY-MM-DD HH:MM:SS格式的下单时间"}
+注意：price取实付/合计金额，不是原价。order_time请按截图中显示的实际时间填写。`
 
 func extractViaZhipuVL(b64Img string) (*OCRResult, error) {
 	payload := map[string]interface{}{
@@ -304,7 +320,7 @@ func parseOCRJSON(content string) *OCRResult {
 
 	if parsed.Price != "" {
 		if priceYuan, err := strconv.ParseFloat(parsed.Price, 64); err == nil && priceYuan > 0 {
-			result.Price = int(priceYuan * 100)
+			result.Price = int(math.Round(priceYuan * 100))
 			result.RawPrice = parsed.Price
 		}
 	}
@@ -338,7 +354,7 @@ func extractFromRawText(text string) *OCRResult {
 		priceRe := regexp.MustCompile(pattern)
 		if m := priceRe.FindStringSubmatch(text); len(m) > 1 {
 			if priceYuan, err := strconv.ParseFloat(m[1], 64); err == nil && priceYuan > 0 {
-				result.Price = int(priceYuan * 100)
+				result.Price = int(math.Round(priceYuan * 100))
 				result.RawPrice = m[1]
 				result.Confidence += 0.2
 				break

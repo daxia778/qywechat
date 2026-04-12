@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -393,4 +394,121 @@ func GetArchiveMediaFile(c *gin.Context) {
 
 	target := "uploads/archive/" + cleaned
 	c.File(target)
+}
+
+// ─── 自定义建群 ──────────────────────────────────
+
+// CreateCustomGroup 管理员自定义建群
+// POST /api/v1/admin/wecom/groups/create
+// Body: { "member_ids": ["userid1", "userid2"], "order_id": 123 (可选) }
+func CreateCustomGroup(c *gin.Context) {
+	var body struct {
+		MemberIDs []string `json:"member_ids" binding:"required"`
+		OrderID   uint     `json:"order_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		badRequest(c, "请提供群成员列表 member_ids")
+		return
+	}
+
+	if len(body.MemberIDs) < 2 {
+		badRequest(c, "至少选择 2 名群成员")
+		return
+	}
+
+	if !services.Wecom.IsConfigured() {
+		badRequest(c, "企微未配置")
+		return
+	}
+
+	// 获取操作人信息
+	operatorUID := ""
+	if uid, exists := c.Get("wecom_userid"); exists {
+		operatorUID, _ = uid.(string)
+	}
+	operatorName := ""
+	if name, exists := c.Get("name"); exists {
+		operatorName, _ = name.(string)
+	}
+
+	// 确保操作人在群成员列表中（仅当操作人是真实企微成员时）
+	if operatorUID != "" {
+		var memberExists int64
+		models.DB.Model(&models.WecomMember{}).Where("userid = ?", operatorUID).Count(&memberExists)
+		if memberExists > 0 {
+			found := false
+			for _, id := range body.MemberIDs {
+				if id == operatorUID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				body.MemberIDs = append(body.MemberIDs, operatorUID)
+			}
+		}
+	}
+
+	// 自动编号群名：订单信息跟进群-1, -2, ...
+	var existingCount int64
+	models.DB.Model(&models.WecomGroupChat{}).Where("name LIKE ?", "订单信息跟进群-%").Count(&existingCount)
+	groupName := fmt.Sprintf("订单信息跟进群-%d", existingCount+1)
+
+	// 选定群主：第一个成员（确保是真实企微用户）
+	ownerID := body.MemberIDs[0]
+
+	log.Printf("自定义建群请求 | owner=%s | members=%v | operator=%s", ownerID, body.MemberIDs, operatorUID)
+
+	// 创建群聊
+	chatID, err := services.Wecom.CreateGroupChat(groupName, ownerID, body.MemberIDs)
+	if err != nil {
+		log.Printf("自定义建群失败: err=%v", err)
+		internalError(c, "建群失败: "+err.Error())
+		return
+	}
+	if chatID == "" {
+		internalError(c, "建群返回空 chatID")
+		return
+	}
+
+	// 关联订单（可选）
+	orderSN := ""
+	if body.OrderID > 0 {
+		var order models.Order
+		if err := models.DB.First(&order, body.OrderID).Error; err == nil {
+			orderSN = order.OrderSN
+			models.DB.Model(&order).Update("wecom_chat_id", chatID)
+			// 写时间线
+			models.DB.Create(&models.OrderTimeline{
+				OrderID:      order.ID,
+				EventType:    "group_created",
+				OperatorID:   operatorUID,
+				OperatorName: operatorName,
+				Remark:       fmt.Sprintf("管理员手动建群: %s", groupName),
+			})
+		}
+	}
+
+	// 保存群聊快照
+	services.SaveGroupChatSnapshot(chatID, groupName, ownerID, body.MemberIDs, orderSN)
+
+	// 发一条欢迎播报
+	welcome := fmt.Sprintf("# 📋 %s\n\n由 **%s** 创建", groupName, operatorName)
+	if orderSN != "" {
+		welcome += fmt.Sprintf("\n关联订单: `%s`", orderSN)
+	}
+	welcome += "\n\n> 请在群内沟通订单跟进事宜"
+	_ = services.Wecom.SendGroupMarkdownMessage(chatID, welcome)
+	services.SaveMessageLog(chatID, "system", "markdown", welcome, orderSN, "out")
+
+	log.Printf("✅ 管理员手动建群成功 | name=%s | chatid=%s | members=%d | operator=%s",
+		groupName, chatID, len(body.MemberIDs), operatorName)
+
+	respondOK(c, gin.H{
+		"message":  "建群成功",
+		"chat_id":  chatID,
+		"name":     groupName,
+		"members":  len(body.MemberIDs),
+		"order_sn": orderSN,
+	})
 }

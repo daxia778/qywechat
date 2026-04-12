@@ -586,13 +586,9 @@ const handleParseText = async () => {
 };
 
 const confirmParsedResult = () => {
-  if (!state.editFields.contact) {
-    showToast('请填写客户联系方式（必填）', 'error');
-    return;
-  }
   state.parsedConfirmed = true;
-  // 将确认后的联系方式同步到 form.customerContact
-  state.form.customerContact = state.editFields.contact;
+  // 将确认后的联系方式同步到 form.customerContact（可选，客户可能只发了二维码图片）
+  state.form.customerContact = state.editFields.contact || '';
   showToast('✅ 信息已确认');
 };
 
@@ -619,6 +615,11 @@ const submit = async () => {
     showToast('请填写订单备注信息', 'error');
     return;
   }
+  // P0 防护：如果填了备注文本且 AI 解析了，但未确认，强制要求确认
+  if (state.parsedResult && !state.parsedConfirmed) {
+    showToast('请先确认 AI 解析结果，或点击「重新编辑」修改', 'error');
+    return;
+  }
   if (!state.form.followStaffUID) {
     showToast('请选择跟单客服', 'error');
     return;
@@ -626,10 +627,23 @@ const submit = async () => {
 
   state.submitLoading = true;
 
-  // 构造 customerContact：如果有结构化数据则格式化，否则用原始文本
-  let customerContact = state.form.customerContact || state.noteText.trim();
+  // 构造 customerContact：仅使用结构化联系方式，不再用整段备注文本填充
+  let customerContact = '';
   if (state.parsedConfirmed && state.editFields.contact) {
     customerContact = state.editFields.contact;
+  } else if (state.form.customerContact) {
+    customerContact = state.form.customerContact;
+  } else {
+    // 兜底：从备注文本中尝试提取手机号或 wxid
+    const text = state.noteText.trim();
+    const phoneMatch = text.match(/1[3-9]\d{9}/);
+    const wxidMatch = text.match(/wxid_[\w]{6,30}/);
+    if (wxidMatch) {
+      customerContact = wxidMatch[0];
+    } else if (phoneMatch) {
+      customerContact = phoneMatch[0];
+    }
+    // 如果仍然提取不到，留空而非塞入全文（服务端允许空联系方式）
   }
 
   try {
@@ -766,7 +780,7 @@ const submit = async () => {
           </div>
           <div class="form-group" style="flex: 1;">
             <label class="form-label">实付金额 (¥) <span v-if="state.priceLocked" style="color: #10B981;">🔒</span></label>
-            <input v-model="state.rawPrice" @input="!state.priceLocked && (state.price = Math.round(parseFloat(state.rawPrice) * 100))" class="form-input" :class="{ 'input-locked': state.priceLocked }" :readonly="state.priceLocked" placeholder="0.00" />
+            <input v-model="state.rawPrice" @input="!state.priceLocked && (state.price = Math.round(parseFloat(state.rawPrice || '0') * 100))" class="form-input" :class="{ 'input-locked': state.priceLocked }" :readonly="state.priceLocked" placeholder="0.00" />
           </div>
         </div>
         <div class="form-group" style="margin-top: 8px;" v-if="state.orderTime">
@@ -829,8 +843,8 @@ const submit = async () => {
           </div>
 
           <div class="form-group">
-            <label class="form-label">联系方式 <span v-if="!state.editFields.contact" class="field-required">必填</span></label>
-            <input v-model="state.editFields.contact" class="form-input" :class="{ 'input-warning': !state.editFields.contact }" placeholder="微信号或手机号" :disabled="state.parsedConfirmed" />
+            <label class="form-label">联系方式 <span style="color:#999;font-size:12px">(选填，可用备注图片代替)</span></label>
+            <input v-model="state.editFields.contact" class="form-input" placeholder="微信号/手机号，若客户发了二维码图片可留空" :disabled="state.parsedConfirmed" />
           </div>
 
           <div class="form-group">
