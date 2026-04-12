@@ -497,9 +497,20 @@ func (a *App) doUploadScreenshotBase64(b64DataURL string) *OCRResult {
 		return &OCRResult{Error: "图片解码失败:" + err.Error()}
 	}
 
+	// 根据 data URL 头部检测实际图片类型
+	ext := ".png"
+	header := parts[0]
+	if strings.Contains(header, "image/jpeg") || strings.Contains(header, "image/jpg") {
+		ext = ".jpg"
+	} else if strings.Contains(header, "image/webp") {
+		ext = ".webp"
+	} else if strings.Contains(header, "image/gif") {
+		ext = ".gif"
+	}
+
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
-	part, err := writer.CreateFormFile("file", "clipboard.png")
+	part, err := writer.CreateFormFile("file", "clipboard"+ext)
 	if err != nil {
 		return &OCRResult{Error: "创建表单失败"}
 	}
@@ -730,9 +741,22 @@ func (a *App) doUploadAttachmentBase64(b64DataURL string) *UploadAttachmentResul
 		return &UploadAttachmentResult{Error: "图片解码失败"}
 	}
 
+	// 根据 data URL 头部检测实际图片类型，避免扩展名与内容不匹配被服务端拦截
+	ext := ".png" // 默认
+	header := parts[0] // e.g. "data:image/jpeg;base64"
+	if strings.Contains(header, "image/jpeg") || strings.Contains(header, "image/jpg") {
+		ext = ".jpg"
+	} else if strings.Contains(header, "image/webp") {
+		ext = ".webp"
+	} else if strings.Contains(header, "image/gif") {
+		ext = ".gif"
+	} else if strings.Contains(header, "image/bmp") {
+		ext = ".bmp"
+	}
+
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
-	part, err := writer.CreateFormFile("file", "attachment.png")
+	part, err := writer.CreateFormFile("file", "attachment"+ext)
 	if err != nil {
 		return &UploadAttachmentResult{Error: "创建表单失败"}
 	}

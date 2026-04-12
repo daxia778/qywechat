@@ -139,6 +139,7 @@ const state = reactive({
   // 备注图片附件
   attachments: [],        // [{url: '服务端URL', preview: 'base64预览'}]
   attachmentUploading: false,
+  mouseOverAttachment: false,  // 鼠标是否在附件区域内（用于粘贴路由）
 
   submitLoading: false,
   toastMsg: '',
@@ -353,10 +354,6 @@ const handleGlobalPaste = async (e) => {
   // 如果焦点在备注 textarea 内，交给 handleAttachmentPaste 处理
   if (e.target && e.target.tagName === 'TEXTAREA') return;
 
-  // 如果粘贴事件来自附件区域容器，交给 handleAttachmentZonePaste 处理
-  const attachZone = e.target?.closest?.('.attachment-zone, .attachment-section');
-  if (attachZone) return;
-
   const items = e.clipboardData?.items;
   if (!items) return;
 
@@ -366,14 +363,14 @@ const handleGlobalPaste = async (e) => {
       const file = items[i].getAsFile();
       if (!file) continue;
 
-      // OCR 已锁定：所有全局粘贴走备注附件
-      if (state.priceLocked) {
+      // ★ 核心路由逻辑：鼠标在附件区域内 → 无条件走附件
+      if (state.mouseOverAttachment) {
         uploadClipboardAsAttachment(file);
         return;
       }
 
-      // OCR 未完成但已有预览图（说明 OCR 正在进行或已有截图）：走备注附件
-      if (state.previewUrl) {
+      // OCR 已锁定或已有截图：全局粘贴走备注附件
+      if (state.priceLocked || state.previewUrl) {
         uploadClipboardAsAttachment(file);
         return;
       }
@@ -951,7 +948,9 @@ const submit = async () => {
         </div>
 
         <!-- 备注图片附件 -->
-        <div class="form-group attachment-section" style="margin-bottom: 0; margin-top: 12px;" @paste="handleAttachmentZonePaste">
+        <div class="form-group attachment-section" style="margin-bottom: 0; margin-top: 12px;"
+             @mouseenter="state.mouseOverAttachment = true"
+             @mouseleave="state.mouseOverAttachment = false">
           <label class="form-label">
             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="vertical-align: -2px; margin-right: 4px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
             备注图片 ({{ state.attachments.length }}/5)
