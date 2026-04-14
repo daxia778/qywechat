@@ -284,6 +284,7 @@ func handleAddExternalContact(msg WecomMessage) {
 				CustomerName:   nickname,
 				StaffUserID:    userID,
 				Status:         "pending",
+				MaxRetry:       3,
 			}
 			models.WriteTx(func(tx *gorm.DB) error {
 				return tx.Create(&task).Error

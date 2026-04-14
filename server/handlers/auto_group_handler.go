@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"log"
+	"strconv"
 	"time"
 
 	"pdd-order-system/models"
@@ -14,6 +15,19 @@ import (
 // GetPendingAutoGroupTasks 获取待处理的自动建群任务
 // GET /api/v1/admin/auto-group/pending
 func GetPendingAutoGroupTasks(c *gin.Context) {
+	// Bug 5: 超时恢复：checking 超过 10 分钟的任务重置为 pending
+	tenMinAgo := time.Now().Add(-10 * time.Minute)
+	models.DB.Model(&models.AutoGroupTask{}).
+		Where("status = ? AND updated_at < ?", "checking", tenMinAgo).
+		Update("status", "pending")
+
+	// Bug 4: 读取 limit 参数
+	limitStr := c.DefaultQuery("limit", "5")
+	limit, _ := strconv.Atoi(limitStr)
+	if limit <= 0 || limit > 20 {
+		limit = 5
+	}
+
 	var tasks []models.AutoGroupTask
 
 	err := models.WriteTx(func(tx *gorm.DB) error {
@@ -21,7 +35,7 @@ func GetPendingAutoGroupTasks(c *gin.Context) {
 		if err := tx.Where(
 			"status IN ? AND retry_count < max_retry",
 			[]string{"pending", "failed"},
-		).Find(&tasks).Error; err != nil {
+		).Limit(limit).Find(&tasks).Error; err != nil {
 			return err
 		}
 		// 原子更新为 checking 状态
@@ -43,7 +57,7 @@ func GetPendingAutoGroupTasks(c *gin.Context) {
 // POST /api/v1/admin/auto-group/check-dup
 func CheckAutoGroupDuplicate(c *gin.Context) {
 	var req struct {
-		TaskID         uint   `json:"task_id" binding:"required"`
+		TaskID         uint   `json:"task_id"`
 		ExternalUserID string `json:"external_user_id" binding:"required"`
 		StaffUserID    string `json:"staff_userid" binding:"required"`
 	}
@@ -52,7 +66,7 @@ func CheckAutoGroupDuplicate(c *gin.Context) {
 		return
 	}
 
-	duplicate, groupChatID, err := services.Wecom.CheckExternalUserInGroups(req.StaffUserID, req.ExternalUserID)
+	hasGroup, chatID, err := services.Wecom.CheckExternalUserInGroups(req.StaffUserID, req.ExternalUserID)
 	if err != nil {
 		log.Printf("⚠️ 判重检查失败 task=%d: %v", req.TaskID, err)
 		internalError(c, "判重检查失败: "+err.Error())
@@ -60,9 +74,9 @@ func CheckAutoGroupDuplicate(c *gin.Context) {
 	}
 
 	respondOK(c, gin.H{
-		"task_id":       req.TaskID,
-		"duplicate":     duplicate,
-		"group_chat_id": groupChatID,
+		"has_group":  hasGroup,
+		"chat_id":    chatID,
+		"group_name": "",
 	})
 }
 
@@ -88,22 +102,28 @@ func CompleteAutoGroupTask(c *gin.Context) {
 
 	now := time.Now()
 	if req.Success {
-		models.WriteTx(func(tx *gorm.DB) error {
+		if err := models.WriteTx(func(tx *gorm.DB) error {
 			return tx.Model(&task).Updates(map[string]any{
 				"status":        "done",
 				"group_chat_id": req.GroupChatID,
 				"completed_at":  &now,
 			}).Error
-		})
+		}); err != nil {
+			internalError(c, "更新任务状态失败: "+err.Error())
+			return
+		}
 		log.Printf("✅ 自动建群任务完成 task=%d group=%s", req.TaskID, req.GroupChatID)
 	} else {
-		models.WriteTx(func(tx *gorm.DB) error {
+		if err := models.WriteTx(func(tx *gorm.DB) error {
 			return tx.Model(&task).Updates(map[string]any{
 				"status":      "failed",
 				"fail_reason": req.FailReason,
 				"retry_count": task.RetryCount + 1,
 			}).Error
-		})
+		}); err != nil {
+			internalError(c, "更新任务状态失败: "+err.Error())
+			return
+		}
 		log.Printf("⚠️ 自动建群任务失败 task=%d retry=%d reason=%s", req.TaskID, task.RetryCount+1, req.FailReason)
 	}
 
