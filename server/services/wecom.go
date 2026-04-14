@@ -933,3 +933,134 @@ func (w *WeComClient) GetTransferResult(handoverUserID, takeoverUserID string) (
 	return resp.Customer, nil
 }
 
+// ─── 自动建群：客户群 API ─────────────────────────────────
+
+// GroupChatListItem 客户群列表项
+type GroupChatListItem struct {
+	ChatID string `json:"chat_id"`
+	Status int    `json:"status"`
+}
+
+// GroupChatMember 客户群成员
+type GroupChatMember struct {
+	UserID string `json:"userid"`
+	Type   int    `json:"type"` // 1=企业成员 2=外部联系人
+}
+
+// GroupChatDetail 客户群详情
+type GroupChatDetail struct {
+	ChatID     string            `json:"chat_id"`
+	Name       string            `json:"name"`
+	Owner      string            `json:"owner"`
+	MemberList []GroupChatMember  `json:"member_list"`
+}
+
+// GetGroupChatList 获取客户群列表
+// 文档: https://developer.work.weixin.qq.com/document/path/92120
+func (w *WeComClient) GetGroupChatList(ownerUserIDs []string, cursor string, limit int) ([]GroupChatListItem, string, error) {
+	if !w.IsContactConfigured() {
+		return nil, "", fmt.Errorf("客户联系功能未开通")
+	}
+	token, err := w.GetContactAccessToken()
+	if err != nil {
+		return nil, "", err
+	}
+
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+
+	ownerFilter := map[string]any{
+		"userid_list": ownerUserIDs,
+	}
+	payload := map[string]any{
+		"status_filter": 0,
+		"owner_filter":  ownerFilter,
+		"cursor":        cursor,
+		"limit":         limit,
+	}
+
+	body, err := w.postJSONRaw(fmt.Sprintf("%s/externalcontact/groupchat/list?access_token=%s", w.baseURL, token), payload)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var resp struct {
+		ErrCode       int                 `json:"errcode"`
+		ErrMsg        string              `json:"errmsg"`
+		GroupChatList []GroupChatListItem  `json:"group_chat_list"`
+		NextCursor    string              `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, "", fmt.Errorf("解析客户群列表响应失败: %w", err)
+	}
+	if resp.ErrCode != 0 {
+		return nil, "", fmt.Errorf("获取客户群列表失败: %d %s", resp.ErrCode, resp.ErrMsg)
+	}
+	return resp.GroupChatList, resp.NextCursor, nil
+}
+
+// GetGroupChatDetail 获取客户群详情
+// 文档: https://developer.work.weixin.qq.com/document/path/92122
+func (w *WeComClient) GetGroupChatDetail(chatID string) (*GroupChatDetail, error) {
+	if !w.IsContactConfigured() {
+		return nil, fmt.Errorf("客户联系功能未开通")
+	}
+	token, err := w.GetContactAccessToken()
+	if err != nil {
+		return nil, err
+	}
+
+	payload := map[string]any{
+		"chat_id":   chatID,
+		"need_name": 1,
+	}
+
+	body, err := w.postJSONRaw(fmt.Sprintf("%s/externalcontact/groupchat/get?access_token=%s", w.baseURL, token), payload)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		ErrCode   int             `json:"errcode"`
+		ErrMsg    string          `json:"errmsg"`
+		GroupChat GroupChatDetail  `json:"group_chat"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("解析客户群详情响应失败: %w", err)
+	}
+	if resp.ErrCode != 0 {
+		return nil, fmt.Errorf("获取客户群详情失败: %d %s", resp.ErrCode, resp.ErrMsg)
+	}
+	return &resp.GroupChat, nil
+}
+
+// CheckExternalUserInGroups 检查某外部联系人是否已在员工的任意客户群中
+// 返回: (是否重复, 所在群chatID, error)
+func (w *WeComClient) CheckExternalUserInGroups(staffUserID, externalUserID string) (bool, string, error) {
+	cursor := ""
+	for {
+		groups, nextCursor, err := w.GetGroupChatList([]string{staffUserID}, cursor, 100)
+		if err != nil {
+			return false, "", err
+		}
+		for _, g := range groups {
+			detail, err := w.GetGroupChatDetail(g.ChatID)
+			if err != nil {
+				log.Printf("⚠️ 获取群详情失败 chat_id=%s: %v", g.ChatID, err)
+				continue
+			}
+			for _, m := range detail.MemberList {
+				if m.Type == 2 && m.UserID == externalUserID {
+					return true, g.ChatID, nil
+				}
+			}
+		}
+		if nextCursor == "" {
+			break
+		}
+		cursor = nextCursor
+	}
+	return false, "", nil
+}
+

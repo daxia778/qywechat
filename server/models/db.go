@@ -78,7 +78,7 @@ func InitDB() {
 	}
 
 	// 自动建表与迁移
-	if err := DB.AutoMigrate(&Employee{}, &Order{}, &Customer{}, &AuditLog{}, &WecomGroupChat{}, &WecomMember{}, &WecomMessageLog{}, &AppVersion{}, &Notification{}, &OrderTimeline{}, &PaymentRecord{}, &TokenBlacklist{}, &UserMinIssuedAtRecord{}, &FreelanceDesigner{}, &ContactWay{}, &CustomerTransfer{}, &TransferRule{}, &RiskAlert{}, &AuditConfig{}, &ChatArchiveMessage{}, &ChatArchiveCursor{}, &WeComExternalContact{}); err != nil {
+	if err := DB.AutoMigrate(&Employee{}, &Order{}, &Customer{}, &AuditLog{}, &WecomGroupChat{}, &WecomMember{}, &WecomMessageLog{}, &AppVersion{}, &Notification{}, &OrderTimeline{}, &PaymentRecord{}, &TokenBlacklist{}, &UserMinIssuedAtRecord{}, &FreelanceDesigner{}, &ContactWay{}, &CustomerTransfer{}, &TransferRule{}, &RiskAlert{}, &AuditConfig{}, &ChatArchiveMessage{}, &ChatArchiveCursor{}, &WeComExternalContact{}, &AutoGroupTask{}); err != nil {
 		log.Fatalf("❌ 数据库迁移失败: %v", err)
 	}
 

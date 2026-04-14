@@ -15,6 +15,7 @@ import (
 	"pdd-order-system/services"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // WecomMessage XML 回调消息结构
@@ -266,6 +267,28 @@ func handleAddExternalContact(msg WecomMessage) {
 					Remark:       fmt.Sprintf("有新外部联系人添加: %s，疑似本单客户，需手动确认", nickname),
 				})
 			}
+		}
+
+		// ── 新增：创建自动建群任务 ──
+		var existingTask models.AutoGroupTask
+		taskResult := models.DB.Where(
+			"external_user_id = ? AND staff_user_id = ? AND status IN ?",
+			externalUserID, userID,
+			[]string{"pending", "checking", "building"},
+		).First(&existingTask)
+
+		if taskResult.Error != nil {
+			task := models.AutoGroupTask{
+				ExternalUserID: externalUserID,
+				CustomerID:     customer.ID,
+				CustomerName:   nickname,
+				StaffUserID:    userID,
+				Status:         "pending",
+			}
+			models.WriteTx(func(tx *gorm.DB) error {
+				return tx.Create(&task).Error
+			})
+			log.Printf("✅ 自动建群任务已创建: customer=%s, staff=%s", nickname, userID)
 		}
 	}
 

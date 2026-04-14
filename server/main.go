@@ -365,6 +365,11 @@ func main() {
 				})
 			})
 
+			// 自动建群
+			admin.GET("/auto-group/pending", handlers.GetPendingAutoGroupTasks)
+			admin.POST("/auto-group/check-dup", handlers.CheckAutoGroupDuplicate)
+			admin.POST("/auto-group/complete", handlers.CompleteAutoGroupTask)
+
 			// 风控中心 API
 			admin.GET("/risk/dashboard", handlers.GetRiskDashboard)
 			admin.GET("/risk/alerts", handlers.ListRiskAlerts)
