@@ -827,7 +827,7 @@ const submit = async () => {
               <img v-if="state.previewUrl" :src="state.previewUrl" />
               <div v-else-if="state.uploading"><div class="spinner" style="width:20px;height:20px;border-width:2px;"></div></div>
               <template v-else>
-                <div class="slot-placeholder-icon">📸</div>
+                <div class="slot-placeholder-icon"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/></svg></div>
                 <div class="slot-placeholder-text">点击或粘贴<br/>订单截图</div>
               </template>
             </div>
@@ -853,7 +853,7 @@ const submit = async () => {
               </template>
               <div v-else-if="state.attachmentUploading"><div class="spinner" style="width:20px;height:20px;border-width:2px;"></div></div>
               <template v-else>
-                <div class="slot-placeholder-icon">📱</div>
+                <div class="slot-placeholder-icon"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg></div>
                 <div class="slot-placeholder-text">点击或粘贴<br/>客户二维码</div>
               </template>
             </div>
@@ -867,7 +867,7 @@ const submit = async () => {
         <!-- ━━ 状态 B：AI 提取完成 → 结构化表单 ━━ -->
         <template v-if="state.parsedResult">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-            <span style="font-size:13px;font-weight:600;color:var(--text-primary);">📝 需求信息</span>
+            <span style="font-size:13px;font-weight:600;color:var(--text-primary);display:inline-flex;align-items:center;gap:6px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>需求信息</span>
             <button class="btn-edit-link" @click="resetParsedResult">重新录入</button>
           </div>
 
@@ -899,7 +899,7 @@ const submit = async () => {
 
         <!-- ━━ 状态 A：未提取 → 文本输入 + AI 按钮 ━━ -->
         <template v-else>
-          <div class="section-title" style="margin-bottom:8px;">📋 订单备注</div>
+          <div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;gap:6px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M7 11h10"/><path d="M7 15h6"/><path d="M7 7h8"/></svg>订单备注</div>
           <textarea v-model="state.noteText" class="form-textarea" rows="3" placeholder="粘贴客户沟通内容，AI 自动提取结构化信息" @paste="handleAttachmentPaste"></textarea>
           <button class="btn-ai-parse" @click="handleParseText" :disabled="state.parseLoading || !state.noteText.trim()">
             <span v-if="state.parseLoading" class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:#fff;"></span>
