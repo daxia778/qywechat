@@ -1,6 +1,10 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 
+// ══ 员工选择弹窗 ══
+const showStaffDropdown = ref(false);
+let staffPollTimer = null;
+
 // ══ 缩放相关 ══
 const zoomImageRef = ref(null);
 const modalContentRef = ref(null);
@@ -215,10 +219,22 @@ onMounted(async () => {
 
   // 监听全局粘贴事件
   document.addEventListener('paste', handleGlobalPaste);
+
+  // 后台每 30 秒静默刷新员工在线状态
+  staffPollTimer = setInterval(() => {
+    if (state.isLoggedIn) loadFollowStaff();
+  }, 30000);
+
+  // 恢复上次选择的员工
+  const lastUID = localStorage.getItem('lastFollowStaffUID');
+  if (lastUID) {
+    state.form.followStaffUID = lastUID;
+  }
 });
 
 onUnmounted(() => {
   document.removeEventListener('paste', handleGlobalPaste);
+  if (staffPollTimer) clearInterval(staffPollTimer);
 });
 
 // ══ 辅助 ══
@@ -259,6 +275,24 @@ const loadFollowStaff = async () => {
     state.followStaffLoading = false;
   }
 };
+
+const selectStaff = (staff) => {
+  state.form.followStaffUID = staff.wecom_userid;
+  localStorage.setItem('lastFollowStaffUID', staff.wecom_userid);
+  localStorage.setItem('lastFollowStaffName', staff.name);
+  showStaffDropdown.value = false;
+};
+
+const selectedStaffName = computed(() => {
+  const found = state.followStaffList.find(s => s.wecom_userid === state.form.followStaffUID);
+  if (found) return found.name;
+  return localStorage.getItem('lastFollowStaffName') || '选择员工';
+});
+
+const selectedStaffOnline = computed(() => {
+  const found = state.followStaffList.find(s => s.wecom_userid === state.form.followStaffUID);
+  return found ? found.is_online : false;
+});
 
 const handleLogout = async () => {
   // 清除 Go 后端状态和本地会话文件
@@ -727,279 +761,217 @@ const submit = async () => {
 </script>
 
 <template>
-  <!-- 顶部标题栏（纯拖拽区） -->
+  <!-- 顶部拖拽区 -->
   <div class="drag-bar"></div>
-  
+
   <div class="app-container">
-    
-    <!-- 登录页 -->
+
+    <!-- ═══ 登录页 ═══ -->
     <div v-if="!state.isLoggedIn" class="login-page">
       <div class="login-logo">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
       </div>
       <h1 class="login-title">单管家</h1>
       <div class="login-subtitle">客服坐席专用高频效能终端</div>
-      
       <div class="login-form">
         <div class="form-group">
           <label class="form-label">设备激活码 (首次需要)</label>
-          <input 
-            v-model="state.activationCode" 
-            type="password" 
-            class="form-input" 
-            placeholder="请输入激活码..."
-            @keyup.enter="handleLogin"
-          />
+          <input v-model="state.activationCode" type="password" class="form-input" placeholder="请输入激活码..." @keyup.enter="handleLogin" />
           <div v-if="state.loginError" class="login-error">{{ state.loginError }}</div>
         </div>
-        <button class="btn btn-primary" @click="handleLogin" :disabled="state.loginLoading">
+        <button class="btn btn-primary" style="width:100%;padding:12px;" @click="handleLogin" :disabled="state.loginLoading">
           <span v-if="state.loginLoading" class="spinner"></span>
           <span v-else>设备安全登录</span>
         </button>
       </div>
-      
-      <div class="login-mac">
-        MAC: {{ state.macAddress }} <br/>
-        由系统自动绑定识别，防窃取代签
-      </div>
+      <div class="login-mac">MAC: {{ state.macAddress }}<br/>由系统自动绑定识别，防窃取代签</div>
     </div>
 
-    <!-- 主界面 -->
+    <!-- ═══ 主界面 ═══ -->
     <div v-else>
-      <!-- 用户欢迎条 -->
-      <div class="welcome-row">
-        <div class="welcome-left">
-          <div class="welcome-avatar">{{ state.empName.charAt(0) }}</div>
-          <span class="welcome-text">{{ state.empName }}，开始派单吧</span>
-        </div>
-        <button class="btn-logout-text" @click="handleLogout">退出</button>
-      </div>
 
-      <!-- OCR 上传 -->
-      <div class="card">
-        <div class="card-title">
-          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-          订单智能解析提取
-        </div>
-        <div 
-          class="upload-zone" 
-          :class="{'has-file': state.priceLocked || state.previewUrl}"
-          @click="!state.previewUrl && triggerGoFileSelect()"
-        >
-          <div v-if="state.uploading" class="spinner" style="border-top-color: var(--accent); margin-bottom: 10px;"></div>
-          
-          <!-- 有图片时显示带放大镜的缩略图 -->
-          <div v-else-if="state.previewUrl" class="preview-container" @click.stop="state.showPreviewModal = true">
-            <img :src="state.previewUrl" class="image-preview" />
-            <div class="zoom-overlay">🔍 点击放大</div>
+      <!-- 顶栏 -->
+      <div class="top-bar">
+        <span class="top-bar-brand">单管家</span>
+        <div class="top-bar-right">
+          <div class="top-bar-user">
+            <div class="top-bar-avatar">{{ state.empName.charAt(0) }}</div>
+            <span class="top-bar-name">{{ state.empName }}</span>
           </div>
-          
-          <!-- 无图片时显示默认提示 -->
-          <div v-else>
-            <div class="upload-icon">📸</div>
-            <div class="upload-text">点击选择、或直接 <kbd>{{ state.isMac ? 'Cmd' : 'Ctrl' }}+V</kbd> 粘贴截图</div>
-            <div class="upload-hint">支持从剪贴板直接粘贴图片自动识别</div>
-          </div>
-        </div>
-        
-        <div class="form-row" style="margin-top: 12px;" v-if="state.priceLocked || state.orderSn || state.rawPrice">
-          <div class="form-group" style="flex: 2;">
-            <label class="form-label">淘宝/PDD单号 (必填) <span v-if="state.priceLocked" style="color: #10B981;">🔒</span></label>
-            <input v-model="state.orderSn" class="form-input" :class="{ 'input-locked': state.priceLocked }" :readonly="state.priceLocked" placeholder="输入订单号" />
-          </div>
-          <div class="form-group" style="flex: 1;">
-            <label class="form-label">实付金额 (¥) <span v-if="state.priceLocked" style="color: #10B981;">🔒</span></label>
-            <input v-model="state.rawPrice" @input="!state.priceLocked && (state.price = Math.round(parseFloat(state.rawPrice || '0') * 100))" class="form-input" :class="{ 'input-locked': state.priceLocked }" :readonly="state.priceLocked" placeholder="0.00" />
-          </div>
-        </div>
-        <div class="form-group" style="margin-top: 8px;" v-if="state.orderTime">
-          <label class="form-label">下单时间 <span style="color: #10B981;">🔒</span></label>
-          <input :value="state.orderTime" class="form-input input-locked" readonly />
-        </div>
-        
-        <div style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;" v-if="state.priceLocked">
-          <span class="status-badge success">
-            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            AI 校验成功 · 防篡改已锁定
-          </span>
-          <button class="btn btn-secondary" style="width: auto; padding: 6px 12px; font-size: 13px;" @click="resetOCR">
-            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-            撤销重选
-          </button>
-        </div>
-        <div style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;" v-else-if="state.ocrRetryCount >= 3">
-          <span class="status-badge error">
-            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            多次解析失败 · 手动输入模式
-          </span>
-          <button class="btn btn-secondary" style="width: auto; padding: 6px 12px; font-size: 13px;" @click="resetOCR">
-            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-            清空重新截图
-          </button>
-        </div>
-        <div style="margin-top: 14px; display: flex; justify-content: flex-end;" v-else-if="state.previewUrl">
-          <button class="btn btn-secondary" style="width: auto; padding: 6px 12px; font-size: 13px;" @click="resetOCR">
-            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-            清空截图
-          </button>
+          <button class="btn-logout-top" @click="handleLogout">退出</button>
         </div>
       </div>
 
-      <!-- 需求信息 -->
-      <div class="card">
-        <div class="card-title">
-          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
-          顾客与建群信息
+      <!-- 工单卡片 -->
+      <div class="ticket-card">
+
+        <!-- ── 空状态：粘贴区 ── -->
+        <div v-if="!state.priceLocked && !state.previewUrl && !state.orderSn" class="paste-zone" @click="triggerGoFileSelect()">
+          <div v-if="state.uploading"><div class="spinner" style="margin: 0 auto 10px;"></div></div>
+          <template v-else>
+            <div class="paste-zone-icon">📸</div>
+            <div class="paste-zone-title">点击选择、或 <kbd>{{ state.isMac ? 'Cmd' : 'Ctrl' }}+V</kbd> 粘贴截图</div>
+            <div class="paste-zone-hint">支持从剪贴板直接粘贴图片自动识别</div>
+          </template>
         </div>
 
-        <!-- ═══ Step 1: 原始文本输入 ═══ -->
-        <div class="form-group" v-if="!state.parsedResult">
-          <label class="form-label">订单备注信息 <span style="color:red">*</span></label>
-          <textarea v-model="state.noteText" class="form-textarea" rows="4" placeholder="直接粘贴客户沟通内容，例如：&#10;客户微信 wxid_abc123 做一个喜茶风格路演PPT 20页 后天要&#10;&#10;输入完成后点击下方「AI 智能提取」按钮" @paste="handleAttachmentPaste"></textarea>
-          <button class="btn btn-ai-parse" @click="handleParseText" :disabled="state.parseLoading || !state.noteText.trim()">
-            <span v-if="state.parseLoading" class="spinner" style="width: 14px; height: 14px; border-width: 2px; border-top-color: #fff;"></span>
-            {{ state.parseLoading ? 'AI 正在识别...' : '✦ AI 智能提取' }}
-          </button>
-        </div>
+        <!-- ── 有数据时的工单内容 ── -->
+        <template v-else>
 
-        <!-- ═══ Step 2: AI 解析结果 ═══ -->
-        <template v-if="state.parsedResult">
-          <div class="parsed-status-bar">
-            <span class="parsed-badge" :class="state.parsedResult.confidence">
-              {{ state.parsedResult.confidence === 'high' ? '● AI 高置信度' : state.parsedResult.confidence === 'medium' ? '● 正则提取' : '● 低置信度' }}
-            </span>
-            <span v-if="state.parsedResult.from_cache" class="parsed-cache-tag">已缓存</span>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">联系方式 <span style="color:#999;font-size:12px">(选填，可用备注图片代替)</span></label>
-            <input v-model="state.editFields.contact" class="form-input" placeholder="微信号/手机号，若客户发了二维码图片可留空" :disabled="state.parsedConfirmed" />
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">PPT 主题</label>
-            <input v-model="state.editFields.theme" class="form-input" placeholder="设计需求描述" :disabled="state.parsedConfirmed" />
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">页数</label>
-              <input v-model="state.editFields.pages" class="form-input" placeholder="页数" type="number" :disabled="state.parsedConfirmed" />
+          <!-- 订单头：单号 + 金额 -->
+          <div class="ticket-header">
+            <div class="ticket-order-sn">
+              <span v-if="state.priceLocked" class="lock-icon">🔒</span>
+              <span>{{ state.orderSn || '—' }}</span>
             </div>
-            <div class="form-group">
-              <label class="form-label">交付时间</label>
-              <input v-model="state.editFields.deadline" class="form-input" placeholder="如: 明天、后天" :disabled="state.parsedConfirmed" />
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">备注</label>
-            <input v-model="state.editFields.remark" class="form-input" placeholder="其他补充信息" :disabled="state.parsedConfirmed" />
-          </div>
-
-          <div class="parsed-actions">
-            <button v-if="!state.parsedConfirmed" class="btn btn-secondary" @click="resetParsedResult">重新编辑</button>
-            <button v-if="!state.parsedConfirmed" class="btn btn-primary" @click="confirmParsedResult">确认信息</button>
-            <div v-else class="parsed-confirmed-badge">
-              ✓ 信息已确认
-              <button class="btn-link" @click="state.parsedConfirmed = false">修改</button>
-            </div>
-          </div>
-        </template>
-
-        <!-- 选择跟单客服建群 -->
-        <div class="form-group section-divider">
-          <label class="form-label">
-            确认后台在线的跟单客服 <span style="color:red">*</span>
-            <button class="btn-refresh-staff" @click="loadFollowStaff" :disabled="state.followStaffLoading" title="刷新列表">
-              <svg :class="{ 'spin': state.followStaffLoading }" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-            </button>
-          </label>
-          <div class="staff-select-list" v-if="state.followStaffList.length > 0">
-            <div
-              v-for="staff in state.followStaffList"
-              :key="staff.wecom_userid"
-              class="staff-option"
-              :class="{
-                'selected': state.form.followStaffUID === staff.wecom_userid,
-                'offline': !staff.is_online
-              }"
-              @click="state.form.followStaffUID = staff.wecom_userid"
-            >
-              <div class="staff-avatar">{{ staff.name.charAt(0) }}</div>
-              <div class="staff-info">
-                <div class="staff-name">{{ staff.name }}</div>
-                <div class="staff-meta">
-                  <span class="online-dot" :class="staff.is_online ? 'on' : 'off'"></span>
-                  {{ staff.is_online ? '在线' : '离线' }}
-                  <span v-if="staff.active_orders > 0" style="margin-left: 6px; color: #f59e0b;">{{ staff.active_orders }}单进行中</span>
-                </div>
-              </div>
-              <svg v-if="state.form.followStaffUID === staff.wecom_userid" class="staff-check" width="18" height="18" fill="none" stroke="#10B981" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" /></svg>
-            </div>
-          </div>
-          <div v-else-if="state.followStaffLoading" class="staff-empty">
-            <div class="spinner" style="width: 18px; height: 18px; border-width: 2px; border-top-color: var(--accent);"></div>
-            <span>加载中...</span>
-          </div>
-          <div v-else class="staff-empty">
-            <span>暂无跟单客服，请联系管理员添加</span>
-          </div>
-        </div>
-
-        <!-- 备注图片附件 -->
-        <div class="form-group attachment-section" style="margin-bottom: 0; margin-top: 12px;"
-             @mouseenter="state.mouseOverAttachment = true"
-             @mouseleave="state.mouseOverAttachment = false">
-          <label class="form-label">
-            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="vertical-align: -2px; margin-right: 4px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-            备注图片 ({{ state.attachments.length }}/5)
-            <span style="color: #94a3b8; font-weight: 400; margin-left: 6px;">在此区域粘贴客户二维码等图片</span>
-          </label>
-          <div class="attachment-zone" tabindex="0" @paste="handleAttachmentZonePaste">
-            <!-- 已上传的图片缩略图 -->
-            <div v-for="(att, idx) in state.attachments" :key="idx" class="attachment-thumb">
-              <img :src="att.preview || att.url" class="attachment-img" />
-              <button class="attachment-remove" @click="removeAttachment(idx)" title="删除">
-                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            <div class="ticket-price-row">
+              <span class="ticket-price">¥{{ state.rawPrice || '0.00' }}</span>
+              <button class="btn-reset-ocr" @click="resetOCR" title="重新选择">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
               </button>
             </div>
-            <!-- 上传中 -->
-            <div v-if="state.attachmentUploading" class="attachment-thumb attachment-loading">
-              <div class="spinner" style="width: 20px; height: 20px; border-width: 2px; border-top-color: var(--accent);"></div>
+          </div>
+
+          <!-- 工单内容 -->
+          <div class="ticket-body">
+
+            <!-- AI 解析结果 -->
+            <template v-if="state.parsedResult">
+              <div class="ai-status-bar">
+                <span class="ai-badge" :class="state.parsedResult.confidence">
+                  ✓ {{ state.parsedResult.confidence === 'high' ? 'AI 高置信' : state.parsedResult.confidence === 'medium' ? '正则提取' : '低置信度' }}
+                </span>
+                <button v-if="state.parsedConfirmed" class="btn-edit-link" @click="state.parsedConfirmed = false">修改</button>
+              </div>
+
+              <div class="form-row-labeled">
+                <span class="inline-label">主题</span>
+                <input v-model="state.editFields.theme" class="form-input" placeholder="设计需求描述" :disabled="state.parsedConfirmed" />
+              </div>
+
+              <div class="form-row" style="margin-top:12px;">
+                <div class="form-row-labeled">
+                  <span class="inline-label">页数</span>
+                  <input v-model="state.editFields.pages" class="form-input" placeholder="页数" type="number" :disabled="state.parsedConfirmed" />
+                </div>
+                <div class="form-row-labeled">
+                  <span class="inline-label">交付</span>
+                  <input v-model="state.editFields.deadline" class="form-input" placeholder="交付时间" :disabled="state.parsedConfirmed" />
+                </div>
+              </div>
+
+              <!-- 确认/修改 -->
+              <div v-if="!state.parsedConfirmed" style="display:flex;gap:10px;margin-top:14px;">
+                <button class="btn btn-secondary" style="flex:1;" @click="resetParsedResult">重新编辑</button>
+                <button class="btn btn-primary" style="flex:1;" @click="confirmParsedResult">确认信息</button>
+              </div>
+              <div v-else class="confirmed-badge">✓ 信息已确认</div>
+            </template>
+
+            <!-- OCR 状态 -->
+            <div v-if="state.priceLocked && !state.parsedResult" style="margin-bottom:8px;">
+              <span class="status-badge success">
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                AI 校验成功 · 防篡改已锁定
+              </span>
             </div>
-            <!-- 添加按钮 -->
-            <div v-if="state.attachments.length < 5 && !state.attachmentUploading" class="attachment-add" @click="selectAttachmentFile">
-              <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+            <div v-else-if="state.ocrRetryCount >= 3 && !state.parsedResult" style="margin-bottom:8px;">
+              <span class="status-badge error">多次解析失败 · 手动输入模式</span>
+            </div>
+
+            <!-- 图片区域 -->
+            <div class="image-row"
+                 @mouseenter="state.mouseOverAttachment = true"
+                 @mouseleave="state.mouseOverAttachment = false">
+              <!-- OCR 截图 -->
+              <div class="image-slot" :class="{'has-image': state.previewUrl}" @click.stop="state.previewUrl ? (state.showPreviewModal = true) : triggerGoFileSelect()">
+                <img v-if="state.previewUrl" :src="state.previewUrl" />
+                <div v-else-if="state.uploading"><div class="spinner" style="width:20px;height:20px;border-width:2px;"></div></div>
+                <div v-else style="text-align:center;">
+                  <div class="slot-icon">🔒</div>
+                  <div class="slot-label">OCR</div>
+                </div>
+                <button v-if="state.previewUrl" class="slot-remove" @click.stop="resetOCR">✕</button>
+              </div>
+
+              <!-- 附件 -->
+              <div class="image-slot" :class="{'has-image': state.attachments.length > 0}" tabindex="0" @paste="handleAttachmentZonePaste" @click="selectAttachmentFile">
+                <template v-if="state.attachments.length > 0">
+                  <div class="attachment-thumbs">
+                    <div v-for="(att, idx) in state.attachments" :key="idx" class="attachment-thumb">
+                      <img :src="att.preview || att.url" />
+                      <button class="attachment-remove" @click.stop="removeAttachment(idx)">
+                        <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </template>
+                <div v-else-if="state.attachmentUploading"><div class="spinner" style="width:20px;height:20px;border-width:2px;"></div></div>
+                <div v-else style="text-align:center;">
+                  <div class="slot-icon">📎</div>
+                  <div class="slot-label">附件</div>
+                </div>
+              </div>
             </div>
           </div>
-          <div class="attachment-hint">按 <kbd>Ctrl+V</kbd> / <kbd>Cmd+V</kbd> 可直接粘贴图片</div>
+
+          <!-- 底栏：员工 + 提交 -->
+          <div class="ticket-footer">
+            <div class="staff-pill" @click="showStaffDropdown = !showStaffDropdown">
+              <span class="dot" :style="{ background: selectedStaffOnline ? 'var(--accent)' : '#D1D5DB' }"></span>
+              <span>{{ selectedStaffName }}</span>
+              <span class="arrow">▾</span>
+            </div>
+            <button class="btn-submit" @click="submit" :disabled="state.submitLoading">
+              <span v-if="state.submitLoading" class="spinner" style="border-top-color:#fff;width:16px;height:16px;border-width:2px;"></span>
+              <template v-else>✓ 提交工单</template>
+            </button>
+          </div>
+
+        </template>
+      </div>
+
+      <!-- 员工选择弹窗 -->
+      <div v-if="showStaffDropdown" class="dropdown-overlay" @click="showStaffDropdown = false"></div>
+      <div v-if="showStaffDropdown" class="staff-dropdown">
+        <div v-for="staff in state.followStaffList" :key="staff.wecom_userid"
+             class="staff-option" :class="{ selected: state.form.followStaffUID === staff.wecom_userid, offline: !staff.is_online }"
+             @click="selectStaff(staff)">
+          <div class="staff-avatar">{{ staff.name.charAt(0) }}</div>
+          <div class="staff-info">
+            <div class="staff-name">{{ staff.name }}</div>
+            <div class="staff-meta">
+              <span class="online-dot" :class="staff.is_online ? 'on' : 'off'"></span>
+              {{ staff.is_online ? '在线' : '离线' }}
+              <span v-if="staff.active_orders > 0" style="margin-left:6px;color:#f59e0b;">{{ staff.active_orders }}单</span>
+            </div>
+          </div>
+          <svg v-if="state.form.followStaffUID === staff.wecom_userid" class="staff-check" width="18" height="18" fill="none" stroke="#16A34A" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <div v-if="state.followStaffList.length === 0" class="staff-option" style="justify-content:center;color:var(--text-muted);">
+          {{ state.followStaffLoading ? '加载中...' : '暂无跟单客服' }}
         </div>
       </div>
-      
-      <button class="btn btn-primary" style="margin-top: 8px; padding: 14px;" @click="submit" :disabled="state.submitLoading">
-        <span v-if="state.submitLoading" class="spinner"></span>
-        <span v-else>🚀 一键提交工单并通知全员</span>
-      </button>
+
+      <!-- 文本输入区 (卡片下方) -->
+      <div class="text-input-section" v-if="!state.parsedResult">
+        <div class="section-title">📋 订单备注信息</div>
+        <textarea v-model="state.noteText" class="form-textarea" rows="3" placeholder="直接粘贴客户沟通内容，例如：&#10;客户微信 wxid_abc123 做一个喜茶风格路演PPT 20页 后天要" @paste="handleAttachmentPaste"></textarea>
+        <button class="btn-ai-parse" @click="handleParseText" :disabled="state.parseLoading || !state.noteText.trim()">
+          <span v-if="state.parseLoading" class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:#fff;"></span>
+          {{ state.parseLoading ? 'AI 正在识别...' : '✦ AI 智能提取' }}
+        </button>
+      </div>
     </div>
-    
   </div>
 
-    <!-- Toast -->
-  <div class="toast" :class="[state.toastType, { 'show': state.showToast }]">
-    {{ state.toastMsg }}
-  </div>
+  <!-- Toast -->
+  <div class="toast" :class="[state.toastType, { 'show': state.showToast }]">{{ state.toastMsg }}</div>
 
   <!-- 图片放大弹窗 -->
   <div v-if="state.showPreviewModal" class="modal-overlay" ref="modalOverlayRef" @click="closePreviewIfNotDragged">
     <div class="modal-content" ref="modalContentRef" @click.stop>
-      <img
-        :src="state.previewUrl"
-        class="modal-image"
-        ref="zoomImageRef"
-        :style="zoomImageStyle"
-        @mousedown.prevent="startDrag"
-      />
+      <img :src="state.previewUrl" class="modal-image" ref="zoomImageRef" :style="zoomImageStyle" @mousedown.prevent="startDrag" />
       <div class="zoom-indicator">{{ Math.round(zoomState.scale * 100) }}%</div>
       <button class="modal-close" @click.stop="state.showPreviewModal = false">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="24" height="24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
@@ -1011,497 +983,19 @@ const submit = async () => {
   <!-- OTA 更新弹窗 -->
   <div v-if="state.showUpdateModal" class="modal-overlay">
     <div class="update-modal" @click.stop>
-      <div class="update-header">
-        <h2>🚀 发现新版本 {{ state.updateInfo?.version }}</h2>
-      </div>
+      <div class="update-header"><h2>🚀 发现新版本 {{ state.updateInfo?.version }}</h2></div>
       <div class="update-body">
         <p class="update-subtitle">更新内容：</p>
         <pre class="update-notes">{{ state.updateInfo?.release_notes }}</pre>
       </div>
       <div class="update-footer">
         <button v-if="!state.updateInfo?.force_update" class="btn btn-secondary" @click="state.showUpdateModal = false">暂不更新</button>
-        <a :href="state.updateInfo?.download_url" target="_blank" class="btn btn-primary" style="text-decoration:none; display:inline-block; text-align:center;">立即下载并覆盖</a>
+        <a :href="state.updateInfo?.download_url" target="_blank" class="btn btn-primary" style="text-decoration:none;text-align:center;">立即下载</a>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* 预览区相关样式 */
-.preview-container {
-  position: relative;
-  width: 100%;
-  max-height: 120px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  border-radius: 8px;
-  overflow: hidden;
-  cursor: zoom-in;
-}
-.image-preview {
-  max-width: 100%;
-  max-height: 120px;
-  object-fit: contain;
-}
-.zoom-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  color: white;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-size: 14px;
-  font-weight: 500;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-.preview-container:hover .zoom-overlay {
-  opacity: 1;
-}
-
-/* 放大弹窗样式 */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.85);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 9999;
-  backdrop-filter: blur(5px);
-  cursor: zoom-out;
-}
-.modal-content {
-  position: relative;
-  max-width: 90%;
-  max-height: 90%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-.modal-image {
-  max-width: 100%;
-  max-height: 90vh;
-  object-fit: contain;
-  border-radius: 4px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-  user-select: none;
-  -webkit-user-drag: none;
-}
-.modal-close {
-  position: absolute;
-  top: -40px;
-  right: -10px;
-  background: none;
-  border: none;
-  color: white;
-  font-size: 24px;
-  cursor: pointer;
-  padding: 10px;
-}
-.modal-close:hover {
-  color: var(--accent);
-}
-.zoom-indicator {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.6);
-  color: white;
-  padding: 4px 14px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 500;
-  pointer-events: none;
-  backdrop-filter: blur(4px);
-  font-variant-numeric: tabular-nums;
-}
-.zoom-hint {
-  position: absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.5);
-  color: rgba(255, 255, 255, 0.8);
-  padding: 6px 16px;
-  border-radius: 20px;
-  font-size: 12px;
-  pointer-events: none;
-  white-space: nowrap;
-  backdrop-filter: blur(4px);
-}
-
-/* 更新弹窗样式 */
-.update-modal {
-  background: white;
-  width: 400px;
-  border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-  overflow: hidden;
-}
-.update-header {
-  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-  padding: 16px 20px;
-  color: white;
-}
-.update-header h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-}
-.update-body {
-  padding: 20px;
-}
-.update-subtitle {
-  margin: 0 0 10px 0;
-  font-weight: 600;
-  color: #333;
-}
-.update-notes {
-  background: #f8fafc;
-  padding: 12px;
-  border-radius: 6px;
-  margin: 0;
-  font-size: 13px;
-  color: #475569;
-  white-space: pre-wrap;
-  max-height: 150px;
-  overflow-y: auto;
-}
-.update-footer {
-  padding: 16px 20px;
-  border-top: 1px solid #e2e8f0;
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-}
-/* 备注图片附件区域 */
-.attachment-zone {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px;
-  background: #f8fafc;
-  border: 1px dashed #cbd5e1;
-  border-radius: 8px;
-  min-height: 56px;
-  align-items: center;
-  transition: border-color 0.2s, background-color 0.2s;
-  outline: none;
-  cursor: pointer;
-}
-.attachment-zone:focus,
-.attachment-zone:hover {
-  border-color: var(--accent);
-  border-style: solid;
-  background: #f0fdf4;
-}
-.attachment-thumb {
-  position: relative;
-  width: 56px;
-  height: 56px;
-  border-radius: 6px;
-  overflow: hidden;
-  border: 1px solid #e2e8f0;
-  flex-shrink: 0;
-}
-.attachment-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.attachment-remove {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 18px;
-  height: 18px;
-  background: rgba(239, 68, 68, 0.9);
-  border: none;
-  border-radius: 50%;
-  color: white;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-.attachment-thumb:hover .attachment-remove {
-  opacity: 1;
-}
-.attachment-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f1f5f9;
-}
-.attachment-add {
-  width: 56px;
-  height: 56px;
-  border-radius: 6px;
-  border: 1px dashed #94a3b8;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: #94a3b8;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-.attachment-add:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(99, 102, 241, 0.05);
-}
-.attachment-hint {
-  margin-top: 6px;
-  font-size: 11px;
-  color: #94a3b8;
-}
-.attachment-hint kbd {
-  background: #e2e8f0;
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-size: 10px;
-  font-family: inherit;
-}
-
-/* 跟单客服选择列表 */
-.btn-refresh-staff {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #94a3b8;
-  padding: 2px;
-  margin-left: 6px;
-  vertical-align: -3px;
-  transition: color 0.15s ease;
-}
-.btn-refresh-staff:hover {
-  color: var(--accent);
-}
-.btn-refresh-staff:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-.btn-refresh-staff .spin {
-  animation: spin 0.8s linear infinite;
-}
-.staff-select-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 200px;
-  overflow-y: auto;
-}
-.staff-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  position: relative;
-}
-.staff-option:hover {
-  border-color: var(--accent);
-  background: rgba(99, 102, 241, 0.03);
-}
-.staff-option.selected {
-  border-color: #10B981;
-  background: rgba(16, 185, 129, 0.05);
-}
-.staff-option.offline {
-  opacity: 0.55;
-}
-.staff-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.staff-info {
-  flex: 1;
-  min-width: 0;
-}
-.staff-name {
-  font-size: 14px;
-  font-weight: 500;
-  color: #1e293b;
-}
-.staff-meta {
-  font-size: 12px;
-  color: #94a3b8;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 2px;
-}
-.online-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  display: inline-block;
-}
-.online-dot.on {
-  background: #10B981;
-  box-shadow: 0 0 4px rgba(16, 185, 129, 0.5);
-}
-.online-dot.off {
-  background: #cbd5e1;
-}
-.staff-check {
-  flex-shrink: 0;
-}
-.staff-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 16px;
-  color: #94a3b8;
-  font-size: 13px;
-  background: #f8fafc;
-  border-radius: 8px;
-  border: 1px dashed #e2e8f0;
-}
-
-/* ═══ AI 解析 ═══ */
-.btn-ai-parse {
-  width: 100%;
-  margin-top: 10px;
-  padding: 12px;
-  background: linear-gradient(135deg, #1A1A2E, #16213E);
-  color: white;
-  border: none;
-  border-radius: 24px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-}
-.btn-ai-parse:hover:not(:disabled) {
-  background: linear-gradient(135deg, #16213E, #0F3460);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2);
-}
-.btn-ai-parse:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.parsed-status-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 2px;
-}
-.parsed-badge {
-  display: inline-block;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-}
-.parsed-badge.high {
-  background: rgba(7, 193, 96, 0.1);
-  color: var(--accent);
-  border: 1px solid rgba(7, 193, 96, 0.2);
-}
-.parsed-badge.medium {
-  background: rgba(255, 152, 0, 0.1);
-  color: #e68a00;
-  border: 1px solid rgba(255, 152, 0, 0.2);
-}
-.parsed-badge.low {
-  background: rgba(250, 81, 81, 0.1);
-  color: var(--danger);
-  border: 1px solid rgba(250, 81, 81, 0.15);
-}
-.parsed-cache-tag {
-  font-size: 11px;
-  color: var(--text-muted);
-  padding: 3px 8px;
-  background: var(--bg-input);
-  border-radius: 10px;
-}
-.field-required {
-  color: var(--danger);
-  font-size: 12px;
-  font-weight: 500;
-}
-.input-warning {
-  border-color: var(--warning) !important;
-  background: #FFFAF0 !important;
-}
-.parsed-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 2px;
-}
-.parsed-actions .btn {
-  flex: 1;
-}
-.parsed-confirmed-badge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  flex: 1;
-  padding: 10px;
-  background: rgba(7, 193, 96, 0.08);
-  color: var(--accent);
-  border: 1px solid rgba(7, 193, 96, 0.15);
-  border-radius: 24px;
-  font-size: 14px;
-  font-weight: 600;
-}
-.btn-link {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 0;
-  font-weight: 500;
-}
-.btn-link:hover {
-  color: var(--text-primary);
-  text-decoration: underline;
-}
-
-/* 区域分隔线 */
-.section-divider {
-  margin-top: 6px;
-  padding-top: 18px;
-  border-top: 1px solid var(--border);
-}
-
-
-
-
+/* scoped 样式已全部移到全局 style.css，此处仅保留极少量组件级覆盖 */
 </style>
