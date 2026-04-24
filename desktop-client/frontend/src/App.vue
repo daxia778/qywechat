@@ -823,7 +823,6 @@ const submit = async () => {
         <div class="image-slots">
           <!-- 左：OCR 截图 -->
           <div class="img-slot ocr-slot" :class="{'has-image': state.previewUrl}" @click="state.previewUrl ? (state.showPreviewModal = true) : triggerGoFileSelect()">
-            <div class="slot-tag ocr-tag">🔒 订单截图</div>
             <div class="slot-content">
               <img v-if="state.previewUrl" :src="state.previewUrl" />
               <div v-else-if="state.uploading"><div class="spinner" style="width:20px;height:20px;border-width:2px;"></div></div>
@@ -842,7 +841,6 @@ const submit = async () => {
                @mouseenter="state.mouseOverAttachment = true"
                @mouseleave="state.mouseOverAttachment = false"
                tabindex="0">
-            <div class="slot-tag qr-tag">📎 客户二维码</div>
             <div class="slot-content">
               <template v-if="state.attachments.length > 0">
                 <div class="qr-thumbs">
