@@ -868,14 +868,14 @@ const submit = async () => {
         </template>
       </div>
 
-      <!-- ═══ 模块二：需求信息卡片 ═══ -->
+      <!-- ═══ 模块二：需求信息卡片（两态切换） ═══ -->
       <div class="module-card card-info">
 
-        <!-- AI 解析结果（有结果时显示） -->
+        <!-- ━━ 状态 B：AI 提取完成 → 结构化表单 ━━ -->
         <template v-if="state.parsedResult">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
             <span style="font-size:13px;font-weight:600;color:var(--text-primary);">📝 需求信息</span>
-            <button v-if="state.parsedConfirmed" class="btn-edit-link" @click="state.parsedConfirmed = false">修改</button>
+            <button class="btn-edit-link" @click="resetParsedResult">重新录入</button>
           </div>
 
           <div class="form-row-labeled">
@@ -894,31 +894,22 @@ const submit = async () => {
             </div>
           </div>
 
-          <!-- 确认/修改 -->
-          <div v-if="!state.parsedConfirmed" style="display:flex;gap:10px;margin-top:16px;">
-            <button class="btn btn-secondary" style="flex:1;" @click="resetParsedResult">重新编辑</button>
-            <button class="btn btn-primary" style="flex:1;" @click="confirmParsedResult">确认信息</button>
+          <div v-if="!state.parsedConfirmed" style="margin-top:16px;">
+            <button class="btn btn-primary" style="width:100%;padding:10px;" @click="confirmParsedResult">✓ 确认信息</button>
           </div>
-          <div v-else class="confirmed-badge">✓ 信息已确认</div>
+          <div v-else class="confirmed-badge">✓ 信息已确认 <button class="btn-edit-link" style="margin-left:8px;" @click="state.parsedConfirmed = false">修改</button></div>
         </template>
 
-        <!-- OCR 状态标签 -->
-        <div v-if="state.priceLocked && !state.parsedResult" style="margin-bottom:8px;">
-          <span class="status-badge success">
-            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            AI 校验成功 · 防篡改已锁定
-          </span>
-        </div>
-
-        <!-- 文本输入区 -->
-        <div v-if="!state.parsedConfirmed">
-          <div class="section-title" style="margin-bottom:6px;margin-top:4px;">📋 订单备注</div>
-          <textarea v-model="state.noteText" class="form-textarea" rows="2" placeholder="粘贴客户沟通内容，AI 自动提取结构化信息" @paste="handleAttachmentPaste"></textarea>
+        <!-- ━━ 状态 A：未提取 → 文本输入 + AI 按钮 ━━ -->
+        <template v-else>
+          <div class="section-title" style="margin-bottom:8px;">📋 订单备注</div>
+          <textarea v-model="state.noteText" class="form-textarea" rows="3" placeholder="粘贴客户沟通内容，AI 自动提取结构化信息" @paste="handleAttachmentPaste"></textarea>
           <button class="btn-ai-parse" @click="handleParseText" :disabled="state.parseLoading || !state.noteText.trim()">
             <span v-if="state.parseLoading" class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:#fff;"></span>
             {{ state.parseLoading ? 'AI 正在识别...' : '✦ AI 智能提取' }}
           </button>
-        </div>
+        </template>
+
       </div>
 
       <!-- 底栏：员工选择 + 提交按钮（始终可见） -->
