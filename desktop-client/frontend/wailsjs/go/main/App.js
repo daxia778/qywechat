@@ -54,6 +54,10 @@ export function SelectScreenshotFile() {
   return window['go']['main']['App']['SelectScreenshotFile']();
 }
 
+export function SetAlwaysOnTop(arg1) {
+  return window['go']['main']['App']['SetAlwaysOnTop'](arg1);
+}
+
 export function SetServerURL(arg1) {
   return window['go']['main']['App']['SetServerURL'](arg1);
 }

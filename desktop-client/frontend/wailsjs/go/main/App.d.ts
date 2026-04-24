@@ -28,6 +28,8 @@ export function SelectAttachmentFile():Promise<string>;
 
 export function SelectScreenshotFile():Promise<string>;
 
+export function SetAlwaysOnTop(arg1:boolean):Promise<void>;
+
 export function SetServerURL(arg1:string):Promise<void>;
 
 export function SubmitOrder(arg1:string,arg2:string,arg3:string,arg4:number,arg5:Array<string>,arg6:string,arg7:string,arg8:string,arg9:number,arg10:string,arg11:string):Promise<main.SubmitResult>;
