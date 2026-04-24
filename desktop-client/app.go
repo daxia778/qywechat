@@ -310,6 +310,11 @@ func (a *App) GetPlatform() string {
 	return runtime.GOOS
 }
 
+// SetAlwaysOnTop 切换窗口置顶状态
+func (a *App) SetAlwaysOnTop(pinned bool) {
+	wailsruntime.WindowSetAlwaysOnTop(a.ctx, pinned)
+}
+
 // ─── 设备登录 ──────────────────────────────
 
 type LoginResult struct {

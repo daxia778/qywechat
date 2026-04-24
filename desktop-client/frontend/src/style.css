@@ -107,6 +107,30 @@ h1, h2, h3 { font-family: inherit; font-weight: 700; }
   background: var(--bg-hover);
 }
 
+/* 图钉按钮 */
+.btn-pin {
+  width: 28px; height: 28px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+  padding: 0;
+}
+.btn-pin:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(22,163,74,0.05);
+}
+.btn-pin.pinned {
+  border-color: var(--accent);
+  background: rgba(22,163,74,0.1);
+  color: var(--accent);
+  transform: rotate(45deg);
+}
+
 /* ─── 容器 ─── */
 .app-container {
   height: calc(100vh - 36px);

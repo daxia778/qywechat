@@ -3,6 +3,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from
 
 // ══ 员工选择弹窗 ══
 const showStaffDropdown = ref(false);
+const isPinned = ref(false);
 let staffPollTimer = null;
 
 // ══ 缩放相关 ══
@@ -792,7 +793,12 @@ const submit = async () => {
 
       <!-- 顶栏 -->
       <div class="top-bar">
-        <span class="top-bar-brand">单管家</span>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span class="top-bar-brand">单管家</span>
+          <button class="btn-pin" :class="{pinned: isPinned}" @click="isPinned = !isPinned; window.go.main.App.SetAlwaysOnTop(isPinned)" :title="isPinned ? '取消置顶' : '窗口置顶'">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" :stroke="isPinned ? 'var(--accent)' : 'currentColor'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+          </button>
+        </div>
         <div class="top-bar-right">
           <div class="top-bar-user">
             <div class="top-bar-avatar">{{ state.empName.charAt(0) }}</div>
@@ -867,7 +873,7 @@ const submit = async () => {
         <!-- ━━ 状态 B：AI 提取完成 → 结构化表单 ━━ -->
         <template v-if="state.parsedResult">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-            <span style="font-size:13px;font-weight:600;color:var(--text-primary);display:inline-flex;align-items:center;gap:6px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>需求信息</span>
+            <span style="font-size:16px;font-weight:700;color:var(--text-primary);display:inline-flex;align-items:center;gap:7px;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>需求信息</span>
             <button class="btn-edit-link" @click="resetParsedResult">重新录入</button>
           </div>
 
