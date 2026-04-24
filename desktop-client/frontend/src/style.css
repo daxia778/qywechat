@@ -116,51 +116,186 @@ h1, h2, h3 { font-family: inherit; font-weight: 700; }
 }
 .app-container::-webkit-scrollbar { display: none; }
 
-/* ─── 工单卡片 ─── */
-.ticket-card {
+/* ─── 通用卡片 ─── */
+.module-card {
   background: var(--bg-card);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
   overflow: hidden;
-  transition: box-shadow 0.2s ease;
+  margin-bottom: 12px;
 }
 
-/* 订单头部：单号 + 金额 */
-.ticket-header {
+/* ─── 模块一：图片卡片 ─── */
+.card-image .paste-zone {
+  padding: 32px 20px;
+}
+
+/* 订单信息行：单号 + 金额 */
+.order-info-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border-light);
 }
 .ticket-order-sn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 15px;
+  gap: 6px;
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--accent);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.3px;
+  min-width: 0;
+  overflow: hidden;
 }
-.ticket-order-sn .lock-icon {
-  color: var(--accent);
-  font-size: 16px;
+.ticket-order-sn .lock-icon { font-size: 14px; }
+.ticket-order-sn .sn-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ticket-price {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .ticket-price-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
-/* 工单内容区 */
-.ticket-body {
+/* 图片内容区：左 OCR + 右 附件 */
+.image-content {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  align-items: flex-start;
+}
+.ocr-thumb {
+  width: 100px;
+  min-height: 80px;
+  max-height: 130px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+  flex-shrink: 0;
+  border: 1.5px solid var(--border);
+  background: var(--bg-input);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ocr-thumb.has-image {
+  border-color: var(--accent);
+  border-style: solid;
+}
+.ocr-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ocr-thumb .ocr-badge {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  background: rgba(22, 163, 74, 0.9);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.ocr-thumb .slot-remove {
+  position: absolute;
+  top: 3px; right: 3px;
+  width: 18px; height: 18px;
+  background: rgba(0,0,0,0.5);
+  border: none; border-radius: 50%;
+  color: white; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.15s;
+  padding: 0; font-size: 12px;
+}
+.ocr-thumb:hover .slot-remove { opacity: 1; }
+
+/* 附件网格 */
+.attach-section {
+  flex: 1;
+  min-width: 0;
+}
+.attach-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.attach-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.attach-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.attach-item {
+  aspect-ratio: 1;
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+}
+.attach-item img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+}
+.attach-item .attachment-remove {
+  position: absolute;
+  top: 2px; right: 2px;
+  width: 14px; height: 14px;
+  background: rgba(239, 68, 68, 0.85);
+  border: none; border-radius: 50%;
+  color: white; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; opacity: 0;
+  transition: opacity 0.15s; font-size: 8px;
+}
+.attach-item:hover .attachment-remove { opacity: 1; }
+.attach-add {
+  aspect-ratio: 1;
+  border-radius: 6px;
+  border: 1.5px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 18px;
+  transition: 0.15s;
+  background: transparent;
+}
+.attach-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(22, 163, 74, 0.03);
+}
+
+/* ─── 模块二：需求信息卡片 ─── */
+.card-info {
   padding: 16px 20px;
 }
 
