@@ -873,10 +873,8 @@ const submit = async () => {
 
         <!-- AI 解析结果（有结果时显示） -->
         <template v-if="state.parsedResult">
-          <div class="ai-status-bar">
-            <span class="ai-badge" :class="state.parsedResult.confidence">
-              ✓ {{ state.parsedResult.confidence === 'high' ? 'AI 高置信' : state.parsedResult.confidence === 'medium' ? '正则提取' : '低置信度' }}
-            </span>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <span style="font-size:13px;font-weight:600;color:var(--text-primary);">📝 需求信息</span>
             <button v-if="state.parsedConfirmed" class="btn-edit-link" @click="state.parsedConfirmed = false">修改</button>
           </div>
 
@@ -897,7 +895,7 @@ const submit = async () => {
           </div>
 
           <!-- 确认/修改 -->
-          <div v-if="!state.parsedConfirmed" style="display:flex;gap:10px;margin-top:14px;">
+          <div v-if="!state.parsedConfirmed" style="display:flex;gap:10px;margin-top:16px;">
             <button class="btn btn-secondary" style="flex:1;" @click="resetParsedResult">重新编辑</button>
             <button class="btn btn-primary" style="flex:1;" @click="confirmParsedResult">确认信息</button>
           </div>
@@ -914,8 +912,8 @@ const submit = async () => {
 
         <!-- 文本输入区 -->
         <div v-if="!state.parsedConfirmed">
-          <div class="section-title" style="margin-bottom:8px;">📋 订单备注信息</div>
-          <textarea v-model="state.noteText" class="form-textarea" rows="3" placeholder="直接粘贴客户沟通内容，例如：&#10;客户微信 wxid_abc123 做一个喜茶风格路演PPT 20页 后天要" @paste="handleAttachmentPaste"></textarea>
+          <div class="section-title" style="margin-bottom:6px;margin-top:4px;">📋 订单备注</div>
+          <textarea v-model="state.noteText" class="form-textarea" rows="2" placeholder="粘贴客户沟通内容，AI 自动提取结构化信息" @paste="handleAttachmentPaste"></textarea>
           <button class="btn-ai-parse" @click="handleParseText" :disabled="state.parseLoading || !state.noteText.trim()">
             <span v-if="state.parseLoading" class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:#fff;"></span>
             {{ state.parseLoading ? 'AI 正在识别...' : '✦ AI 智能提取' }}

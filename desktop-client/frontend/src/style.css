@@ -122,12 +122,12 @@ h1, h2, h3 { font-family: inherit; font-weight: 700; }
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
   overflow: hidden;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 /* ─── 模块一：图片卡片 ─── */
 .card-image .paste-zone {
-  padding: 32px 20px;
+  padding: 24px 20px;
 }
 
 /* 订单信息行：单号 + 金额 */
@@ -296,7 +296,7 @@ h1, h2, h3 { font-family: inherit; font-weight: 700; }
 
 /* ─── 模块二：需求信息卡片 ─── */
 .card-info {
-  padding: 16px 20px;
+  padding: 18px 20px;
 }
 
 /* AI 置信度状态条 */
@@ -585,7 +585,7 @@ h1, h2, h3 { font-family: inherit; font-weight: 700; }
 
 /* ─── 空状态粘贴区 ─── */
 .paste-zone {
-  padding: 40px 20px;
+  padding: 28px 20px;
   text-align: center;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -594,14 +594,14 @@ h1, h2, h3 { font-family: inherit; font-weight: 700; }
   background: rgba(22, 163, 74, 0.02);
 }
 .paste-zone-icon {
-  font-size: 40px;
-  margin-bottom: 12px;
+  font-size: 32px;
+  margin-bottom: 8px;
 }
 .paste-zone-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 .paste-zone-hint {
   font-size: 12px;
