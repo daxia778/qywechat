@@ -893,6 +893,10 @@ const submit = async () => {
               <input v-model="state.editFields.deadline" class="form-input" placeholder="交付时间" :disabled="state.parsedConfirmed" />
             </div>
           </div>
+          <div v-if="state.editFields.remark || !state.parsedConfirmed" class="form-row-labeled" style="margin-top:12px;">
+            <span class="inline-label">备注</span>
+            <textarea v-model="state.editFields.remark" class="form-input" style="resize:vertical;min-height:32px;font-size:13px;line-height:1.5;" rows="1" placeholder="其他补充信息" :disabled="state.parsedConfirmed"></textarea>
+          </div>
 
           <div v-if="!state.parsedConfirmed" style="margin-top:16px;">
             <button class="btn btn-primary" style="width:100%;padding:10px;" @click="confirmParsedResult">✓ 确认信息</button>
