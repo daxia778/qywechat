@@ -126,173 +126,155 @@ h1, h2, h3 { font-family: inherit; font-weight: 700; }
 }
 
 /* ─── 模块一：图片卡片 ─── */
-.card-image .paste-zone {
-  padding: 24px 20px;
-}
 
-/* 订单信息行：单号 + 金额 */
+/* 订单信息行 */
 .order-info-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--border-light);
+  background: rgba(22, 163, 74, 0.03);
 }
 .ticket-order-sn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--accent);
+  display: flex; align-items: center; gap: 5px;
+  font-size: 13px; font-weight: 600; color: var(--accent);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.3px;
-  min-width: 0;
-  overflow: hidden;
+  min-width: 0; overflow: hidden;
 }
-.ticket-order-sn .lock-icon { font-size: 14px; }
+.ticket-order-sn .lock-icon { font-size: 13px; }
 .ticket-order-sn .sn-text {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ticket-price {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  font-size: 15px; font-weight: 700; color: var(--accent);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .ticket-price-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
 }
 
-/* 图片内容区：左 OCR + 右 附件 */
-.image-content {
+/* 两栏图片区 */
+.image-slots {
   display: flex;
-  gap: 12px;
-  padding: 12px 16px;
-  align-items: flex-start;
+  gap: 0;
 }
-.ocr-thumb {
-  width: 100px;
-  min-height: 80px;
-  max-height: 130px;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
+.img-slot {
+  flex: 1;
+  min-height: 110px;
   position: relative;
   cursor: pointer;
-  flex-shrink: 0;
-  border: 1.5px solid var(--border);
-  background: var(--bg-input);
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  transition: background 0.15s;
 }
-.ocr-thumb.has-image {
-  border-color: var(--accent);
-  border-style: solid;
+.img-slot:hover { background: rgba(0,0,0,0.01); }
+
+/* 左侧 OCR 有绿色淡底 */
+.ocr-slot {
+  background: rgba(22, 163, 74, 0.04);
+  border-right: 1px solid var(--border-light);
 }
-.ocr-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.ocr-thumb .ocr-badge {
-  position: absolute;
-  bottom: 4px;
-  left: 4px;
-  background: rgba(22, 163, 74, 0.9);
-  color: white;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
+.ocr-slot:hover { background: rgba(22, 163, 74, 0.07); }
+.ocr-slot.has-image { background: transparent; }
+
+/* 右侧二维码 */
+.qr-slot { background: transparent; }
+
+/* 标签 */
+.slot-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 12px 0;
   display: flex;
   align-items: center;
   gap: 3px;
 }
-.ocr-thumb .slot-remove {
+.ocr-tag { color: var(--accent); }
+.qr-tag { color: var(--text-muted); }
+
+/* 内容区 */
+.slot-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px 12px;
+  min-height: 80px;
+}
+.slot-content img {
+  max-width: 100%;
+  max-height: 90px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+.slot-placeholder-icon { font-size: 24px; margin-bottom: 4px; }
+.slot-placeholder-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* 关闭按钮 */
+.slot-close {
   position: absolute;
-  top: 3px; right: 3px;
-  width: 18px; height: 18px;
-  background: rgba(0,0,0,0.5);
+  top: 6px; right: 6px;
+  width: 20px; height: 20px;
+  background: rgba(0,0,0,0.45);
   border: none; border-radius: 50%;
   color: white; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   opacity: 0; transition: opacity 0.15s;
   padding: 0; font-size: 12px;
 }
-.ocr-thumb:hover .slot-remove { opacity: 1; }
+.img-slot:hover .slot-close { opacity: 1; }
 
-/* 附件网格 */
-.attach-section {
-  flex: 1;
-  min-width: 0;
-}
-.attach-header {
+/* 二维码缩略图网格 */
+.qr-thumbs {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-.attach-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
+  flex-wrap: wrap;
   gap: 4px;
+  width: 100%;
 }
-.attach-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-}
-.attach-item {
-  aspect-ratio: 1;
-  border-radius: 6px;
+.qr-thumb-item {
+  width: 40px; height: 40px;
+  border-radius: 4px;
   overflow: hidden;
   position: relative;
   border: 1px solid var(--border);
-  background: var(--bg-input);
 }
-.attach-item img {
+.qr-thumb-item img {
   width: 100%; height: 100%;
   object-fit: cover;
+  border-radius: 0;
+  max-height: none;
 }
-.attach-item .attachment-remove {
+.qr-remove {
   position: absolute;
-  top: 2px; right: 2px;
+  top: 1px; right: 1px;
   width: 14px; height: 14px;
   background: rgba(239, 68, 68, 0.85);
   border: none; border-radius: 50%;
   color: white; cursor: pointer;
+  font-size: 9px; padding: 0;
   display: flex; align-items: center; justify-content: center;
-  padding: 0; opacity: 0;
-  transition: opacity 0.15s; font-size: 8px;
+  opacity: 0; transition: opacity 0.15s;
 }
-.attach-item:hover .attachment-remove { opacity: 1; }
-.attach-add {
-  aspect-ratio: 1;
-  border-radius: 6px;
+.qr-thumb-item:hover .qr-remove { opacity: 1; }
+.qr-add {
+  width: 40px; height: 40px;
+  border-radius: 4px;
   border: 1.5px dashed var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: 18px;
-  transition: 0.15s;
   background: transparent;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
+  font-size: 16px;
+  transition: 0.15s;
 }
-.attach-add:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(22, 163, 74, 0.03);
-}
+.qr-add:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ─── 模块二：需求信息卡片 ─── */
 .card-info {

@@ -802,70 +802,65 @@ const submit = async () => {
         </div>
       </div>
 
-      <!-- ═══ 模块一：图片卡片 ═══ -->
-      <div class="module-card card-image"
-           @mouseenter="state.mouseOverAttachment = true"
-           @mouseleave="state.mouseOverAttachment = false">
+      <!-- ═══ 模块一：图片卡片（左 OCR + 右 二维码） ═══ -->
+      <div class="module-card card-image">
 
-        <!-- 空状态：粘贴提示 -->
-        <div v-if="!state.priceLocked && !state.previewUrl && !state.orderSn" class="paste-zone" @click="triggerGoFileSelect()">
-          <div v-if="state.uploading"><div class="spinner" style="margin: 0 auto 10px;"></div></div>
-          <template v-else>
-            <div class="paste-zone-icon">📸</div>
-            <div class="paste-zone-title">点击选择、或 <kbd>{{ state.isMac ? 'Cmd' : 'Ctrl' }}+V</kbd> 粘贴截图</div>
-            <div class="paste-zone-hint">支持从剪贴板直接粘贴图片自动识别</div>
-          </template>
+        <!-- 订单信息行（OCR 完成后显示） -->
+        <div v-if="state.priceLocked || state.orderSn" class="order-info-row">
+          <div class="ticket-order-sn">
+            <span v-if="state.priceLocked" class="lock-icon">🔒</span>
+            <span class="sn-text">{{ state.orderSn || '—' }}</span>
+          </div>
+          <div class="ticket-price-row">
+            <span class="ticket-price">¥{{ state.rawPrice || '0.00' }}</span>
+            <button class="btn-reset-ocr" @click="resetOCR" title="重新选择">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            </button>
+          </div>
         </div>
 
-        <!-- 有数据：订单信息 + 图片 -->
-        <template v-else>
-          <!-- 订单信息行 -->
-          <div class="order-info-row">
-            <div class="ticket-order-sn">
-              <span v-if="state.priceLocked" class="lock-icon">🔒</span>
-              <span class="sn-text">{{ state.orderSn || '—' }}</span>
-            </div>
-            <div class="ticket-price-row">
-              <span class="ticket-price">¥{{ state.rawPrice || '0.00' }}</span>
-              <button class="btn-reset-ocr" @click="resetOCR" title="重新选择">
-                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-              </button>
-            </div>
-          </div>
-
-          <!-- 图片内容：左 OCR 缩略图 + 右 附件网格 -->
-          <div class="image-content">
-            <!-- OCR 截图缩略图 -->
-            <div class="ocr-thumb" :class="{'has-image': state.previewUrl}" @click.stop="state.previewUrl ? (state.showPreviewModal = true) : triggerGoFileSelect()">
+        <!-- 两栏图片区 -->
+        <div class="image-slots">
+          <!-- 左：OCR 截图 -->
+          <div class="img-slot ocr-slot" :class="{'has-image': state.previewUrl}" @click="state.previewUrl ? (state.showPreviewModal = true) : triggerGoFileSelect()">
+            <div class="slot-tag ocr-tag">🔒 订单截图</div>
+            <div class="slot-content">
               <img v-if="state.previewUrl" :src="state.previewUrl" />
-              <div v-else-if="state.uploading"><div class="spinner" style="width:18px;height:18px;border-width:2px;"></div></div>
-              <div v-else style="text-align:center;font-size:11px;color:var(--text-muted);">
-                <div style="font-size:20px;margin-bottom:2px;">🔒</div>OCR
-              </div>
-              <span v-if="state.priceLocked" class="ocr-badge">🔒 OCR</span>
-              <button v-if="state.previewUrl" class="slot-remove" @click.stop="resetOCR">✕</button>
+              <div v-else-if="state.uploading"><div class="spinner" style="width:20px;height:20px;border-width:2px;"></div></div>
+              <template v-else>
+                <div class="slot-placeholder-icon">📸</div>
+                <div class="slot-placeholder-text">点击或粘贴<br/>订单截图</div>
+              </template>
             </div>
+            <button v-if="state.previewUrl" class="slot-close" @click.stop="resetOCR">✕</button>
+          </div>
 
-            <!-- 附件网格 -->
-            <div class="attach-section">
-              <div class="attach-header">
-                <span class="attach-label">📎 附件 {{ state.attachments.length }}/5</span>
-              </div>
-              <div class="attach-grid">
-                <div v-for="(att, idx) in state.attachments" :key="idx" class="attach-item">
-                  <img :src="att.preview || att.url" />
-                  <button class="attachment-remove" @click.stop="removeAttachment(idx)">
-                    <svg width="8" height="8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>
-                  </button>
+          <!-- 右：客户二维码 / 附件 -->
+          <div class="img-slot qr-slot" :class="{'has-image': state.attachments.length > 0}"
+               @click="selectAttachmentFile"
+               @paste.stop="handleAttachmentZonePaste"
+               @mouseenter="state.mouseOverAttachment = true"
+               @mouseleave="state.mouseOverAttachment = false"
+               tabindex="0">
+            <div class="slot-tag qr-tag">📎 客户二维码</div>
+            <div class="slot-content">
+              <template v-if="state.attachments.length > 0">
+                <div class="qr-thumbs">
+                  <div v-for="(att, idx) in state.attachments" :key="idx" class="qr-thumb-item">
+                    <img :src="att.preview || att.url" />
+                    <button class="qr-remove" @click.stop="removeAttachment(idx)">✕</button>
+                  </div>
+                  <button v-if="state.attachments.length < 5" class="qr-add" @click.stop="selectAttachmentFile">+</button>
                 </div>
-                <button v-if="state.attachments.length < 5" class="attach-add" @click="selectAttachmentFile" @paste.stop="handleAttachmentZonePaste" tabindex="0">
-                  <span v-if="state.attachmentUploading"><span class="spinner" style="width:14px;height:14px;border-width:2px;"></span></span>
-                  <span v-else>+</span>
-                </button>
-              </div>
+              </template>
+              <div v-else-if="state.attachmentUploading"><div class="spinner" style="width:20px;height:20px;border-width:2px;"></div></div>
+              <template v-else>
+                <div class="slot-placeholder-icon">📱</div>
+                <div class="slot-placeholder-text">点击或粘贴<br/>客户二维码</div>
+              </template>
             </div>
           </div>
-        </template>
+        </div>
       </div>
 
       <!-- ═══ 模块二：需求信息卡片（两态切换） ═══ -->
