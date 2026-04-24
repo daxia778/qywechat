@@ -161,37 +161,51 @@ h1, h2, h3 { font-family: inherit; font-weight: 700; }
 }
 .img-slot {
   flex: 1;
-  min-height: 110px;
   position: relative;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  transition: background 0.15s;
+  padding: 14px;
+  transition: all 0.2s ease;
 }
-.img-slot:hover { background: rgba(0,0,0,0.01); }
 
-/* 左侧 OCR 有绿色淡底 */
+/* 左侧 OCR 绿色淡底 */
 .ocr-slot {
-  background: rgba(22, 163, 74, 0.04);
+  background: linear-gradient(135deg, rgba(22,163,74,0.05) 0%, rgba(22,163,74,0.02) 100%);
   border-right: 1px solid var(--border-light);
 }
-.ocr-slot:hover { background: rgba(22, 163, 74, 0.07); }
+.ocr-slot:hover {
+  background: linear-gradient(135deg, rgba(22,163,74,0.09) 0%, rgba(22,163,74,0.04) 100%);
+}
 .ocr-slot.has-image { background: transparent; }
 
 /* 右侧二维码 */
-.qr-slot { background: transparent; }
+.qr-slot { background: var(--bg-input); }
+.qr-slot:hover { background: #F3F4F6; }
+.qr-slot.has-image { background: transparent; }
 
-/* 标签 */
+/* 标签胶囊 */
 .slot-tag {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 6px 12px 0;
-  display: flex;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 20px;
+  display: inline-flex;
   align-items: center;
   gap: 3px;
+  margin-bottom: 10px;
+  width: fit-content;
 }
-.ocr-tag { color: var(--accent); }
-.qr-tag { color: var(--text-muted); }
+.ocr-tag {
+  color: var(--accent);
+  background: rgba(22,163,74,0.1);
+}
+.qr-tag {
+  color: #6B7280;
+  background: rgba(107,114,128,0.08);
+}
 
 /* 内容区 */
 .slot-content {
@@ -200,81 +214,114 @@ h1, h2, h3 { font-family: inherit; font-weight: 700; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 8px 12px 12px;
   min-height: 80px;
+  border-radius: 12px;
+  border: 2px dashed transparent;
+  transition: all 0.2s ease;
+  padding: 12px;
 }
+/* 空状态虚线框 */
+.img-slot:not(.has-image) .slot-content {
+  border-color: var(--border);
+}
+.img-slot:not(.has-image):hover .slot-content {
+  border-color: var(--accent);
+  background: rgba(22,163,74,0.02);
+}
+
 .slot-content img {
   max-width: 100%;
-  max-height: 90px;
-  border-radius: 6px;
+  max-height: 85px;
+  border-radius: 8px;
   object-fit: contain;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
-.slot-placeholder-icon { font-size: 24px; margin-bottom: 4px; }
+.slot-placeholder-icon {
+  font-size: 28px;
+  margin-bottom: 6px;
+  opacity: 0.7;
+  transition: transform 0.2s;
+}
+.img-slot:hover .slot-placeholder-icon { transform: scale(1.1); }
 .slot-placeholder-text {
   font-size: 11px;
   color: var(--text-muted);
   text-align: center;
-  line-height: 1.4;
+  line-height: 1.5;
+  font-weight: 500;
 }
 
 /* 关闭按钮 */
 .slot-close {
   position: absolute;
-  top: 6px; right: 6px;
-  width: 20px; height: 20px;
-  background: rgba(0,0,0,0.45);
+  top: 10px; right: 10px;
+  width: 22px; height: 22px;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(4px);
   border: none; border-radius: 50%;
   color: white; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  opacity: 0; transition: opacity 0.15s;
-  padding: 0; font-size: 12px;
+  opacity: 0; transition: all 0.2s;
+  padding: 0; font-size: 11px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
 }
+.slot-close:hover { background: rgba(239,68,68,0.8); transform: scale(1.1); }
 .img-slot:hover .slot-close { opacity: 1; }
 
-/* 二维码缩略图网格 */
+/* 二维码缩略图 */
 .qr-thumbs {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
   width: 100%;
 }
 .qr-thumb-item {
-  width: 40px; height: 40px;
-  border-radius: 4px;
+  width: 44px; height: 44px;
+  border-radius: 8px;
   overflow: hidden;
   position: relative;
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
+  transition: border-color 0.15s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
+.qr-thumb-item:hover { border-color: var(--accent); }
 .qr-thumb-item img {
   width: 100%; height: 100%;
   object-fit: cover;
   border-radius: 0;
   max-height: none;
+  box-shadow: none;
 }
 .qr-remove {
   position: absolute;
-  top: 1px; right: 1px;
-  width: 14px; height: 14px;
+  top: 2px; right: 2px;
+  width: 16px; height: 16px;
   background: rgba(239, 68, 68, 0.85);
   border: none; border-radius: 50%;
   color: white; cursor: pointer;
   font-size: 9px; padding: 0;
   display: flex; align-items: center; justify-content: center;
-  opacity: 0; transition: opacity 0.15s;
+  opacity: 0; transition: all 0.15s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
 }
 .qr-thumb-item:hover .qr-remove { opacity: 1; }
 .qr-add {
-  width: 40px; height: 40px;
-  border-radius: 4px;
-  border: 1.5px dashed var(--border);
+  width: 44px; height: 44px;
+  border-radius: 8px;
+  border: 2px dashed var(--border);
   background: transparent;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   color: var(--text-muted);
-  font-size: 16px;
-  transition: 0.15s;
+  font-size: 18px;
+  transition: all 0.2s;
 }
-.qr-add:hover { border-color: var(--accent); color: var(--accent); }
+.qr-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(22,163,74,0.04);
+  transform: scale(1.05);
+}
 
 /* ─── 模块二：需求信息卡片 ─── */
 .card-info {
