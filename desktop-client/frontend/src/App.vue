@@ -256,7 +256,7 @@ const showToast = (msg, type = 'success') => {
   }, 3000);
 };
 
-const APP_VERSION = "1.0.0"; // 当前版本号
+const APP_VERSION = "1.7.0"; // 当前版本号
 
 const checkAppUpdate = async () => {
   try {
