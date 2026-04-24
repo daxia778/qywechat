@@ -805,7 +805,7 @@ const submit = async () => {
       <!-- 工单卡片 -->
       <div class="ticket-card">
 
-        <!-- ── 空状态：粘贴区 ── -->
+        <!-- ── OCR 区域：空状态粘贴 或 已锁定的订单头 ── -->
         <div v-if="!state.priceLocked && !state.previewUrl && !state.orderSn" class="paste-zone" @click="triggerGoFileSelect()">
           <div v-if="state.uploading"><div class="spinner" style="margin: 0 auto 10px;"></div></div>
           <template v-else>
@@ -815,107 +815,103 @@ const submit = async () => {
           </template>
         </div>
 
-        <!-- ── 有数据时的工单内容 ── -->
-        <template v-else>
-
-          <!-- 订单头：单号 + 金额 -->
-          <div class="ticket-header">
-            <div class="ticket-order-sn">
-              <span v-if="state.priceLocked" class="lock-icon">🔒</span>
-              <span>{{ state.orderSn || '—' }}</span>
-            </div>
-            <div class="ticket-price-row">
-              <span class="ticket-price">¥{{ state.rawPrice || '0.00' }}</span>
-              <button class="btn-reset-ocr" @click="resetOCR" title="重新选择">
-                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-              </button>
-            </div>
+        <!-- 订单头：单号 + 金额（OCR 完成后显示） -->
+        <div v-if="state.priceLocked || state.previewUrl || state.orderSn" class="ticket-header">
+          <div class="ticket-order-sn">
+            <span v-if="state.priceLocked" class="lock-icon">🔒</span>
+            <span>{{ state.orderSn || '—' }}</span>
           </div>
+          <div class="ticket-price-row">
+            <span class="ticket-price">¥{{ state.rawPrice || '0.00' }}</span>
+            <button class="btn-reset-ocr" @click="resetOCR" title="重新选择">
+              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            </button>
+          </div>
+        </div>
 
-          <!-- 工单内容 -->
-          <div class="ticket-body">
+        <!-- ── 工单内容区 ── -->
+        <div class="ticket-body">
 
-            <!-- AI 解析结果 -->
-            <template v-if="state.parsedResult">
-              <div class="ai-status-bar">
-                <span class="ai-badge" :class="state.parsedResult.confidence">
-                  ✓ {{ state.parsedResult.confidence === 'high' ? 'AI 高置信' : state.parsedResult.confidence === 'medium' ? '正则提取' : '低置信度' }}
-                </span>
-                <button v-if="state.parsedConfirmed" class="btn-edit-link" @click="state.parsedConfirmed = false">修改</button>
-              </div>
-
-              <div class="form-row-labeled">
-                <span class="inline-label">主题</span>
-                <input v-model="state.editFields.theme" class="form-input" placeholder="设计需求描述" :disabled="state.parsedConfirmed" />
-              </div>
-
-              <div class="form-row" style="margin-top:12px;">
-                <div class="form-row-labeled">
-                  <span class="inline-label">页数</span>
-                  <input v-model="state.editFields.pages" class="form-input" placeholder="页数" type="number" :disabled="state.parsedConfirmed" />
-                </div>
-                <div class="form-row-labeled">
-                  <span class="inline-label">交付</span>
-                  <input v-model="state.editFields.deadline" class="form-input" placeholder="交付时间" :disabled="state.parsedConfirmed" />
-                </div>
-              </div>
-
-              <!-- 确认/修改 -->
-              <div v-if="!state.parsedConfirmed" style="display:flex;gap:10px;margin-top:14px;">
-                <button class="btn btn-secondary" style="flex:1;" @click="resetParsedResult">重新编辑</button>
-                <button class="btn btn-primary" style="flex:1;" @click="confirmParsedResult">确认信息</button>
-              </div>
-              <div v-else class="confirmed-badge">✓ 信息已确认</div>
-            </template>
-
-            <!-- OCR 状态 -->
-            <div v-if="state.priceLocked && !state.parsedResult" style="margin-bottom:8px;">
-              <span class="status-badge success">
-                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                AI 校验成功 · 防篡改已锁定
+          <!-- AI 解析结果（独立于 OCR，只要有解析结果就显示） -->
+          <template v-if="state.parsedResult">
+            <div class="ai-status-bar">
+              <span class="ai-badge" :class="state.parsedResult.confidence">
+                ✓ {{ state.parsedResult.confidence === 'high' ? 'AI 高置信' : state.parsedResult.confidence === 'medium' ? '正则提取' : '低置信度' }}
               </span>
-            </div>
-            <div v-else-if="state.ocrRetryCount >= 3 && !state.parsedResult" style="margin-bottom:8px;">
-              <span class="status-badge error">多次解析失败 · 手动输入模式</span>
+              <button v-if="state.parsedConfirmed" class="btn-edit-link" @click="state.parsedConfirmed = false">修改</button>
             </div>
 
-            <!-- 图片区域 -->
-            <div class="image-row"
-                 @mouseenter="state.mouseOverAttachment = true"
-                 @mouseleave="state.mouseOverAttachment = false">
-              <!-- OCR 截图 -->
-              <div class="image-slot" :class="{'has-image': state.previewUrl}" @click.stop="state.previewUrl ? (state.showPreviewModal = true) : triggerGoFileSelect()">
-                <img v-if="state.previewUrl" :src="state.previewUrl" />
-                <div v-else-if="state.uploading"><div class="spinner" style="width:20px;height:20px;border-width:2px;"></div></div>
-                <div v-else style="text-align:center;">
-                  <div class="slot-icon">🔒</div>
-                  <div class="slot-label">OCR</div>
-                </div>
-                <button v-if="state.previewUrl" class="slot-remove" @click.stop="resetOCR">✕</button>
+            <div class="form-row-labeled">
+              <span class="inline-label">主题</span>
+              <input v-model="state.editFields.theme" class="form-input" placeholder="设计需求描述" :disabled="state.parsedConfirmed" />
+            </div>
+
+            <div class="form-row" style="margin-top:12px;">
+              <div class="form-row-labeled">
+                <span class="inline-label">页数</span>
+                <input v-model="state.editFields.pages" class="form-input" placeholder="页数" type="number" :disabled="state.parsedConfirmed" />
               </div>
+              <div class="form-row-labeled">
+                <span class="inline-label">交付</span>
+                <input v-model="state.editFields.deadline" class="form-input" placeholder="交付时间" :disabled="state.parsedConfirmed" />
+              </div>
+            </div>
 
-              <!-- 附件 -->
-              <div class="image-slot" :class="{'has-image': state.attachments.length > 0}" tabindex="0" @paste="handleAttachmentZonePaste" @click="selectAttachmentFile">
-                <template v-if="state.attachments.length > 0">
-                  <div class="attachment-thumbs">
-                    <div v-for="(att, idx) in state.attachments" :key="idx" class="attachment-thumb">
-                      <img :src="att.preview || att.url" />
-                      <button class="attachment-remove" @click.stop="removeAttachment(idx)">
-                        <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                      </button>
-                    </div>
+            <!-- 确认/修改 -->
+            <div v-if="!state.parsedConfirmed" style="display:flex;gap:10px;margin-top:14px;">
+              <button class="btn btn-secondary" style="flex:1;" @click="resetParsedResult">重新编辑</button>
+              <button class="btn btn-primary" style="flex:1;" @click="confirmParsedResult">确认信息</button>
+            </div>
+            <div v-else class="confirmed-badge">✓ 信息已确认</div>
+          </template>
+
+          <!-- OCR 状态标签 -->
+          <div v-if="state.priceLocked && !state.parsedResult" style="margin-bottom:8px;">
+            <span class="status-badge success">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              AI 校验成功 · 防篡改已锁定
+            </span>
+          </div>
+          <div v-else-if="state.ocrRetryCount >= 3 && !state.parsedResult" style="margin-bottom:8px;">
+            <span class="status-badge error">多次解析失败 · 手动输入模式</span>
+          </div>
+
+          <!-- 图片区域（OCR 截图 + 附件） -->
+          <div v-if="state.priceLocked || state.previewUrl || state.attachments.length > 0" class="image-row"
+               @mouseenter="state.mouseOverAttachment = true"
+               @mouseleave="state.mouseOverAttachment = false">
+            <!-- OCR 截图 -->
+            <div class="image-slot" :class="{'has-image': state.previewUrl}" @click.stop="state.previewUrl ? (state.showPreviewModal = true) : triggerGoFileSelect()">
+              <img v-if="state.previewUrl" :src="state.previewUrl" />
+              <div v-else-if="state.uploading"><div class="spinner" style="width:20px;height:20px;border-width:2px;"></div></div>
+              <div v-else style="text-align:center;">
+                <div class="slot-icon">🔒</div>
+                <div class="slot-label">OCR</div>
+              </div>
+              <button v-if="state.previewUrl" class="slot-remove" @click.stop="resetOCR">✕</button>
+            </div>
+
+            <!-- 附件 -->
+            <div class="image-slot" :class="{'has-image': state.attachments.length > 0}" tabindex="0" @paste="handleAttachmentZonePaste" @click="selectAttachmentFile">
+              <template v-if="state.attachments.length > 0">
+                <div class="attachment-thumbs">
+                  <div v-for="(att, idx) in state.attachments" :key="idx" class="attachment-thumb">
+                    <img :src="att.preview || att.url" />
+                    <button class="attachment-remove" @click.stop="removeAttachment(idx)">
+                      <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
                   </div>
-                </template>
-                <div v-else-if="state.attachmentUploading"><div class="spinner" style="width:20px;height:20px;border-width:2px;"></div></div>
-                <div v-else style="text-align:center;">
-                  <div class="slot-icon">📎</div>
-                  <div class="slot-label">附件</div>
                 </div>
+              </template>
+              <div v-else-if="state.attachmentUploading"><div class="spinner" style="width:20px;height:20px;border-width:2px;"></div></div>
+              <div v-else style="text-align:center;">
+                <div class="slot-icon">📎</div>
+                <div class="slot-label">附件</div>
               </div>
             </div>
           </div>
+        </div>
 
-        </template>
       </div>
 
       <!-- 底栏：员工选择 + 提交按钮（始终可见） -->
