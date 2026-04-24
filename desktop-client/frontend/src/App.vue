@@ -915,20 +915,20 @@ const submit = async () => {
             </div>
           </div>
 
-          <!-- 底栏：员工 + 提交 -->
-          <div class="ticket-footer">
-            <div class="staff-pill" @click="showStaffDropdown = !showStaffDropdown">
-              <span class="dot" :style="{ background: selectedStaffOnline ? 'var(--accent)' : '#D1D5DB' }"></span>
-              <span>{{ selectedStaffName }}</span>
-              <span class="arrow">▾</span>
-            </div>
-            <button class="btn-submit" @click="submit" :disabled="state.submitLoading">
-              <span v-if="state.submitLoading" class="spinner" style="border-top-color:#fff;width:16px;height:16px;border-width:2px;"></span>
-              <template v-else>✓ 提交工单</template>
-            </button>
-          </div>
-
         </template>
+      </div>
+
+      <!-- 底栏：员工选择 + 提交按钮（始终可见） -->
+      <div class="ticket-bottom-bar">
+        <div class="staff-pill" @click="showStaffDropdown = !showStaffDropdown">
+          <span class="dot" :style="{ background: selectedStaffOnline ? 'var(--accent)' : '#D1D5DB' }"></span>
+          <span>{{ selectedStaffName }}</span>
+          <span class="arrow">▾</span>
+        </div>
+        <button class="btn-submit" @click="submit" :disabled="state.submitLoading">
+          <span v-if="state.submitLoading" class="spinner" style="border-top-color:#fff;width:16px;height:16px;border-width:2px;"></span>
+          <template v-else>✓ 提交工单</template>
+        </button>
       </div>
 
       <!-- 员工选择弹窗 -->
@@ -997,5 +997,19 @@ const submit = async () => {
 </template>
 
 <style scoped>
-/* scoped 样式已全部移到全局 style.css，此处仅保留极少量组件级覆盖 */
+/* 固定底栏 — 始终吸附在窗口底部 */
+.ticket-bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  z-index: 90;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.04);
+}
 </style>
