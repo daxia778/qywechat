@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useDebounce } from './useDebounce';
 import { usePolling } from './usePolling';
+import { useThrottledCallback } from './useThrottledCallback';
 import { listOrders } from '../api/orders';
 
 export function useOrderFilters({ toast, on, off, connected }) {
@@ -46,13 +47,17 @@ export function useOrderFilters({ toast, on, off, connected }) {
     setCurrentPage(0);
   }, [debouncedKeyword]);
 
-  usePolling(fetchOrders, connected ? 120000 : 60000);
+  // 轮询降频: WS 已处理实时更新，轮询仅作兜底
+  // 有 WS 连接时 5min 一次，无连接时 2min 一次
+  usePolling(fetchOrders, connected ? 300000 : 120000);
 
+  // WS 事件节流: 2s 内多次 order_updated 只触发一次 fetch
+  // 业务场景: 批量操作（连续改状态/改金额）不会打出 N 个请求
+  const throttledFetchOrders = useThrottledCallback(fetchOrders, 2000);
   useEffect(() => {
-    const handler = () => fetchOrders();
-    on('order_updated', handler);
-    return () => off('order_updated', handler);
-  }, [on, off, fetchOrders]);
+    on('order_updated', throttledFetchOrders);
+    return () => off('order_updated', throttledFetchOrders);
+  }, [on, off, throttledFetchOrders]);
 
   return {
     orders,
@@ -69,3 +74,4 @@ export function useOrderFilters({ toast, on, off, connected }) {
     fetchOrders,
   };
 }
+

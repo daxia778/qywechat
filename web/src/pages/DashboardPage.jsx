@@ -5,8 +5,10 @@ import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { usePolling } from '../hooks/usePolling';
+import { useThrottledCallback } from '../hooks/useThrottledCallback';
 import { getDashboard, getProfitSummary } from '../api/admin';
 import { getMyStats } from '../api/orders';
+import apiCache from '../utils/apiCache';
 import { STATUS_MAP, STATUS_BADGE_MAP, BADGE_VARIANT_CLASSES, ROLE_MAP } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 import MetricCard from '../components/MetricCard';
@@ -200,9 +202,18 @@ export default function DashboardPage() {
         if (manual) toast('数据已刷新', 'success');
         return;
       }
+      // 管理员：Dashboard 实时数据 + 利润摘要（5分钟缓存）
       const [res, profitRes] = await Promise.all([
         getDashboard({ signal }),
-        getProfitSummary(undefined, { signal }).catch(() => null),
+        // 利润摘要变化频率低，用 5 分钟缓存 + stale-while-revalidate
+        // 手动刷新时绕过缓存
+        manual
+          ? getProfitSummary(undefined, { signal }).catch(() => null)
+          : apiCache.get(
+              'profit_summary',
+              (s) => getProfitSummary(undefined, { signal: s }).catch(() => null),
+              { ttl: 300000, staleWhileRevalidate: true, signal }
+            ),
       ]);
       setStats(res.data);
       initBarChart();
@@ -216,7 +227,11 @@ export default function DashboardPage() {
           order_count: profitRes.data.order_count || 0,
         });
       }
-      if (manual) toast('仪表盘已刷新', 'success');
+      if (manual) {
+        // 手动刷新时清除利润缓存，确保下次拿最新数据
+        apiCache.invalidate('profit_summary');
+        toast('仪表盘已刷新', 'success');
+      }
     } catch (err) {
       if (err.name === 'CanceledError' || err.name === 'AbortError') return;
       if (manual) toast('获取失败: ' + err.message, 'error');
@@ -231,13 +246,15 @@ export default function DashboardPage() {
     return () => controller.abort();
   }, [fetchDashboardData]);
 
-  usePolling(fetchDashboardData, connected ? 60000 : 30000);
+  // 轮询降频: WS 有连接时 5min，无连接时 2min（兜底）
+  usePolling(fetchDashboardData, connected ? 300000 : 120000);
 
+  // WS 事件节流: 3s 内多次 order_updated 只刷新一次
+  const throttledDashboardRefresh = useThrottledCallback(fetchDashboardData, 3000);
   useEffect(() => {
-    const handler = () => fetchDashboardData();
-    on('order_updated', handler);
-    return () => off('order_updated', handler);
-  }, [on, off, fetchDashboardData]);
+    on('order_updated', throttledDashboardRefresh);
+    return () => off('order_updated', throttledDashboardRefresh);
+  }, [on, off, throttledDashboardRefresh]);
 
   // resize observer for both charts
   useEffect(() => {
