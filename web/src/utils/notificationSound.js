@@ -13,93 +13,117 @@ const STORAGE_KEY = 'pdd_notif_sound_prefs';
 /** 默认偏好设定 */
 const DEFAULT_PREFS = {
   enabled: true,
-  volume: 0.6,     // 0-1
-  soundType: 'crystal', // 'crystal' | 'gentle' | 'alert'
+  volume: 0.6,
+  soundType: 'dingdong',
 };
 
-/** 音色预设定义 */
+/** 音色预设定义 — 5 种音色 */
 const SOUND_PRESETS = {
-  crystal: {
-    label: '清脆',
-    desc: '水晶铃声，清亮悦耳',
+  dingdong: {
+    label: '叮咚',
+    desc: '经典门铃，两声清响',
+    icon: 'bell-ring',
     play: (ctx, gain) => {
-      // 双音叠加 — C6 + E6 快闪
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      osc1.type = 'sine';
-      osc2.type = 'sine';
-      osc1.frequency.setValueAtTime(1047, ctx.currentTime);  // C6
-      osc2.frequency.setValueAtTime(1319, ctx.currentTime);  // E6
-      osc1.frequency.exponentialRampToValueAtTime(1568, ctx.currentTime + 0.08); // G6
-      osc2.frequency.exponentialRampToValueAtTime(2093, ctx.currentTime + 0.08); // C7
-
-      const env = ctx.createGain();
-      env.gain.setValueAtTime(0, ctx.currentTime);
-      env.gain.linearRampToValueAtTime(0.7, ctx.currentTime + 0.015);
-      env.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.08);
-      env.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
-
-      osc1.connect(env);
-      osc2.connect(env);
-      env.connect(gain);
-      osc1.start(ctx.currentTime);
-      osc2.start(ctx.currentTime);
-      osc1.stop(ctx.currentTime + 0.4);
-      osc2.stop(ctx.currentTime + 0.4);
+      [1319, 1047].forEach((freq, i) => {
+        const t = ctx.currentTime + i * 0.18;
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t);
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0, t);
+        env.gain.linearRampToValueAtTime(0.6, t + 0.01);
+        env.gain.exponentialRampToValueAtTime(0.15, t + 0.12);
+        env.gain.exponentialRampToValueAtTime(0.01, t + 0.35);
+        osc.connect(env); env.connect(gain);
+        osc.start(t); osc.stop(t + 0.4);
+      });
     },
   },
-  gentle: {
-    label: '柔和',
-    desc: '轻柔提示，不打扰工作',
+  chord: {
+    label: '和弦',
+    desc: '大三和弦，温暖饱满',
+    icon: 'music',
     play: (ctx, gain) => {
-      // 柔和正弦波 — 低频暖音
+      [523, 659, 784].forEach((freq) => {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0, ctx.currentTime);
+        env.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.03);
+        env.gain.exponentialRampToValueAtTime(0.1, ctx.currentTime + 0.25);
+        env.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
+        osc.connect(env); env.connect(gain);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.65);
+      });
+    },
+  },
+  droplet: {
+    label: '水滴',
+    desc: '清脆水珠，灵动跳跃',
+    icon: 'droplets',
+    play: (ctx, gain) => {
       const osc = ctx.createOscillator();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(523, ctx.currentTime);  // C5
-      osc.frequency.exponentialRampToValueAtTime(659, ctx.currentTime + 0.15); // E5
-
+      osc.frequency.setValueAtTime(2400, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.08);
       const filter = ctx.createBiquadFilter();
       filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(800, ctx.currentTime);
-
+      filter.frequency.setValueAtTime(3000, ctx.currentTime);
+      filter.Q.setValueAtTime(8, ctx.currentTime);
       const env = ctx.createGain();
       env.gain.setValueAtTime(0, ctx.currentTime);
-      env.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.04);
-      env.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.15);
-      env.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-
-      osc.connect(filter);
-      filter.connect(env);
-      env.connect(gain);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.55);
+      env.gain.linearRampToValueAtTime(0.7, ctx.currentTime + 0.005);
+      env.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
+      osc.connect(filter); filter.connect(env); env.connect(gain);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
     },
   },
-  alert: {
-    label: '急促',
-    desc: '双响短促，紧急提醒',
+  radar: {
+    label: '脉冲',
+    desc: '科技雷达，低沉有力',
+    icon: 'radio',
     play: (ctx, gain) => {
-      // 双响急促 — 两下短 beep
-      for (let i = 0; i < 2; i++) {
-        const offset = i * 0.12;
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(300, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.06);
+      osc.frequency.exponentialRampToValueAtTime(300, ctx.currentTime + 0.15);
+      const osc2 = ctx.createOscillator();
+      osc2.type = 'triangle';
+      osc2.frequency.setValueAtTime(300, ctx.currentTime + 0.22);
+      osc2.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.28);
+      osc2.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.38);
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0, ctx.currentTime);
+      env.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.01);
+      env.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.15);
+      env.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.22);
+      env.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+      osc.connect(env); osc2.connect(env); env.connect(gain);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.2);
+      osc2.start(ctx.currentTime + 0.22); osc2.stop(ctx.currentTime + 0.55);
+    },
+  },
+  triple: {
+    label: '连响',
+    desc: '急促三连，紧急提醒',
+    icon: 'zap',
+    play: (ctx, gain) => {
+      for (let i = 0; i < 3; i++) {
+        const t = ctx.currentTime + i * 0.1;
         const osc = ctx.createOscillator();
         osc.type = 'square';
-        osc.frequency.setValueAtTime(880, ctx.currentTime + offset);  // A5
-
+        osc.frequency.setValueAtTime(880, t);
         const filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(2000, ctx.currentTime + offset);
-
+        filter.frequency.setValueAtTime(1800, t);
         const env = ctx.createGain();
-        env.gain.setValueAtTime(0, ctx.currentTime + offset);
-        env.gain.linearRampToValueAtTime(0.35, ctx.currentTime + offset + 0.01);
-        env.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + offset + 0.08);
-
-        osc.connect(filter);
-        filter.connect(env);
-        env.connect(gain);
-        osc.start(ctx.currentTime + offset);
-        osc.stop(ctx.currentTime + offset + 0.1);
+        env.gain.setValueAtTime(0, t);
+        env.gain.linearRampToValueAtTime(0.3, t + 0.008);
+        env.gain.exponentialRampToValueAtTime(0.01, t + 0.06);
+        osc.connect(filter); filter.connect(env); env.connect(gain);
+        osc.start(t); osc.stop(t + 0.07);
       }
     },
   },
@@ -162,6 +186,7 @@ class NotificationSoundEngine {
       key,
       label: val.label,
       desc: val.desc,
+      icon: val.icon,
     }));
   }
 

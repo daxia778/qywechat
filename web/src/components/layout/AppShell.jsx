@@ -106,14 +106,20 @@ export default function AppShell() {
     fetchNotifications();
     playSound(); // 收到新通知时播放提示音
   }, 5000);
+  // 新订单也触发提示音（独立节流，不影响通知刷新频率）
+  const throttledOrderSound = useThrottledCallback(() => {
+    playSound();
+  }, 3000);
   useEffect(() => {
     on('notification', throttledNotifRefresh);
     on('grab_alert', throttledNotifRefresh);
+    on('order_updated', throttledOrderSound);
     return () => {
       off('notification', throttledNotifRefresh);
       off('grab_alert', throttledNotifRefresh);
+      off('order_updated', throttledOrderSound);
     };
-  }, [on, off, throttledNotifRefresh]);
+  }, [on, off, throttledNotifRefresh, throttledOrderSound]);
 
   // WS: new_external_contact triggers match modal
   useEffect(() => {
