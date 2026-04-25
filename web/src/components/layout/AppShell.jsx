@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useWebSocket, WS_STATE } from '../../hooks/useWebSocket';
@@ -6,7 +6,7 @@ import { useToast } from '../../hooks/useToast';
 import { usePolling } from '../../hooks/usePolling';
 import { useThrottledCallback } from '../../hooks/useThrottledCallback';
 import { useNotificationSound } from '../../hooks/useNotificationSound';
-import { NAV_ROUTES, ROLE_MAP } from '../../utils/constants';
+import { NAV_ROUTES, NAV_GROUPS, ROLE_MAP } from '../../utils/constants';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../../api/notifications';
 import { formatTime } from '../../utils/formatters';
 // NotificationPanel removed — sound bell only
@@ -37,6 +37,42 @@ export default function AppShell() {
     if (r.roles && !r.roles.includes(role)) return false;
     return true;
   });
+
+  // 分组折叠状态 (仅 admin 使用分组，其他角色平铺)
+  const [groupOpen, setGroupOpen] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('pdd_nav_groups') || '{}');
+      const init = {};
+      NAV_GROUPS.forEach(g => { init[g.key] = saved[g.key] !== undefined ? saved[g.key] : g.defaultOpen; });
+      return init;
+    } catch { return Object.fromEntries(NAV_GROUPS.map(g => [g.key, g.defaultOpen])); }
+  });
+  const toggleGroup = useCallback((key) => {
+    setGroupOpen(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem('pdd_nav_groups', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+  // 当前页面所在的 group 自动展开
+  useEffect(() => {
+    const activeRoute = filteredNavRoutes.find(r => r.path === location.pathname || (r.path !== '/' && location.pathname.startsWith(r.path)));
+    if (activeRoute?.group && !groupOpen[activeRoute.group]) {
+      setGroupOpen(prev => {
+        const next = { ...prev, [activeRoute.group]: true };
+        try { localStorage.setItem('pdd_nav_groups', JSON.stringify(next)); } catch {}
+        return next;
+      });
+    }
+  }, [location.pathname]); // eslint-disable-line
+  // 按分组整理路由
+  const groupedRoutes = useMemo(() => {
+    if (role !== 'admin') return null; // 非 admin 不分组
+    return NAV_GROUPS.map(g => ({
+      ...g,
+      routes: filteredNavRoutes.filter(r => r.group === g.key),
+    })).filter(g => g.routes.length > 0);
+  }, [filteredNavRoutes, role]);
 
   const currentRouteName = NAV_ROUTES.find(
     (r) => r.path === location.pathname || (r.path !== '/' && location.pathname.startsWith(r.path))
@@ -221,32 +257,58 @@ export default function AppShell() {
         {/* Nav */}
         <div className="flex-1 overflow-y-auto py-3 scrollbar-hide">
           <nav className="px-3 space-y-0.5" aria-label="主导航菜单">
-            <p className={`px-3 mb-2 mt-2 text-[13px] font-medium text-white/40 tracking-[0.06em] overflow-hidden transition-all duration-300 whitespace-nowrap ${collapsed && !mobileOpen ? 'opacity-0' : 'opacity-100'}`}>​{collapsed && !mobileOpen ? '' : '菜单'}</p>
-            {filteredNavRoutes.map((route) => {
-              const isActive = location.pathname === route.path || (route.path !== '/' && location.pathname.startsWith(route.path));
-              return (
-                <Link
-                  key={route.path}
-                  to={route.path}
-                  onClick={() => setMobileOpen(false)}
-                  title={collapsed && !mobileOpen ? route.title : ''}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={`flex items-center gap-3 no-underline transition-all duration-200 ease-in-out group rounded-lg relative px-3 py-2.5 mx-0 ${collapsed && !mobileOpen ? 'justify-center' : ''} ${
-                    isActive
-                      ? 'bg-white/[0.18] text-white font-semibold'
-                      : 'text-white/70 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <div
-                    className={`shrink-0 flex items-center w-5 h-5 transition-colors duration-200 ${isActive ? 'text-white' : 'text-white/60 group-hover:text-white'}`}
-                    aria-hidden="true"
-                  >
-                    {route.icon}
+            {groupedRoutes ? (
+              /* ── Admin 分组折叠导航 ── */
+              groupedRoutes.map((group) => {
+                const isOpen = groupOpen[group.key];
+                const isCollapsedSidebar = collapsed && !mobileOpen;
+                return (
+                  <div key={group.key} className="mb-1">
+                    {/* 分组标题行 */}
+                    <button
+                      onClick={() => !isCollapsedSidebar && toggleGroup(group.key)}
+                      className={`w-full flex items-center px-3 mb-1 mt-2 transition-all duration-300 ${isCollapsedSidebar ? 'justify-center' : 'justify-between'}`}
+                    >
+                      <span className={`text-[11px] font-semibold text-white/35 tracking-[0.08em] uppercase overflow-hidden transition-all duration-300 whitespace-nowrap ${isCollapsedSidebar ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>{group.label}</span>
+                      <svg className={`w-3 h-3 text-white/30 shrink-0 transition-transform duration-200 ${isOpen ? '' : '-rotate-90'} ${isCollapsedSidebar ? 'hidden' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    {/* 分组内容 — 展开/折叠动画 */}
+                    <div className={`overflow-hidden transition-all duration-250 ease-in-out ${isOpen || isCollapsedSidebar ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                      {group.routes.map((route) => {
+                        const isActive = location.pathname === route.path || (route.path !== '/' && location.pathname.startsWith(route.path));
+                        return (
+                          <Link key={route.path} to={route.path} onClick={() => setMobileOpen(false)}
+                            title={isCollapsedSidebar ? route.title : ''}
+                            aria-current={isActive ? 'page' : undefined}
+                            className={`flex items-center gap-3 no-underline transition-all duration-200 ease-in-out group rounded-lg relative px-3 py-2.5 mx-0 ${isCollapsedSidebar ? 'justify-center' : ''} ${isActive ? 'bg-white/[0.18] text-white font-semibold' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}
+                          >
+                            <div className={`shrink-0 flex items-center w-5 h-5 transition-colors duration-200 ${isActive ? 'text-white' : 'text-white/60 group-hover:text-white'}`} aria-hidden="true">{route.icon}</div>
+                            <span className={`text-[14px] font-medium overflow-hidden transition-all duration-300 whitespace-nowrap ${isCollapsedSidebar ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>{route.title}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <span className={`text-[14px] font-medium overflow-hidden transition-all duration-300 whitespace-nowrap ${collapsed && !mobileOpen ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>{route.title}</span>
-                </Link>
-              );
-            })}
+                );
+              })
+            ) : (
+              /* ── 非 Admin 平铺导航 ── */
+              <>
+                <p className={`px-3 mb-2 mt-2 text-[13px] font-medium text-white/40 tracking-[0.06em] overflow-hidden transition-all duration-300 whitespace-nowrap ${collapsed && !mobileOpen ? 'opacity-0' : 'opacity-100'}`}>​{collapsed && !mobileOpen ? '' : '菜单'}</p>
+                {filteredNavRoutes.map((route) => {
+                  const isActive = location.pathname === route.path || (route.path !== '/' && location.pathname.startsWith(route.path));
+                  return (
+                    <Link key={route.path} to={route.path} onClick={() => setMobileOpen(false)}
+                      title={collapsed && !mobileOpen ? route.title : ''}
+                      className={`flex items-center gap-3 no-underline transition-all duration-200 ease-in-out group rounded-lg relative px-3 py-2.5 mx-0 ${collapsed && !mobileOpen ? 'justify-center' : ''} ${isActive ? 'bg-white/[0.18] text-white font-semibold' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}
+                    >
+                      <div className={`shrink-0 flex items-center w-5 h-5 transition-colors duration-200 ${isActive ? 'text-white' : 'text-white/60 group-hover:text-white'}`} aria-hidden="true">{route.icon}</div>
+                      <span className={`text-[14px] font-medium overflow-hidden transition-all duration-300 whitespace-nowrap ${collapsed && !mobileOpen ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>{route.title}</span>
+                    </Link>
+                  );
+                })}
+              </>
+            )}
           </nav>
         </div>
 
