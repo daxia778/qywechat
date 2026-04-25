@@ -249,8 +249,8 @@ export default function AppShell() {
             <span className="material-symbols-outlined" style={{ fontSize: 20 }}>analytics</span>
           </div>
           <div className={`flex flex-col justify-center overflow-hidden transition-all duration-300 whitespace-nowrap ${collapsed && !mobileOpen ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-            <h1 className="text-[18px] font-bold text-white tracking-tight leading-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>智序系统</h1>
-            <p className="text-[10px] text-white/60 font-normal tracking-[0.04em]">Order Management</p>
+            <h1 className="text-[18px] font-bold text-white tracking-tight leading-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>单管家</h1>
+            <p className="text-[10px] text-white/60 font-normal tracking-[0.04em]">Order Butler</p>
           </div>
         </div>
 
@@ -264,19 +264,22 @@ export default function AppShell() {
                 const isCollapsedSidebar = collapsed && !mobileOpen;
                 return (
                   <div key={group.key}>
-                    {/* 分组间分隔线（非首个） */}
-                    {group.key !== groupedRoutes[0].key && (
-                      <div className={`mx-3 my-2 border-t border-white/[0.08] transition-all duration-300 ${isCollapsedSidebar ? 'mx-2' : ''}`} />
+                    {/* 分组标题 + 分隔线：侧边栏收起时完全隐藏 */}
+                    {!isCollapsedSidebar && (
+                      <>
+                        {group.key !== groupedRoutes[0].key && (
+                          <div className="mx-3 my-2 border-t border-white/[0.08]" />
+                        )}
+                        <button
+                          onClick={() => toggleGroup(group.key)}
+                          className="w-full flex items-center justify-between rounded-lg px-3 py-2 transition-all duration-200 hover:bg-white/[0.06]"
+                        >
+                          <span className="text-[13px] font-semibold text-white/50 tracking-[0.02em]">{group.label}</span>
+                          <svg className={`w-3.5 h-3.5 text-white/30 shrink-0 transition-transform duration-200 ${isOpen ? '' : '-rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                        </button>
+                      </>
                     )}
-                    {/* 分组标题行 */}
-                    <button
-                      onClick={() => !isCollapsedSidebar && toggleGroup(group.key)}
-                      className={`w-full flex items-center rounded-lg transition-all duration-200 ${isCollapsedSidebar ? 'justify-center px-2 py-2' : 'justify-between px-3 py-2 hover:bg-white/[0.06]'}`}
-                    >
-                      <span className={`text-[13px] font-semibold text-white/50 tracking-[0.02em] overflow-hidden transition-all duration-300 whitespace-nowrap ${isCollapsedSidebar ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>{group.label}</span>
-                      <svg className={`w-3.5 h-3.5 text-white/30 shrink-0 transition-transform duration-200 ${isOpen ? '' : '-rotate-90'} ${isCollapsedSidebar ? 'hidden' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
-                    </button>
-                    {/* 分组内容 — 展开/折叠动画 */}
+                    {/* 分组内容 */}
                     <div className={`overflow-hidden transition-all duration-250 ease-in-out ${isOpen || isCollapsedSidebar ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
                       {group.routes.map((route) => {
                         const isActive = location.pathname === route.path || (route.path !== '/' && location.pathname.startsWith(route.path));
