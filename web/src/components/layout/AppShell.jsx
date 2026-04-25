@@ -104,19 +104,21 @@ export default function AppShell() {
   // WS 触发通知刷新加 5s 节流 + 播放提示音
   const throttledNotifRefresh = useThrottledCallback(() => {
     fetchNotifications();
-    playSound(); // 收到新通知时播放提示音
+    playSound();
   }, 5000);
-  // 新订单也触发提示音（独立节流，不影响通知刷新频率）
+  // 新订单/订单更新触发提示音（1s 节流，确保及时响应）
   const throttledOrderSound = useThrottledCallback(() => {
     playSound();
-  }, 3000);
+  }, 1000);
   useEffect(() => {
     on('notification', throttledNotifRefresh);
     on('grab_alert', throttledNotifRefresh);
-    on('order_updated', throttledOrderSound);
+    on('order_created', throttledOrderSound);  // ← 新订单创建
+    on('order_updated', throttledOrderSound);  // ← 订单状态变更
     return () => {
       off('notification', throttledNotifRefresh);
       off('grab_alert', throttledNotifRefresh);
+      off('order_created', throttledOrderSound);
       off('order_updated', throttledOrderSound);
     };
   }, [on, off, throttledNotifRefresh, throttledOrderSound]);
