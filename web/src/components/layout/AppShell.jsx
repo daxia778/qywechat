@@ -5,6 +5,7 @@ import { useWebSocket, WS_STATE } from '../../hooks/useWebSocket';
 import { useToast } from '../../hooks/useToast';
 import { usePolling } from '../../hooks/usePolling';
 import { useThrottledCallback } from '../../hooks/useThrottledCallback';
+import { useNotificationSound } from '../../hooks/useNotificationSound';
 import { NAV_ROUTES, ROLE_MAP } from '../../utils/constants';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../../api/notifications';
 import { formatTime } from '../../utils/formatters';
@@ -92,11 +93,19 @@ export default function AppShell() {
   // 通知轮询降频: 30s → 120s（通知不是高频业务操作，WS 负责实时推送）
   usePolling(fetchNotifications, 120000);
 
-  // WS 触发通知刷新加 5s 节流（多个事件连续到达时只触发一次请求）
-  const throttledNotifRefresh = useThrottledCallback(fetchNotifications, 5000);
+  // ── 声音系统 ──
+  const {
+    enabled: soundEnabled, volume: soundVolume, soundType,
+    soundTypes, setEnabled: setSoundEnabled, setVolume: setSoundVolume,
+    setSoundType, play: playSound, preview: previewSound,
+  } = useNotificationSound();
+
+  // WS 触发通知刷新加 5s 节流 + 播放提示音
+  const throttledNotifRefresh = useThrottledCallback(() => {
+    fetchNotifications();
+    playSound(); // 收到新通知时播放提示音
+  }, 5000);
   useEffect(() => {
-    // 只监听 notification 和 grab_alert 事件刷新通知
-    // order_updated 事件不再触发通知刷新（降低不必要的请求）
     on('notification', throttledNotifRefresh);
     on('grab_alert', throttledNotifRefresh);
     return () => {
@@ -336,6 +345,14 @@ export default function AppShell() {
                   unreadCount={unreadCount}
                   onMarkRead={handleMarkRead}
                   onMarkAllRead={handleMarkAllRead}
+                  soundEnabled={soundEnabled}
+                  soundVolume={soundVolume}
+                  soundType={soundType}
+                  soundTypes={soundTypes}
+                  onSoundToggle={() => setSoundEnabled(!soundEnabled)}
+                  onSoundVolume={setSoundVolume}
+                  onSoundType={setSoundType}
+                  onSoundPreview={previewSound}
                 />
               )}
             </div>
