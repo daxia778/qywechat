@@ -47,16 +47,18 @@ export function useOrderFilters({ toast, on, off, connected }) {
     setCurrentPage(0);
   }, [debouncedKeyword]);
 
-  // 轮询降频: WS 已处理实时更新，轮询仅作兜底
-  // 有 WS 连接时 5min 一次，无连接时 2min 一次
-  usePolling(fetchOrders, connected ? 300000 : 120000);
+  // 轮询兜底: WS 连接时 30s，断连时 15s（确保订单大厅始终有数据刷新）
+  usePolling(fetchOrders, connected ? 30000 : 15000);
 
-  // WS 事件节流: 2s 内多次 order_updated 只触发一次 fetch
-  // 业务场景: 批量操作（连续改状态/改金额）不会打出 N 个请求
-  const throttledFetchOrders = useThrottledCallback(fetchOrders, 2000);
+  // WS 事件节流: 1s 内多次事件只触发一次 fetch，确保新订单 1s 内刷出
+  const throttledFetchOrders = useThrottledCallback(fetchOrders, 1000);
   useEffect(() => {
-    on('order_updated', throttledFetchOrders);
-    return () => off('order_updated', throttledFetchOrders);
+    on('order_created', throttledFetchOrders);  // ← 新订单创建
+    on('order_updated', throttledFetchOrders);  // ← 订单状态变更
+    return () => {
+      off('order_created', throttledFetchOrders);
+      off('order_updated', throttledFetchOrders);
+    };
   }, [on, off, throttledFetchOrders]);
 
   return {
