@@ -221,7 +221,7 @@ export default function AppShell() {
         {/* Nav */}
         <div className="flex-1 overflow-y-auto py-3 scrollbar-hide">
           <nav className="px-3 space-y-0.5" aria-label="主导航菜单">
-            <p className={`px-3 mb-2 mt-2 text-[13px] font-medium text-white/40 tracking-[0.06em] overflow-hidden transition-all duration-300 whitespace-nowrap ${collapsed && !mobileOpen ? 'h-0 opacity-0 mb-0 mt-0' : 'h-auto opacity-100'}`}>菜单</p>
+            <p className={`px-3 mb-2 mt-2 text-[13px] font-medium text-white/40 tracking-[0.06em] overflow-hidden transition-all duration-300 whitespace-nowrap ${collapsed && !mobileOpen ? 'opacity-0' : 'opacity-100'}`}>​{collapsed && !mobileOpen ? '' : '菜单'}</p>
             {filteredNavRoutes.map((route) => {
               const isActive = location.pathname === route.path || (route.path !== '/' && location.pathname.startsWith(route.path));
               return (
@@ -231,9 +231,7 @@ export default function AppShell() {
                   onClick={() => setMobileOpen(false)}
                   title={collapsed && !mobileOpen ? route.title : ''}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`flex items-center gap-3 no-underline transition-all duration-200 ease-in-out group rounded-lg relative ${
-                    collapsed && !mobileOpen ? 'justify-center p-3 mx-0' : 'px-3 py-2.5 mx-0'
-                  } ${
+                  className={`flex items-center gap-3 no-underline transition-all duration-200 ease-in-out group rounded-lg relative px-3 py-2.5 mx-0 ${collapsed && !mobileOpen ? 'justify-center' : ''} ${
                     isActive
                       ? 'bg-white/[0.18] text-white font-semibold'
                       : 'text-white/70 hover:bg-white/10 hover:text-white'
