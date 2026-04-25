@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useWebSocket, WS_STATE } from '../../hooks/useWebSocket';
 import { useToast } from '../../hooks/useToast';
 import { usePolling } from '../../hooks/usePolling';
+import { useThrottledCallback } from '../../hooks/useThrottledCallback';
 import { NAV_ROUTES, ROLE_MAP } from '../../utils/constants';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../../api/notifications';
 import { formatTime } from '../../utils/formatters';
@@ -88,20 +89,21 @@ export default function AppShell() {
     fetchNotifications();
   }, [fetchNotifications]);
 
-  usePolling(fetchNotifications, 30000);
+  // 通知轮询降频: 30s → 120s（通知不是高频业务操作，WS 负责实时推送）
+  usePolling(fetchNotifications, 120000);
 
-  // WS refresh notifications
+  // WS 触发通知刷新加 5s 节流（多个事件连续到达时只触发一次请求）
+  const throttledNotifRefresh = useThrottledCallback(fetchNotifications, 5000);
   useEffect(() => {
-    const handler = () => fetchNotifications();
-    on('order_updated', handler);
-    on('notification', handler);
-    on('grab_alert', handler);
+    // 只监听 notification 和 grab_alert 事件刷新通知
+    // order_updated 事件不再触发通知刷新（降低不必要的请求）
+    on('notification', throttledNotifRefresh);
+    on('grab_alert', throttledNotifRefresh);
     return () => {
-      off('order_updated', handler);
-      off('notification', handler);
-      off('grab_alert', handler);
+      off('notification', throttledNotifRefresh);
+      off('grab_alert', throttledNotifRefresh);
     };
-  }, [on, off, fetchNotifications]);
+  }, [on, off, throttledNotifRefresh]);
 
   // WS: new_external_contact triggers match modal
   useEffect(() => {
