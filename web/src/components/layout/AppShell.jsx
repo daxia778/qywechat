@@ -212,20 +212,16 @@ export default function AppShell() {
           <div className="w-9 h-9 shrink-0 rounded-xl bg-white/15 flex items-center justify-center text-white backdrop-blur-sm">
             <span className="material-symbols-outlined" style={{ fontSize: 20 }}>analytics</span>
           </div>
-          {(!collapsed || mobileOpen) && (
-            <div className="flex flex-col justify-center">
-              <h1 className="text-[18px] font-bold text-white tracking-tight leading-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>智序系统</h1>
-              <p className="text-[10px] text-white/60 font-normal tracking-[0.04em]">Order Management</p>
-            </div>
-          )}
+          <div className={`flex flex-col justify-center overflow-hidden transition-all duration-300 whitespace-nowrap ${collapsed && !mobileOpen ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+            <h1 className="text-[18px] font-bold text-white tracking-tight leading-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>智序系统</h1>
+            <p className="text-[10px] text-white/60 font-normal tracking-[0.04em]">Order Management</p>
+          </div>
         </div>
 
         {/* Nav */}
         <div className="flex-1 overflow-y-auto py-3 scrollbar-hide">
           <nav className="px-3 space-y-0.5" aria-label="主导航菜单">
-            {(!collapsed || mobileOpen) && (
-              <p className="px-3 mb-2 mt-2 text-[13px] font-medium text-white/40 tracking-[0.06em]">菜单</p>
-            )}
+            <p className={`px-3 mb-2 mt-2 text-[13px] font-medium text-white/40 tracking-[0.06em] overflow-hidden transition-all duration-300 whitespace-nowrap ${collapsed && !mobileOpen ? 'h-0 opacity-0 mb-0 mt-0' : 'h-auto opacity-100'}`}>菜单</p>
             {filteredNavRoutes.map((route) => {
               const isActive = location.pathname === route.path || (route.path !== '/' && location.pathname.startsWith(route.path));
               return (
@@ -249,9 +245,7 @@ export default function AppShell() {
                   >
                     {route.icon}
                   </div>
-                  {(!collapsed || mobileOpen) && (
-                    <span className="text-[14px] font-medium">{route.title}</span>
-                  )}
+                  <span className={`text-[14px] font-medium overflow-hidden transition-all duration-300 whitespace-nowrap ${collapsed && !mobileOpen ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>{route.title}</span>
                 </Link>
               );
             })}
@@ -270,9 +264,7 @@ export default function AppShell() {
             <svg className={`w-4 h-4 shrink-0 transition-transform duration-300 ${collapsed && !mobileOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
             </svg>
-            {(!collapsed || mobileOpen) && (
-              <span className="text-[13px] font-medium">收起菜单</span>
-            )}
+            <span className={`text-[13px] font-medium overflow-hidden transition-all duration-300 whitespace-nowrap ${collapsed && !mobileOpen ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>收起菜单</span>
           </button>
         </div>
       </aside>
