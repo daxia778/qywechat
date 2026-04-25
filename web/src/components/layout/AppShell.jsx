@@ -263,14 +263,18 @@ export default function AppShell() {
                 const isOpen = groupOpen[group.key];
                 const isCollapsedSidebar = collapsed && !mobileOpen;
                 return (
-                  <div key={group.key} className="mb-1">
+                  <div key={group.key}>
+                    {/* 分组间分隔线（非首个） */}
+                    {group.key !== groupedRoutes[0].key && (
+                      <div className={`mx-3 my-2 border-t border-white/[0.08] transition-all duration-300 ${isCollapsedSidebar ? 'mx-2' : ''}`} />
+                    )}
                     {/* 分组标题行 */}
                     <button
                       onClick={() => !isCollapsedSidebar && toggleGroup(group.key)}
-                      className={`w-full flex items-center px-3 mb-1 mt-2 transition-all duration-300 ${isCollapsedSidebar ? 'justify-center' : 'justify-between'}`}
+                      className={`w-full flex items-center rounded-lg transition-all duration-200 ${isCollapsedSidebar ? 'justify-center px-2 py-2' : 'justify-between px-3 py-2 hover:bg-white/[0.06]'}`}
                     >
-                      <span className={`text-[11px] font-semibold text-white/35 tracking-[0.08em] uppercase overflow-hidden transition-all duration-300 whitespace-nowrap ${isCollapsedSidebar ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>{group.label}</span>
-                      <svg className={`w-3 h-3 text-white/30 shrink-0 transition-transform duration-200 ${isOpen ? '' : '-rotate-90'} ${isCollapsedSidebar ? 'hidden' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" /></svg>
+                      <span className={`text-[13px] font-semibold text-white/50 tracking-[0.02em] overflow-hidden transition-all duration-300 whitespace-nowrap ${isCollapsedSidebar ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>{group.label}</span>
+                      <svg className={`w-3.5 h-3.5 text-white/30 shrink-0 transition-transform duration-200 ${isOpen ? '' : '-rotate-90'} ${isCollapsedSidebar ? 'hidden' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
                     </button>
                     {/* 分组内容 — 展开/折叠动画 */}
                     <div className={`overflow-hidden transition-all duration-250 ease-in-out ${isOpen || isCollapsedSidebar ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
