@@ -9,7 +9,8 @@ import { useNotificationSound } from '../../hooks/useNotificationSound';
 import { NAV_ROUTES, ROLE_MAP } from '../../utils/constants';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../../api/notifications';
 import { formatTime } from '../../utils/formatters';
-import NotificationPanel from '../NotificationPanel';
+// NotificationPanel removed — sound bell only
+import SoundPopover from '../SoundPopover';
 import OrderMatchModal from '../OrderMatchModal';
 
 export default function AppShell() {
@@ -21,7 +22,7 @@ export default function AppShell() {
 
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [showSoundSettings, setShowSoundSettings] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -125,9 +126,9 @@ export default function AppShell() {
     return () => off('new_external_contact', handler);
   }, [on, off, toast]);
 
-  // Close notif panel on outside click
+  // Close sound settings on outside click
   useEffect(() => {
-    const close = () => setShowNotifPanel(false);
+    const close = () => setShowSoundSettings(false);
     document.addEventListener('click', close);
     return () => document.removeEventListener('click', close);
   }, []);
@@ -325,34 +326,28 @@ export default function AppShell() {
               </span>
             </div>
 
-            {/* Notification Bell */}
+            {/* ── 提示音铃铛 ── */}
             <div className="relative shrink-0">
               <button
-                onClick={(e) => { e.stopPropagation(); setShowNotifPanel(!showNotifPanel); }}
-                className="w-[36px] h-[36px] flex items-center justify-center rounded-lg bg-[#f3f4f5] hover:bg-[#e7e8e9] text-[#454654] transition-colors relative"
-                aria-label={`通知${unreadCount > 0 ? `，${unreadCount}条未读` : ''}`}
+                onClick={(e) => { e.stopPropagation(); setSoundEnabled(!soundEnabled); }}
+                className={`w-[36px] h-[36px] flex items-center justify-center rounded-lg transition-all duration-200 relative ${soundEnabled ? 'bg-brand-50 text-brand-500 hover:bg-brand-100' : 'bg-[#f3f4f5] text-slate-400 hover:bg-[#e7e8e9]'}`}
+                title={soundEnabled ? '提示音已开启' : '提示音已关闭'}
               >
-                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-                {unreadCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1 animate-pulse">
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </span>
+                {soundEnabled ? (
+                  <svg className="w-[17px] h-[17px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
+                ) : (
+                  <svg className="w-[17px] h-[17px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" /></svg>
                 )}
               </button>
-              {showNotifPanel && (
-                <NotificationPanel
-                  notifications={notifications}
-                  unreadCount={unreadCount}
-                  onMarkRead={handleMarkRead}
-                  onMarkAllRead={handleMarkAllRead}
-                  soundEnabled={soundEnabled}
-                  soundVolume={soundVolume}
-                  soundType={soundType}
-                  soundTypes={soundTypes}
-                  onSoundToggle={() => setSoundEnabled(!soundEnabled)}
-                  onSoundVolume={setSoundVolume}
-                  onSoundType={setSoundType}
-                  onSoundPreview={previewSound}
+              <button onClick={(e) => { e.stopPropagation(); setShowSoundSettings(!showSoundSettings); }} className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center transition-all shadow-sm border ${showSoundSettings ? 'bg-brand-500 border-brand-400 text-white' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-600'}`} title="音色设置">
+                <svg className="w-[9px] h-[9px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              </button>
+              {showSoundSettings && (
+                <SoundPopover
+                  soundVolume={soundVolume} setSoundVolume={setSoundVolume}
+                  soundType={soundType} soundTypes={soundTypes}
+                  setSoundType={setSoundType} previewSound={previewSound}
+                  onClose={() => setShowSoundSettings(false)}
                 />
               )}
             </div>
