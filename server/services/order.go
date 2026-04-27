@@ -132,65 +132,7 @@ func CreateOrder(operatorID, orderSN, customerContact, topic, remark, screenshot
 	return order, nil
 }
 
-// GrabOrder 设计师抢单（先到先得，原子操作防并发冲突）
-func GrabOrder(orderID uint, designerUserID string) (*models.Order, error) {
-	var order models.Order
-	now := time.Now()
 
-	err := models.WriteTx(func(tx *gorm.DB) error {
-		// 原子操作: 单条 UPDATE ... WHERE 保证并发场景下只有一个人能抢到
-		result := tx.Model(&models.Order{}).
-			Where("id = ? AND status = ?", orderID, models.StatusPending).
-			Updates(map[string]any{
-				"designer_id": designerUserID,
-				"status":      models.StatusGroupCreated,
-				"assigned_at": &now,
-			})
-
-		if result.Error != nil {
-			return fmt.Errorf("抢单操作失败: %w", result.Error)
-		}
-		if result.RowsAffected == 0 {
-			return fmt.Errorf("订单不存在或已被抢走")
-		}
-
-		// 抢单成功，读取完整订单信息
-		if err := tx.First(&order, orderID).Error; err != nil {
-			return err
-		}
-
-		// 更新设计师状态 (原子自增)
-		if err := tx.Exec(
-			"UPDATE employees SET status = 'busy', active_order_count = active_order_count + 1 WHERE wecom_userid = ?",
-			designerUserID,
-		).Error; err != nil {
-			return err
-		}
-
-		// 写入时间线记录
-		designerName := designerUserID
-		var emp models.Employee
-		if tx.Where("wecom_userid = ?", designerUserID).First(&emp).Error == nil {
-			designerName = emp.Name
-		}
-		return tx.Create(&models.OrderTimeline{
-			OrderID:      order.ID,
-			EventType:    "status_changed",
-			FromStatus:   models.StatusPending,
-			ToStatus:     models.StatusGroupCreated,
-			OperatorID:   designerUserID,
-			OperatorName: designerName,
-			Remark:       "设计师抢单",
-		}).Error
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	log.Printf("✅ 订单锁定 | sn=%s | designer=%s", order.OrderSN, designerUserID)
-	return &order, nil
-}
 
 // updateOrderStatusCore 状态流转核心逻辑 (在已有事务中执行)。
 // 可被 UpdateOrderStatus 和 BatchUpdateOrderStatus 复用，保证
@@ -507,12 +449,10 @@ type DashboardStats struct {
 	TodayNewCustomers int64   `json:"today_new_customers"`
 	RepeatCustomers   int64   `json:"repeat_customers"`
 	RepeatRate        float64 `json:"repeat_rate"`
-	GrabAlertCount    int64   `json:"grab_alert_count"`
 
 	// Phase 4: 昨日对比 (日环比)
 	YesterdayOrderCount int   `json:"yesterday_order_count"`
 	YesterdayRevenue    int   `json:"yesterday_revenue"`
-	YesterdayGrabAlerts int64 `json:"yesterday_grab_alerts"`
 
 	// Phase 5: 收款流水统计
 	TotalPaymentAmount  int `json:"total_payment_amount"`
@@ -727,13 +667,6 @@ func GetDashboardStats() *DashboardStats {
 		stats.MonthlyData[i] = monthMap[i+1]
 	}
 
-	// ── 异常抢单数 ──
-	grabThreshold := time.Now().Add(-30 * time.Minute)
-	models.DB.Model(&models.Order{}).Where(
-		"status = ? AND assigned_at IS NOT NULL AND assigned_at < ? AND grab_alert_sent = ?",
-		models.StatusGroupCreated, grabThreshold, false,
-	).Count(&stats.GrabAlertCount)
-
 	// ── Phase 4: 昨日对比数据 (日环比, SQL 聚合替代全量加载) ──
 	yesterdayStart := todayStart.AddDate(0, 0, -1)
 	var yesterdayStats CountSum
@@ -743,13 +676,6 @@ func GetDashboardStats() *DashboardStats {
 		Scan(&yesterdayStats)
 	stats.YesterdayOrderCount = yesterdayStats.Cnt
 	stats.YesterdayRevenue = yesterdayStats.Total
-
-	// 昨日异常抢单
-	yesterdayGrabThreshold := yesterdayStart.Add(-30 * time.Minute)
-	models.DB.Model(&models.Order{}).Where(
-		"assigned_at >= ? AND assigned_at < ? AND status = ? AND grab_alert_sent = ?",
-		yesterdayGrabThreshold, todayStart, models.StatusGroupCreated, false,
-	).Count(&stats.YesterdayGrabAlerts)
 
 	// ── Phase 5: 收款流水统计 ──
 	type PaymentAgg struct {

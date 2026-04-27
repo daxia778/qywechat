@@ -25,7 +25,7 @@ WORKDIR /app
 RUN addgroup -S pdd && adduser -S pdd -G pdd
 
 COPY --from=backend /pdd-server .
-COPY --from=frontend /build/web/dist ./admin-web/dist
+COPY --from=frontend /build/web/dist ./dist
 
 # 创建数据目录
 RUN mkdir -p /app/data /app/uploads

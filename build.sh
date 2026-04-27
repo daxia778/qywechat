@@ -38,13 +38,13 @@ build_server() {
 
 # ─── 构建管理端前端 ───
 build_admin() {
-  info "构建管理端前端 (Vue3)..."
-  cd "$SCRIPT_DIR/admin-web"
+  info "构建管理端前端 (React)..."
+  cd "$SCRIPT_DIR/web"
 
   npm ci --silent 2>/dev/null || warn "npm ci 可能有警告"
   npm run build
 
-  info "管理端前端构建完成 ✅ → admin-web/dist/"
+  info "管理端前端构建完成 ✅ → web/dist/"
 }
 
 # ─── 构建桌面客服端 ───

@@ -78,10 +78,6 @@ export const exportExcel = async (params = {}) => {
 };
 
 export const regenerateActivationCode = (id) => client.put(`/admin/activation_codes/${id}/regenerate`);
-export const getGrabAlerts = (params) => client.get('/admin/grab_alerts', { params });
-export const getGrabAlertStats = () => client.get('/admin/grab_alerts/stats');
-export const dismissGrabAlert = (id) => client.put(`/admin/grab_alerts/${id}/dismiss`);
-export const batchDismissGrabAlerts = (ids) => client.put('/admin/grab_alerts/batch_dismiss', { ids });
 export const getTeamRoster = () => client.get('/admin/team_roster');
 
 // 企微通讯录

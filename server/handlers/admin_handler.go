@@ -450,68 +450,6 @@ func GetTeamRoster(c *gin.Context) {
 	respondOK(c, gin.H{"data": results})
 }
 
-// GetGrabAlerts 获取当前超时抢单列表（支持分页、筛选）
-func GetGrabAlerts(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-
-	filter := services.GrabAlertFilter{
-		AlertType: c.Query("alert_type"),
-		Dismissed: c.Query("dismissed"),
-		StartDate: c.Query("start_date"),
-		EndDate:   c.Query("end_date"),
-		Page:      page,
-		PageSize:  pageSize,
-	}
-
-	alerts, total, err := services.GetGrabAlertsPaged(filter)
-	if err != nil {
-		log.Printf("获取抢单超时列表失败: %v", err)
-		internalError(c, "获取抢单超时列表失败，请稍后重试")
-		return
-	}
-	respondOK(c, gin.H{"data": alerts, "total": total})
-}
-
-// GetGrabAlertStats 获取告警统计数据
-func GetGrabAlertStats(c *gin.Context) {
-	stats := services.GetGrabAlertStats()
-	respondOK(c, stats)
-}
-
-// DismissGrabAlert 标记单条告警为已处理
-func DismissGrabAlert(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 32)
-	if err != nil {
-		badRequest(c, "无效的订单ID")
-		return
-	}
-	if err := services.DismissGrabAlert(uint(id)); err != nil {
-		log.Printf("标记告警已处理失败: %v", err)
-		internalError(c, "操作失败，请稍后重试")
-		return
-	}
-	respondMessage(c, "已标记为已处理")
-}
-
-// BatchDismissGrabAlerts 批量标记告警为已处理
-func BatchDismissGrabAlerts(c *gin.Context) {
-	var body struct {
-		IDs []uint `json:"ids"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil || len(body.IDs) == 0 {
-		badRequest(c, "参数错误")
-		return
-	}
-	if err := services.BatchDismissGrabAlerts(body.IDs); err != nil {
-		log.Printf("批量标记告警已处理失败: %v", err)
-		internalError(c, "操作失败，请稍后重试")
-		return
-	}
-	respondMessage(c, fmt.Sprintf("已批量标记 %d 条告警为已处理", len(body.IDs)))
-}
-
 // ─── 激活码管理 ──────────────────────────────────────────
 
 // ListActivationCodes 列出所有非 admin 员工的设备绑定状态

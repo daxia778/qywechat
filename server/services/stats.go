@@ -126,17 +126,6 @@ func GetTeamWorkload() []WorkloadItem {
 		operatorMap[r.UserID] = r.Count
 	}
 
-	// 批量查询设计师抢单超时率
-	grabStats, _ := GetDesignerGrabStats()
-	timeoutRateMap := make(map[string]float64, len(grabStats))
-	for _, s := range grabStats {
-		if uid, ok := s["designer_id"].(string); ok {
-			if rate, ok := s["timeout_rate"].(float64); ok {
-				timeoutRateMap[uid] = rate
-			}
-		}
-	}
-
 	result := make([]WorkloadItem, 0, len(employees))
 	for _, d := range employees {
 		var count int64
@@ -148,12 +137,11 @@ func GetTeamWorkload() []WorkloadItem {
 		}
 
 		result = append(result, WorkloadItem{
-			Name:            d.Name,
-			WecomUserID:     d.WecomUserID,
-			Role:            d.Role,
-			Status:          d.Status,
-			ActiveOrders:    count,
-			GrabTimeoutRate: timeoutRateMap[d.WecomUserID],
+			Name:         d.Name,
+			WecomUserID:  d.WecomUserID,
+			Role:         d.Role,
+			Status:       d.Status,
+			ActiveOrders: count,
 		})
 	}
 

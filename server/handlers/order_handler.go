@@ -311,16 +311,6 @@ func CreateOrder(c *gin.Context) {
 	}()
 }
 
-type GrabOrderReq struct {
-	OrderID        uint   `json:"order_id" binding:"required"`
-	DesignerUserID string `json:"designer_userid" binding:"required"`
-}
-
-// GrabOrder 已废弃（v2.0 移除抢单功能）
-func GrabOrder(c *gin.Context) {
-	badRequest(c, "抢单功能已停用，请使用关联设计师功能")
-}
-
 // UpdateOrderStatus 更新订单状态 (包含鉴权逻辑)
 func UpdateOrderStatus(c *gin.Context) {
 	idStr := c.Param("id")

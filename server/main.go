@@ -151,8 +151,8 @@ func main() {
 	r.Use(middleware.CSRFMiddleware())
 
 	// ── 静态资源与前端 (SPA) ──────────────────
-	// 开发环境: ../admin-web/dist, 生产环境: dist (WorkingDirectory=/opt/pdd-server)
-	distDir := "../admin-web/dist"
+	// 开发环境: ../web/dist, 生产环境: dist (WorkingDirectory=/opt/pdd-server)
+	distDir := "../web/dist"
 	if _, err := os.Stat(distDir); os.IsNotExist(err) {
 		distDir = "dist"
 	}
@@ -296,12 +296,6 @@ func main() {
 			admin.POST("/activation_codes", handlers.CreateActivationCode)
 			admin.PUT("/activation_codes/:id/pause", handlers.PauseActivationCode)
 			admin.PUT("/activation_codes/:id/regenerate", handlers.RegenerateActivationCode)
-
-			// 抢单监控
-			admin.GET("/grab_alerts", handlers.GetGrabAlerts)
-			admin.GET("/grab_alerts/stats", handlers.GetGrabAlertStats)
-			admin.PUT("/grab_alerts/:id/dismiss", handlers.DismissGrabAlert)
-			admin.PUT("/grab_alerts/batch_dismiss", handlers.BatchDismissGrabAlerts)
 
 			// 顾客管理
 			admin.GET("/customers", handlers.ListCustomers)
