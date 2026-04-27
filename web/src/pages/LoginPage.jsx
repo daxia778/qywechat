@@ -162,7 +162,7 @@ export default function LoginPage() {
           width="480" height="480" viewBox="0 0 100 100" fill="none" aria-hidden="true"
         >
           <rect x="8" y="8" width="84" height="84" rx="18" stroke="white" strokeWidth="2" />
-          <text x="50" y="58" textAnchor="middle" fill="white" fontSize="32" fontWeight="600" fontFamily="Outfit, sans-serif">PD</text>
+          <text x="50" y="58" textAnchor="middle" fill="white" fontSize="24" fontWeight="600" fontFamily="Outfit, sans-serif">OB</text>
           <path d="M25 75 L50 85 L75 75" stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none" />
           <circle cx="50" cy="28" r="8" stroke="white" strokeWidth="1.5" fill="none" />
           <path d="M42 28 L50 36 L58 28" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
@@ -238,7 +238,7 @@ export default function LoginPage() {
 
           {/* 底部版权 — pl 与标语卡片内边距对齐 */}
           <p className="text-white/20 text-xs mt-23 pl-8 xl:pl-10 copyright-fade">
-            &copy; {new Date().getFullYear()} PDD 派单系统 &middot; 企业微信深度集成
+            &copy; {new Date().getFullYear()} 单管家 &middot; 企业微信深度集成
           </p>
         </div>
       </div>
@@ -248,9 +248,9 @@ export default function LoginPage() {
         {/* 移动端 Logo */}
         <div className="lg:hidden flex items-center gap-2.5 px-6 pt-6 pb-2">
           <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-gradient-to-br from-brand-500 to-brand-700">
-            <span className="text-white font-semibold text-xs">PD</span>
+            <span className="text-white font-semibold text-xs">OB</span>
           </div>
-          <span className="text-slate-900 text-sm font-bold tracking-tight">PDD 企微中控</span>
+          <span className="text-slate-900 text-sm font-bold tracking-tight">单管家</span>
         </div>
 
         {/* 表单居中 */}

@@ -155,8 +155,8 @@ export default function StaffLayout() {
           </div>
           {(!collapsed || mobileOpen) && (
             <div className="flex flex-col justify-center">
-              <h1 className="text-[18px] font-bold text-white tracking-tight leading-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>智序系统</h1>
-              <p className="text-[10px] text-white/60 font-normal tracking-[0.04em]">Staff Portal</p>
+              <h1 className="text-[18px] font-bold text-white tracking-tight leading-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>单管家</h1>
+              <p className="text-[10px] text-white/60 font-normal tracking-[0.04em]">Order Butler</p>
             </div>
           )}
         </div>
