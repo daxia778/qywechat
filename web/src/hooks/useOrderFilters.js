@@ -93,7 +93,9 @@ export function useOrderFilters({ toast, on, off, connected }) {
     }
   }, [currentPage, currentStatus, debouncedKeyword, effectiveDates.start, effectiveDates.end, toast]);
 
+  // 筛选条件变化 → 立即 loading + 发起请求（给用户即时反馈）
   useEffect(() => {
+    setLoading(true);
     fetchOrders();
     return () => { if (abortRef.current) abortRef.current.abort(); };
   }, [fetchOrders]);
