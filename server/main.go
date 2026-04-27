@@ -391,7 +391,7 @@ func main() {
 	// 启动
 	port := config.C.ServerPort
 	log.Println("=" + fmt.Sprintf("%49s", "="))
-	log.Println("PDD 派单管理系统启动")
+	log.Println("单管家系统启动")
 	log.Printf("   地址: http://0.0.0.0:%s", port)
 	log.Printf("   API:  http://0.0.0.0:%s/api/v1", port)
 	log.Println("=" + fmt.Sprintf("%49s", "="))

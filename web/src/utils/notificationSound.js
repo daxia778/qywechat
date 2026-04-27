@@ -169,6 +169,13 @@ class NotificationSoundEngine {
     } catch { /* ignore */ }
   }
 
+  /** 检查 localStorage 是否已有用户保存的偏好 */
+  hasSavedPrefs() {
+    try {
+      return localStorage.getItem(STORAGE_KEY) !== null;
+    } catch { return false; }
+  }
+
   /** 获取当前偏好 */
   getPrefs() {
     return { ...this._prefs };

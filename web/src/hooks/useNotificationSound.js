@@ -7,9 +7,17 @@ import notificationSound from '../utils/notificationSound';
  * Returns reactive state + setter functions that sync with the
  * NotificationSoundEngine singleton and localStorage.
  */
-export function useNotificationSound() {
+export function useNotificationSound({ defaultEnabled = true } = {}) {
   // Use local state to trigger re-renders when prefs change
-  const [prefs, setPrefsState] = useState(() => notificationSound.getPrefs());
+  const [prefs, setPrefsState] = useState(() => {
+    const p = notificationSound.getPrefs();
+    // 如果 localStorage 无已保存偏好，使用角色指定的默认值
+    if (!notificationSound.hasSavedPrefs()) {
+      notificationSound.setPrefs({ enabled: defaultEnabled });
+      return notificationSound.getPrefs();
+    }
+    return p;
+  });
 
   const updatePrefs = useCallback((updates) => {
     notificationSound.setPrefs(updates);

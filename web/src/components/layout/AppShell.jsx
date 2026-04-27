@@ -135,7 +135,7 @@ export default function AppShell() {
     enabled: soundEnabled, volume: soundVolume, soundType,
     soundTypes, setEnabled: setSoundEnabled, setVolume: setSoundVolume,
     setSoundType, play: playSound, preview: previewSound,
-  } = useNotificationSound();
+  } = useNotificationSound({ defaultEnabled: false });
 
   // WS 触发通知刷新加 5s 节流 + 播放提示音
   const throttledNotifRefresh = useThrottledCallback(() => {
@@ -148,12 +148,10 @@ export default function AppShell() {
   }, 1000);
   useEffect(() => {
     on('notification', throttledNotifRefresh);
-    on('grab_alert', throttledNotifRefresh);
     on('order_created', throttledOrderSound);  // ← 新订单创建
     on('order_updated', throttledOrderSound);  // ← 订单状态变更
     return () => {
       off('notification', throttledNotifRefresh);
-      off('grab_alert', throttledNotifRefresh);
       off('order_created', throttledOrderSound);
       off('order_updated', throttledOrderSound);
     };
