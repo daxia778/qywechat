@@ -99,7 +99,7 @@ export default function CustomerTransferPage() {
       setSelectedContactIds(new Set());
       try {
         const res = await getExternalContacts(handoverUserId);
-        setContacts(res.data.data || []);
+        setContacts(res.data.contacts || res.data.data || []);
       } catch (err) {
         if (err.name === 'CanceledError' || err.name === 'AbortError') return;
         toast('获取外部联系人失败: ' + (err.displayMessage || err.message), 'error');
@@ -135,7 +135,7 @@ export default function CustomerTransferPage() {
     setLoadingRules(true);
     try {
       const res = await listTransferRules();
-      setRules(res.data.data?.data || []);
+      setRules(res.data.data || []);
     } catch (err) {
       toast('获取自动转接规则失败: ' + (err.displayMessage || err.message), 'error');
     } finally {

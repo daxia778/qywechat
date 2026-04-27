@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"pdd-order-system/models"
@@ -29,8 +31,35 @@ func GetExternalContacts(c *gin.Context) {
 
 	externalIDs, err := services.Wecom.GetExternalContactList(userid)
 	if err != nil {
-		log.Printf("获取外部联系人列表失败: %v", err)
-		internalError(c, "获取外部联系人列表失败")
+		errStr := err.Error()
+		log.Printf("获取外部联系人列表失败 userid=%s: %v", userid, err)
+
+		// 解析企微错误码，返回用户友好的详细提示
+		// 常见错误码参考: https://developer.work.weixin.qq.com/document/path/90313
+		if strings.Contains(errStr, "84061") || strings.Contains(errStr, "not external contact user") {
+			badRequest(c, "该员工尚未开通「客户联系」功能，请在企微管理后台 → 客户联系 → 使用范围中添加该员工")
+			return
+		}
+		if strings.Contains(errStr, "60111") || strings.Contains(errStr, "userid not found") {
+			badRequest(c, "企微通讯录中未找到该员工 (userid="+userid+")，请检查员工账号是否正确")
+			return
+		}
+		if strings.Contains(errStr, "41006") || strings.Contains(errStr, "missing userid") {
+			badRequest(c, "未提供有效的员工ID")
+			return
+		}
+		if strings.Contains(errStr, "token") {
+			internalError(c, "客户联系 Token 获取失败，请检查 WECOM_CONTACT_SECRET 配置是否正确")
+			return
+		}
+		// 通用兜底：透传原始错误
+		internalError(c, "获取外部联系人失败: "+errStr)
+		return
+	}
+
+	// 成功但列表为空
+	if len(externalIDs) == 0 {
+		respondOK(c, gin.H{"contacts": []any{}, "total": 0, "hint": "该员工当前没有外部联系人"})
 		return
 	}
 
@@ -43,39 +72,48 @@ func GetExternalContacts(c *gin.Context) {
 		CorpName       string `json:"corp_name"`
 	}
 
-	contacts := make([]ContactItem, 0, len(externalIDs))
-	for _, eid := range externalIDs {
-		detail, err := services.Wecom.GetExternalContactDetail(eid)
-		if err != nil {
-			log.Printf("获取外部联系人详情失败 eid=%s: %v", eid, err)
-			contacts = append(contacts, ContactItem{ExternalUserID: eid, Name: eid})
-			continue
-		}
+	// 并发获取详情（10 路并发，避免逐个调用导致超时）
+	contacts := make([]ContactItem, len(externalIDs))
+	sem := make(chan struct{}, 10) // 并发上限
+	var wg sync.WaitGroup
 
-		item := ContactItem{ExternalUserID: eid}
-		if extInfo, ok := detail["external_contact"].(map[string]any); ok {
-			if name, ok := extInfo["name"].(string); ok {
-				item.Name = name
+	for i, eid := range externalIDs {
+		wg.Add(1)
+		go func(idx int, eid string) {
+			defer wg.Done()
+			sem <- struct{}{}        // 获取信号量
+			defer func() { <-sem }() // 释放信号量
+
+			item := ContactItem{ExternalUserID: eid, Name: eid}
+			detail, err := services.Wecom.GetExternalContactDetail(eid)
+			if err != nil {
+				log.Printf("获取外部联系人详情失败 eid=%s: %v", eid, err)
+				contacts[idx] = item
+				return
 			}
-			if avatar, ok := extInfo["avatar"].(string); ok {
-				item.Avatar = avatar
+			if extInfo, ok := detail["external_contact"].(map[string]any); ok {
+				if name, ok := extInfo["name"].(string); ok && name != "" {
+					item.Name = name
+				}
+				if avatar, ok := extInfo["avatar"].(string); ok {
+					item.Avatar = avatar
+				}
+				if t, ok := extInfo["type"].(float64); ok {
+					item.Type = int(t)
+				}
+				if g, ok := extInfo["gender"].(float64); ok {
+					item.Gender = int(g)
+				}
+				if corp, ok := extInfo["corp_name"].(string); ok {
+					item.CorpName = corp
+				}
 			}
-			if t, ok := extInfo["type"].(float64); ok {
-				item.Type = int(t)
-			}
-			if g, ok := extInfo["gender"].(float64); ok {
-				item.Gender = int(g)
-			}
-			if corp, ok := extInfo["corp_name"].(string); ok {
-				item.CorpName = corp
-			}
-		}
-		if item.Name == "" {
-			item.Name = eid
-		}
-		contacts = append(contacts, item)
+			contacts[idx] = item
+		}(i, eid)
 	}
+	wg.Wait()
 
+	log.Printf("✅ 获取外部联系人详情完成 userid=%s count=%d", userid, len(contacts))
 	respondOK(c, gin.H{"contacts": contacts, "total": len(contacts)})
 }
 

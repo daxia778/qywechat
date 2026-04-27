@@ -87,9 +87,9 @@ export const listWecomMembers = (keyword) => client.get('/admin/wecom/members', 
 export const createContactWay = (data) => client.post('/admin/contact_way', data);
 export const listContactWays = () => client.get('/admin/contact_ways');
 
-// 客户转接
-export const getExternalContacts = (userid) => client.get('/admin/transfer/external-contacts', { params: { userid } });
-export const executeTransfer = (data) => client.post('/admin/transfer/execute', data);
+// 客户转接（联系人多时可能耗时较长，独立 60s 超时）
+export const getExternalContacts = (userid) => client.get('/admin/transfer/external-contacts', { params: { userid }, timeout: 60000 });
+export const executeTransfer = (data) => client.post('/admin/transfer/execute', data, { timeout: 60000 });
 export const getTransferRecords = (params) => client.get('/admin/transfer/records', { params });
 export const checkTransferStatus = (data) => client.post('/admin/transfer/check-status', data);
 
