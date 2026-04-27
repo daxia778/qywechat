@@ -10,6 +10,7 @@ import { formatTime, formatCurrency } from '../../utils/formatters';
 import { fmtYuan, STATUS_MAP, STATUS_COLORS } from '../../utils/constants';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import PageHeader from '../../components/ui/PageHeader';
+import DateFilterBar from '../../components/DateFilterBar';
 import { Wallet, Plus, RefreshCw, Search, X, ChevronLeft, ChevronRight, ChevronDown, ExternalLink, Link2 } from 'lucide-react';
 
 const SOURCE_MAP = {
@@ -155,7 +156,37 @@ export default function StaffPaymentsPage() {
   const [filterSource, setFilterSource] = useState(searchParams.get('source') || '');
   const [filterStartTime, setFilterStartTime] = useState(searchParams.get('start_time') || '');
   const [filterEndTime, setFilterEndTime] = useState(searchParams.get('end_time') || '');
+  const [datePreset, setDatePreset] = useState(null);
   const debouncedOrderId = useDebounce(filterOrderId, 400);
+
+  const toLocalDate = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+  };
+
+  const effectiveDates = useMemo(() => {
+    if (datePreset) {
+      const now = new Date();
+      const todayStr = toLocalDate(now);
+      if (datePreset === 'today') return { start: todayStr, end: todayStr };
+      if (datePreset === 'week') {
+        const day = now.getDay() || 7;
+        const monday = new Date(now); monday.setDate(now.getDate() - day + 1);
+        return { start: toLocalDate(monday), end: todayStr };
+      }
+      if (datePreset === 'month') {
+        return { start: toLocalDate(new Date(now.getFullYear(), now.getMonth(), 1)), end: todayStr };
+      }
+    }
+    return { start: filterStartTime, end: filterEndTime };
+  }, [datePreset, filterStartTime, filterEndTime]);
+
+  const togglePreset = useCallback((p) => { setDatePreset(prev => prev === p ? null : p); setFilterStartTime(''); setFilterEndTime(''); }, []);
+  const handleSetStartDate = useCallback((v) => { setFilterStartTime(v); setDatePreset(null); if (v && !filterEndTime) setFilterEndTime(toLocalDate(new Date())); }, [filterEndTime]);
+  const handleSetEndDate = useCallback((v) => { setFilterEndTime(v); setDatePreset(null); }, []);
+  const clearDateFilter = useCallback(() => { setDatePreset(null); setFilterStartTime(''); setFilterEndTime(''); }, []);
 
   // Create modal
   const [createModalVisible, setCreateModalVisible] = useState(false);
@@ -181,58 +212,52 @@ export default function StaffPaymentsPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  // Fetch summary
+  // Fetch summary — 跟随日期筛选
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
     try {
-      const now = new Date();
-      const startOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-      const res = await getPaymentSummary({ start_time: startOfMonth });
+      const params = {};
+      if (effectiveDates.start) params.start_time = effectiveDates.start;
+      if (effectiveDates.end) params.end_time = effectiveDates.end;
+      const res = await getPaymentSummary(params);
       setSummary(res.data);
-    } catch {
-      // silently fail
-    } finally {
-      setSummaryLoading(false);
-    }
-  }, []);
+    } catch { /* silently fail */ }
+    finally { setSummaryLoading(false); }
+  }, [effectiveDates.start, effectiveDates.end]);
 
   // Fetch list
   const fetchPayments = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
-    else if (currentPage === 0) setLoading(true);
     try {
       const params = { page: currentPage + 1, page_size: pageSize };
       if (debouncedOrderId) params.order_id = debouncedOrderId;
       if (filterSource) params.source = filterSource;
-      if (filterStartTime) params.start_time = filterStartTime;
-      if (filterEndTime) params.end_time = filterEndTime;
+      if (effectiveDates.start) params.start_time = effectiveDates.start;
+      if (effectiveDates.end) params.end_time = effectiveDates.end;
       const res = await listPayments(params);
       setPayments(res.data.data || []);
       setTotal(res.data.total || 0);
       if (manual) toast('数据已刷新', 'success');
     } catch (err) {
       if (manual) toast('刷新失败: ' + (err.displayMessage || err.message), 'error');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [currentPage, debouncedOrderId, filterSource, filterStartTime, filterEndTime, toast]);
+    } finally { setLoading(false); setRefreshing(false); }
+  }, [currentPage, debouncedOrderId, filterSource, effectiveDates.start, effectiveDates.end, toast]);
 
   useEffect(() => {
+    setLoading(true);
     fetchPayments();
     fetchSummary();
   }, [fetchPayments, fetchSummary]);
 
-  // Sync URL params
   useEffect(() => {
     const params = {};
     if (debouncedOrderId) params.order_id = debouncedOrderId;
     if (filterSource) params.source = filterSource;
-    if (filterStartTime) params.start_time = filterStartTime;
-    if (filterEndTime) params.end_time = filterEndTime;
+    if (effectiveDates.start) params.start_time = effectiveDates.start;
+    if (effectiveDates.end) params.end_time = effectiveDates.end;
     setSearchParams(params, { replace: true });
     setCurrentPage(0);
-  }, [debouncedOrderId, filterSource, filterStartTime, filterEndTime, setSearchParams]);
+  }, [debouncedOrderId, filterSource, effectiveDates.start, effectiveDates.end, setSearchParams]);
 
   // Create payment
   const handleCreateSubmit = async (e) => {
@@ -306,11 +331,10 @@ export default function StaffPaymentsPage() {
   const resetFilters = () => {
     setFilterOrderId('');
     setFilterSource('');
-    setFilterStartTime('');
-    setFilterEndTime('');
+    clearDateFilter();
   };
 
-  const hasFilters = filterOrderId || filterSource || filterStartTime || filterEndTime;
+  const hasFilters = filterOrderId || filterSource;
 
   return (
     <div className="flex flex-col gap-5 w-full max-w-[1400px] mx-auto page-enter">
@@ -339,7 +363,7 @@ export default function StaffPaymentsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-5">
         {[
           {
-            title: '本月收款总额',
+            title: datePreset === 'today' ? '今日收款总额' : datePreset === 'week' ? '本周收款总额' : datePreset === 'month' ? '本月收款总额' : (effectiveDates.start || effectiveDates.end) ? '筛选期间收款' : '历史收款总额',
             value: monthTotal,
             prefix: '\u00a5',
             gradient: 'from-emerald-500 to-teal-500',
@@ -347,7 +371,7 @@ export default function StaffPaymentsPage() {
             icon: <Wallet size={20} className="text-white" />,
           },
           {
-            title: '本月笔数',
+            title: datePreset === 'today' ? '今日笔数' : datePreset === 'week' ? '本周笔数' : datePreset === 'month' ? '本月笔数' : (effectiveDates.start || effectiveDates.end) ? '筛选期间笔数' : '历史笔数',
             value: summary?.by_source
               ? Object.values(summary.by_source).reduce((s, v) => s + (v.count || 0), 0)
               : 0,
@@ -403,8 +427,8 @@ export default function StaffPaymentsPage() {
 
       {/* Table Card */}
       <div className="bg-surface-container-lowest ghost-border rounded-xl flex flex-col overflow-hidden">
-        {/* Filters */}
-        <div className="px-5 lg:px-6 py-4 border-b border-slate-200/80 flex flex-wrap gap-3 items-center">
+        {/* Filters — 搜索 + 来源 */}
+        <div className="px-5 lg:px-6 py-3 border-b border-slate-200/80 flex flex-wrap gap-3 items-center">
           <div className="flex-1 min-w-[180px] max-w-[260px] relative">
             <input
               type="text"
@@ -427,30 +451,25 @@ export default function StaffPaymentsPage() {
               <option value="manual">人工录入</option>
             </select>
           </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={filterStartTime}
-              onChange={(e) => setFilterStartTime(e.target.value)}
-              className="h-[34px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-[#434FCF] focus:ring-2 focus:ring-[#434FCF]/10 transition-colors"
-            />
-            <span className="text-slate-300 text-sm select-none">~</span>
-            <input
-              type="date"
-              value={filterEndTime}
-              onChange={(e) => setFilterEndTime(e.target.value)}
-              className="h-[34px] px-3 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-[#434FCF] focus:ring-2 focus:ring-[#434FCF]/10 transition-colors"
-            />
-          </div>
           {hasFilters && (
             <button
               onClick={resetFilters}
-              className="h-[34px] px-3 text-[13px] font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              className="h-[34px] px-3 text-[13px] font-medium text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors cursor-pointer flex items-center gap-1"
             >
+              <X size={12} />
               重置
             </button>
           )}
         </div>
+
+        {/* 日期筛选栏 */}
+        <DateFilterBar
+          datePreset={datePreset} togglePreset={togglePreset}
+          startDate={filterStartTime} endDate={filterEndTime}
+          setStartDate={handleSetStartDate} setEndDate={handleSetEndDate}
+          clearDateFilter={clearDateFilter}
+          onPageReset={() => setCurrentPage(0)}
+        />
 
         {/* Table */}
         <div className="w-full overflow-x-auto relative min-h-[300px]">

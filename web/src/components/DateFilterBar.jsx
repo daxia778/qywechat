@@ -100,6 +100,7 @@ export default function DateFilterBar({
             ref={endRef}
             type="date"
             value={endDate}
+            min={startDate || undefined}
             max={todayStr}
             onChange={(e) => { setEndDate(e.target.value); onPageReset?.(); }}
             onKeyDown={(e) => e.preventDefault()}
