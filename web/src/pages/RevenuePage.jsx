@@ -4,11 +4,11 @@ import { exportExcel } from '../api/admin';
 import ExportDialog from '../components/ExportDialog';
 import * as echarts from 'echarts/core';
 import { LineChart, BarChart } from 'echarts/charts';
-import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components';
+import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import PageHeader from '../components/ui/PageHeader';
 
-echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
+echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer]);
 
 const ranges = [
   { label: '近 7 天', days: 7 },
@@ -44,8 +44,14 @@ function DeltaBadge({ value }) {
   );
 }
 
+/* ── today string for date picker max ── */
+const _today = new Date();
+const todayStr = `${_today.getFullYear()}-${String(_today.getMonth() + 1).padStart(2, '0')}-${String(_today.getDate()).padStart(2, '0')}`;
+
 export default function RevenuePage() {
   const [days, setDays] = useState(7);
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   const [summary, setSummary] = useState({ total_revenue: 0, total_orders: 0 });
   const [prevSummary, setPrevSummary] = useState({ total_revenue: 0, total_orders: 0 });
   const [currentData, setCurrentData] = useState([]);
@@ -53,6 +59,32 @@ export default function RevenuePage() {
   const [profitItems, setProfitItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [exportDialogVisible, setExportDialogVisible] = useState(false);
+  const startPickerRef = useRef(null);
+  const endPickerRef = useRef(null);
+
+  /* helper: format display date */
+  const fmtShort = (d) => { if (!d) return ''; const p = d.split('-'); return `${p[1]}/${p[2]}`; };
+
+  /* handler: when preset button clicked, clear custom dates */
+  const handlePreset = (d) => { setDays(d); setCustomStart(''); setCustomEnd(''); };
+
+  /* handler: when custom date changes, clear preset */
+  const handleCustomStart = (v) => { setCustomStart(v); setDays(0); };
+  const handleCustomEnd = (v) => { setCustomEnd(v); setDays(0); };
+  const clearCustom = () => { setCustomStart(''); setCustomEnd(''); setDays(7); };
+
+  /* compute effective days for API */
+  const effectiveDays = useMemo(() => {
+    if (days > 0) return days;
+    if (customStart) {
+      const end = customEnd || todayStr;
+      const diff = Math.ceil((new Date(end) - new Date(customStart)) / 86400000) + 1;
+      return Math.max(diff, 1);
+    }
+    return 7;
+  }, [days, customStart, customEnd]);
+
+  const isCustomMode = days === 0 && customStart;
 
   const chartRef = useRef(null);
   const chartInstanceRef = useRef(null);
@@ -113,18 +145,56 @@ export default function RevenuePage() {
       const orderData = data.map((d) => d.order_count);
 
       chartInstanceRef.current.setOption({
-        grid: { top: 40, right: 10, bottom: 20, left: 20, containLabel: true },
+        grid: { top: 40, right: 10, bottom: 90, left: 20, containLabel: true },
         tooltip: {
           ...tooltipStyle,
           axisPointer: { type: 'cross', crossStyle: { color: '#94A3B8' } },
         },
         legend: {
           data: ['每日营收 (\u00A5)', '订单量'],
-          bottom: 0,
+          bottom: 36,
           icon: 'circle',
           itemGap: 24,
           textStyle: { color: '#64748B', fontFamily: 'Inter', fontSize: 12 },
         },
+        dataZoom: [
+          {
+            type: 'slider',
+            xAxisIndex: 0,
+            bottom: 6,
+            height: 24,
+            borderColor: 'transparent',
+            backgroundColor: '#F8FAFC',
+            fillerColor: 'rgba(67,79,207,0.08)',
+            handleIcon: 'path://M0,0 L2,0 L2,16 L0,16 Z',
+            handleSize: '60%',
+            handleStyle: {
+              color: '#434FCF',
+              borderColor: '#434FCF',
+              borderWidth: 0,
+              borderRadius: 2,
+              shadowBlur: 3,
+              shadowColor: 'rgba(67,79,207,0.25)',
+              shadowOffsetY: 1,
+            },
+            moveHandleSize: 4,
+            moveHandleStyle: { color: '#CBD5E1' },
+            emphasis: {
+              handleStyle: { borderColor: '#3641F5', shadowBlur: 6, shadowColor: 'rgba(67,79,207,0.35)' },
+              moveHandleStyle: { color: '#94A3B8' },
+            },
+            textStyle: { color: '#94A3B8', fontSize: 11, fontFamily: 'Inter' },
+            dataBackground: {
+              lineStyle: { color: '#E2E8F0', width: 1 },
+              areaStyle: { color: 'rgba(226,232,240,0.3)' },
+            },
+            selectedDataBackground: {
+              lineStyle: { color: '#434FCF', width: 1, opacity: 0.4 },
+              areaStyle: { color: 'rgba(67,79,207,0.06)' },
+            },
+            brushSelect: false,
+          },
+        ],
         xAxis: [
           {
             type: 'category',
@@ -159,27 +229,20 @@ export default function RevenuePage() {
         ],
         series: [
           {
+            name: '每日营收 (\u00A5)',
+            type: 'bar',
+            data: revenueData,
+            barGap: '20%',
+            barWidth: '35%',
+            itemStyle: { color: '#434FCF', borderRadius: [4, 4, 0, 0] },
+          },
+          {
             name: '订单量',
             type: 'bar',
             yAxisIndex: 1,
             data: orderData,
-            barWidth: '12',
-            itemStyle: { color: '#0EA5E9', borderRadius: [4, 4, 0, 0] },
-          },
-          {
-            name: '每日营收 (\u00A5)',
-            type: 'line',
-            data: revenueData,
-            smooth: 0.4,
-            symbolSize: 8,
-            itemStyle: { color: '#434FCF' },
-            lineStyle: { width: 3, color: '#434FCF' },
-            areaStyle: {
-              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                { offset: 0, color: 'rgba(70,95,255,0.2)' },
-                { offset: 1, color: 'rgba(70,95,255,0)' },
-              ]),
-            },
+            barWidth: '35%',
+            itemStyle: { color: '#38BDF8', borderRadius: [4, 4, 0, 0] },
           },
         ],
       });
@@ -204,7 +267,7 @@ export default function RevenuePage() {
       const npData = data.map((d, i) => +(d.revenue / 100 - pfData[i] - dcData[i] - scData[i] - fcData[i]).toFixed(2));
 
       profitChartInstanceRef.current.setOption({
-        grid: { top: 40, right: 10, bottom: 20, left: 20, containLabel: true },
+        grid: { top: 40, right: 10, bottom: 50, left: 20, containLabel: true },
         tooltip: {
           ...tooltipStyle,
           axisPointer: { type: 'shadow' },
@@ -227,7 +290,8 @@ export default function RevenuePage() {
           data: ['平台手续费', '设计师佣金', '谈单客服佣金', '跟单客服佣金', '净利润'],
           bottom: 0,
           icon: 'circle',
-          itemGap: 16,
+          itemGap: 20,
+          padding: [12, 0, 0, 0],
           textStyle: { color: '#64748B', fontFamily: 'Inter', fontSize: 12 },
         },
         xAxis: [
@@ -302,15 +366,23 @@ export default function RevenuePage() {
   const fetchData = useCallback(async (signal) => {
     setLoading(true);
     try {
+      const apiDays = isCustomMode ? effectiveDays : effectiveDays * 2;
       const [chartRes, profitRes] = await Promise.all([
-        getRevenueChart(days * 2, { signal }),
+        getRevenueChart(apiDays, { signal }),
         getProfitBreakdown({}, { signal }).catch(() => ({ data: {} })),
       ]);
 
-      const allData = chartRes.data.data || [];
-      const mid = Math.floor(allData.length / 2);
+      let allData = chartRes.data.data || [];
+
+      // For custom mode, filter by date range; no comparison period
+      if (isCustomMode) {
+        const endStr = customEnd || todayStr;
+        allData = allData.filter(d => d.date >= customStart && d.date <= endStr);
+      }
+
+      const mid = isCustomMode ? 0 : Math.floor(allData.length / 2);
       const prev = allData.slice(0, mid);
-      const curr = allData.slice(mid);
+      const curr = isCustomMode ? allData : allData.slice(mid);
 
       const curRev = curr.reduce((s, d) => s + d.revenue, 0) / 100;
       const curOrd = curr.reduce((s, d) => s + d.order_count, 0);
@@ -334,7 +406,7 @@ export default function RevenuePage() {
     } finally {
       setLoading(false);
     }
-  }, [days, updateChart, updateProfitChart]);
+  }, [days, effectiveDays, isCustomMode, customStart, customEnd, updateChart, updateProfitChart]);
 
   /* ── chart initialization (separate from data fetching) ── */
   useEffect(() => {
@@ -411,18 +483,69 @@ export default function RevenuePage() {
           </svg>
           导出报表
         </button>
-        <div className="flex bg-slate-100 p-1 rounded-lg">
-          {ranges.map((range) => (
-            <button
-              key={range.days}
-              onClick={() => setDays(range.days)}
-              className={`px-3.5 py-1.5 text-[13px] font-semibold rounded-md transition-colors border-none cursor-pointer ${
-                days === range.days ? 'bg-white text-slate-800 shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-700'
+        <div className="flex items-center gap-2">
+          <div className="flex bg-slate-100 p-1 rounded-lg">
+            {ranges.map((range) => (
+              <button
+                key={range.days}
+                onClick={() => handlePreset(range.days)}
+                className={`px-3.5 py-1.5 text-[13px] font-semibold rounded-md transition-colors border-none cursor-pointer ${
+                  days === range.days && !isCustomMode ? 'bg-white text-slate-800 shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {range.label}
+              </button>
+            ))}
+          </div>
+
+          {/* 分隔线 */}
+          <div className="w-px h-6 bg-slate-200" />
+
+          {/* 自定义日期选择 */}
+          <div className="flex items-center gap-1.5">
+            <div
+              onClick={() => startPickerRef.current?.showPicker?.()}
+              className={`relative flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] rounded-lg border cursor-pointer transition-all hover:border-slate-300 ${
+                customStart ? 'bg-white border-slate-300 text-slate-700 font-medium' : 'bg-white border-slate-200 text-slate-400'
               }`}
             >
-              {range.label}
+              <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+              <span>{customStart ? fmtShort(customStart) : '开始'}</span>
+              <input ref={startPickerRef} type="date" value={customStart} max={todayStr}
+                onChange={(e) => handleCustomStart(e.target.value)}
+                onKeyDown={(e) => e.preventDefault()}
+                className="absolute inset-0 opacity-0 cursor-pointer" tabIndex={-1} />
+            </div>
+            <span className="text-[11px] text-slate-300 select-none">→</span>
+            <div
+              onClick={() => endPickerRef.current?.showPicker?.()}
+              className={`relative flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] rounded-lg border cursor-pointer transition-all hover:border-slate-300 ${
+                customEnd ? 'bg-white border-slate-300 text-slate-700 font-medium' : 'bg-white border-slate-200 text-slate-400'
+              }`}
+            >
+              <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+              <span>{customEnd ? fmtShort(customEnd) : '结束'}</span>
+              <input ref={endPickerRef} type="date" value={customEnd} min={customStart || undefined} max={todayStr}
+                onChange={(e) => handleCustomEnd(e.target.value)}
+                onKeyDown={(e) => e.preventDefault()}
+                className="absolute inset-0 opacity-0 cursor-pointer" tabIndex={-1} />
+            </div>
+          </div>
+
+          {isCustomMode && (
+            <button onClick={clearCustom}
+              className="px-2 py-1 text-[11px] font-medium text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all cursor-pointer border-none bg-transparent flex items-center gap-0.5"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+              清除
             </button>
-          ))}
+          )}
         </div>
       </PageHeader>
 
@@ -489,7 +612,7 @@ export default function RevenuePage() {
             <div className="animate-spin rounded-full h-8 w-8 border-2 border-slate-200 border-t-brand-500" />
           </div>
         )}
-        <div className="w-full p-5 lg:p-6 h-[380px]" ref={chartRef} style={{ display: loading && !chartInstanceRef.current ? 'none' : 'block' }} />
+        <div className="w-full p-5 lg:p-6 h-[440px]" ref={chartRef} style={{ display: loading && !chartInstanceRef.current ? 'none' : 'block' }} />
       </div>
 
       {/* ── A. Profit breakdown chart ── */}
@@ -521,21 +644,26 @@ export default function RevenuePage() {
 
       {/* ── B. Top designers table ── */}
       <div className="bg-surface-container-lowest ghost-border rounded-xl">
-        <div className="px-5 lg:px-7 py-5 border-b border-slate-200 flex items-center justify-between">
-          <div>
-            <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">Top 设计师排行</h2>
-            <p className="text-sm text-slate-500 mt-0.5">当月营收排名前 5 位的设计师</p>
-          </div>
+        <div className="px-5 lg:px-7 py-5 border-b border-slate-200">
+          <h2 className="font-bold text-slate-800 text-lg font-[Outfit]">Top 设计师排行</h2>
+          <p className="text-sm text-slate-500 mt-0.5">当月营收排名前 5 位的设计师</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-[13px]">
+            <colgroup>
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '22%' }} />
+              <col style={{ width: '23%' }} />
+              <col style={{ width: '23%' }} />
+            </colgroup>
             <thead>
-              <tr className="border-b border-slate-100">
-                <th className="text-left px-5 py-3 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">排名</th>
-                <th className="text-left px-5 py-3 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">设计师</th>
-                <th className="text-right px-5 py-3 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">订单量</th>
-                <th className="text-right px-5 py-3 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">总营收</th>
-                <th className="text-right px-5 py-3 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">平均客单价</th>
+              <tr className="border-b border-slate-100 bg-slate-50/60">
+                <th className="text-center py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">#</th>
+                <th className="text-left pl-2 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">设计师</th>
+                <th className="text-center py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">订单量</th>
+                <th className="text-center py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">总营收</th>
+                <th className="text-center py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">客单价</th>
               </tr>
             </thead>
             <tbody>
@@ -547,8 +675,8 @@ export default function RevenuePage() {
                 </tr>
               )}
               {topDesigners.map((d, idx) => (
-                <tr key={d.name} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors">
-                  <td className="px-5 py-3.5">
+                <tr key={d.name} className="border-b border-slate-50 last:border-b-0 hover:bg-slate-50/60 transition-colors">
+                  <td className="text-center py-3">
                     <span
                       className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-bold ${
                         idx === 0
@@ -563,10 +691,10 @@ export default function RevenuePage() {
                       {idx + 1}
                     </span>
                   </td>
-                  <td className="px-5 py-3.5 font-medium text-slate-700">{d.name}</td>
-                  <td className="px-5 py-3.5 text-right tabular-nums text-slate-600">{d.order_count}</td>
-                  <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-800">&yen;{d.total_revenue.toFixed(2)}</td>
-                  <td className="px-5 py-3.5 text-right tabular-nums text-slate-600">&yen;{d.avg_order_value.toFixed(2)}</td>
+                  <td className="pl-2 py-3 font-medium text-slate-700">{d.name}</td>
+                  <td className="text-center py-3 tabular-nums text-slate-600">{d.order_count}</td>
+                  <td className="text-center py-3 tabular-nums font-semibold text-slate-800">&yen;{d.total_revenue.toFixed(2)}</td>
+                  <td className="text-center py-3 tabular-nums text-slate-600">&yen;{d.avg_order_value.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>

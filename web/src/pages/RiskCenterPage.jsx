@@ -1,16 +1,45 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getRiskDashboard, getRiskAlerts, resolveRiskAlert, batchResolveAlerts, getRiskAuditLog, getStaffRiskStats, getAuditConfig, updateAuditConfig, getFollowStaff, sendTestBroadcast } from '../api/risk';
 import { fmtYuan, formatTime } from '../utils/constants';
+import { cn } from '../utils/cn';
+import PageHeader from '../components/ui/PageHeader';
+
+// ─── Heroicons Outline SVG icons (strokeWidth=1.5, no fill) ──────
+const HIcon = ({ d, className = 'w-5 h-5', sw = 1.5 }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={sw} stroke="currentColor" className={className}>
+    <path strokeLinecap="round" strokeLinejoin="round" d={d} />
+  </svg>
+);
+
+const P = {
+  refresh:    'M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.992 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M2.985 19.644l3.182-3.182',
+  dollar:     'M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  trendDown:  'M2.25 6L9 12.75l4.286-4.286a11.948 11.948 0 014.306 6.43l.776 2.898M18.75 3.75l-4.5 4.5m0-4.5h4.5v4.5',
+  palette:    'M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.764m3.42 3.42a6.776 6.776 0 00-3.42-3.42',
+  coins:      'M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125',
+  package:    'M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z',
+  message:    'M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z',
+  clock:      'M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z',
+  moon:       'M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z',
+  shieldAlert:'M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.75h-.152c-3.196 0-6.1-1.249-8.25-3.286zm0 13.036h.008v.008H12v-.008z',
+  shieldCheck:'M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z',
+  checkCircle:'M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  user:       'M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z',
+  warning:    'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z',
+  radio:      'M3.75 7.5l16.5-4.125M12 6.75c-2.708 0-5.363.224-7.948.655C2.999 7.58 2.25 8.507 2.25 9.574v9.176A2.25 2.25 0 004.5 21h15a2.25 2.25 0 002.25-2.25V9.574c0-1.067-.75-1.994-1.802-2.169A47.865 47.865 0 0012 6.75zm-2.25 5.25a2.25 2.25 0 114.5 0 2.25 2.25 0 01-4.5 0z',
+  save:       'M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z',
+  settings:   'M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
+};
 
 const BROADCAST_EVENT_TYPES = [
-  { key: 'status_changed',      label: '状态变更',     icon: '🔄', desc: '订单状态变更时播报' },
-  { key: 'amount_changed',      label: '金额修改',     icon: '💰', desc: '订单金额修改时播报' },
-  { key: 'refund_processed',    label: '退款操作',     icon: '🔴', desc: '订单退款时播报' },
-  { key: 'designer_assigned',   label: '关联设计师',   icon: '👨‍🎨', desc: '订单关联设计师时播报' },
-  { key: 'designer_reassigned', label: '更换设计师',   icon: '🔄', desc: '订单更换设计师时播报' },
-  { key: 'commission_adjusted', label: '佣金调整',     icon: '💵', desc: '设计师佣金调整时播报' },
-  { key: 'order_assigned',      label: '新单分配',     icon: '📦', desc: '新订单分配给跟单时播报' },
-  { key: 'group_created',       label: '订单建群',     icon: '💬', desc: '订单企微群创建时播报' },
+  { key: 'status_changed',      label: '状态变更',     iconKey: 'refresh',   desc: '订单状态变更时播报' },
+  { key: 'amount_changed',      label: '金额修改',     iconKey: 'dollar',    desc: '订单金额修改时播报' },
+  { key: 'refund_processed',    label: '退款操作',     iconKey: 'trendDown', desc: '订单退款时播报' },
+  { key: 'designer_assigned',   label: '关联设计师',   iconKey: 'palette',   desc: '订单关联设计师时播报' },
+  { key: 'designer_reassigned', label: '更换设计师',   iconKey: 'refresh',   desc: '订单更换设计师时播报' },
+  { key: 'commission_adjusted', label: '佣金调整',     iconKey: 'coins',     desc: '设计师佣金调整时播报' },
+  { key: 'order_assigned',      label: '新单分配',     iconKey: 'package',   desc: '新订单分配给跟单时播报' },
+  { key: 'group_created',       label: '订单建群',     iconKey: 'message',   desc: '订单企微群创建时播报' },
 ];
 
 const SEVERITY_CONFIG = {
@@ -20,11 +49,11 @@ const SEVERITY_CONFIG = {
 };
 
 const ALERT_TYPE_MAP = {
-  price_drop:        { label: '金额异常下调', icon: '💰' },
-  high_refund:       { label: '高退款率',     icon: '📉' },
-  inactive_order:    { label: '订单无操作',   icon: '⏰' },
-  abnormal_time:     { label: '异常时间操作', icon: '🌙' },
-  frequent_reassign: { label: '频繁换设计师', icon: '🔄' },
+  price_drop:        { label: '金额异常下调', iconKey: 'trendDown' },
+  high_refund:       { label: '高退款率',     iconKey: 'warning' },
+  inactive_order:    { label: '订单无操作',   iconKey: 'clock' },
+  abnormal_time:     { label: '异常时间操作', iconKey: 'moon' },
+  frequent_reassign: { label: '频繁换设计师', iconKey: 'refresh' },
 };
 
 const EVENT_TYPE_MAP = {
@@ -38,22 +67,7 @@ const EVENT_TYPE_MAP = {
   customer_matched:    '匹配客户',
 };
 
-function StatCard({ title, value, icon, color, subtext }) {
-  return (
-    <div className="bg-white rounded-2xl border border-slate-200/80 p-5 hover:shadow-lg hover:shadow-slate-200/50 transition-all duration-300 group">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-[13px] font-medium text-slate-500">{title}</span>
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${color} transition-transform group-hover:scale-110`}>
-          {icon}
-        </div>
-      </div>
-      <p className="text-[28px] font-bold text-slate-900 leading-none tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>
-        {value}
-      </p>
-      {subtext && <p className="text-[12px] text-slate-400 mt-1.5">{subtext}</p>}
-    </div>
-  );
-}
+
 
 function SeverityBadge({ severity }) {
   const cfg = SEVERITY_CONFIG[severity] || SEVERITY_CONFIG.low;
@@ -66,10 +80,10 @@ function SeverityBadge({ severity }) {
 }
 
 function AlertTypeBadge({ type }) {
-  const cfg = ALERT_TYPE_MAP[type] || { label: type, icon: '⚠️' };
+  const cfg = ALERT_TYPE_MAP[type] || { label: type, iconKey: 'warning' };
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium bg-slate-100 text-slate-600">
-      {cfg.icon} {cfg.label}
+      <HIcon d={P[cfg.iconKey] || P.warning} className="w-3 h-3" /> {cfg.label}
     </span>
   );
 }
@@ -189,7 +203,7 @@ export default function RiskCenterPage() {
     { key: 'alerts', label: '风控告警', count: stats?.pending_alerts },
     { key: 'audit', label: '操作流水', count: auditTotal },
     { key: 'staff', label: '跟单画像', count: staffStats?.length },
-    { key: 'settings', label: '⚙️ 播报设置' },
+    { key: 'settings', label: '播报设置', icon: <HIcon d={P.settings} className="w-3.5 h-3.5" /> },
   ];
 
   if (loading) {
@@ -202,58 +216,57 @@ export default function RiskCenterPage() {
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-[24px] font-extrabold text-slate-900 tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>
-            风控中心
-          </h1>
-          <p className="text-[13px] text-slate-500 mt-0.5">跟单客服行为审计与风险监控</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {stats?.high_risk_alerts > 0 && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-200 rounded-xl animate-pulse">
-              <span className="w-2 h-2 rounded-full bg-red-500" />
-              <span className="text-[12px] font-semibold text-red-700">{stats.high_risk_alerts} 条高风险</span>
-            </div>
-          )}
-        </div>
-      </div>
+      <PageHeader title="风控中心" subtitle="跟单客服行为审计与风险监控">
+        {stats?.high_risk_alerts > 0 && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-200 rounded-xl animate-pulse">
+            <HIcon d={P.shieldAlert} className="w-4 h-4 text-red-500" />
+            <span className="text-[12px] font-semibold text-red-700">{stats.high_risk_alerts} 条高风险</span>
+          </div>
+        )}
+      </PageHeader>
 
       {/* Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="今日跟单操作"
-          value={stats?.today_follow_ops ?? 0}
-          icon="📊"
-          color="bg-blue-50"
-          subtext="跟单客服今日操作总次数"
-        />
-        <StatCard
-          title="待审核告警"
-          value={stats?.pending_alerts ?? 0}
-          icon="⚠️"
-          color="bg-amber-50"
-          subtext={stats?.high_risk_alerts > 0 ? `含 ${stats.high_risk_alerts} 条高风险` : '暂无高风险'}
-        />
-        <StatCard
-          title="本周退款"
-          value={`¥${fmtYuan(stats?.week_refund_amount ?? 0)}`}
-          icon="💸"
-          color="bg-red-50"
-          subtext="本周退款订单总金额"
-        />
-        <StatCard
-          title="处理率"
-          value={stats?.total_alerts > 0 ? `${Math.round((stats.resolved_alerts / stats.total_alerts) * 100)}%` : '-'}
-          icon="✅"
-          color="bg-emerald-50"
-          subtext={`${stats?.resolved_alerts ?? 0}/${stats?.total_alerts ?? 0} 已处理`}
-        />
+        <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center">
+          <span className="inline-flex items-center gap-1.5 text-[11px] lg:text-[13px] font-semibold text-on-surface-variant/70 mb-1.5 uppercase tracking-wider">
+            <HIcon d={P.refresh} className="w-3.5 h-3.5" />今日跟单操作
+          </span>
+          <h4 className="text-2xl lg:text-[28px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
+            {stats?.today_follow_ops ?? 0}
+          </h4>
+        </div>
+        <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center border-l-[3px] border-l-amber-400">
+          <span className="inline-flex items-center gap-1.5 text-[11px] lg:text-[13px] font-semibold text-on-surface-variant/70 mb-1.5 uppercase tracking-wider">
+            <HIcon d={P.shieldAlert} className="w-3.5 h-3.5" />待审核告警
+          </span>
+          <h4 className="text-2xl lg:text-[28px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
+            {stats?.pending_alerts ?? 0}
+          </h4>
+          {stats?.high_risk_alerts > 0 && (
+            <span className="text-[11px] text-red-500 font-medium mt-1">含 {stats.high_risk_alerts} 条高风险</span>
+          )}
+        </div>
+        <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center border-l-[3px] border-l-red-400">
+          <span className="inline-flex items-center gap-1.5 text-[11px] lg:text-[13px] font-semibold text-on-surface-variant/70 mb-1.5 uppercase tracking-wider">
+            <HIcon d={P.trendDown} className="w-3.5 h-3.5" />本周退款
+          </span>
+          <h4 className="text-xl lg:text-[24px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
+            &yen;{fmtYuan(stats?.week_refund_amount ?? 0)}
+          </h4>
+        </div>
+        <div className="bg-surface-container-lowest ghost-border rounded-xl p-5 lg:p-6 flex flex-col justify-center border-l-[3px] border-l-emerald-400">
+          <span className="inline-flex items-center gap-1.5 text-[11px] lg:text-[13px] font-semibold text-on-surface-variant/70 mb-1.5 uppercase tracking-wider">
+            <HIcon d={P.checkCircle} className="w-3.5 h-3.5" />处理率
+          </span>
+          <h4 className="text-2xl lg:text-[28px] font-bold text-slate-800 font-[Outfit] tabular-nums leading-tight">
+            {stats?.total_alerts > 0 ? `${Math.round((stats.resolved_alerts / stats.total_alerts) * 100)}%` : '-'}
+          </h4>
+          <span className="text-[11px] text-slate-400 mt-1 tabular-nums">{stats?.resolved_alerts ?? 0}/{stats?.total_alerts ?? 0} 已处理</span>
+        </div>
       </div>
 
       {/* Tabs */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden">
+      <div className="bg-surface-container-lowest ghost-border rounded-2xl overflow-hidden">
         <div className="flex border-b border-slate-200">
           {tabs.map(tab => (
             <button
@@ -265,6 +278,7 @@ export default function RiskCenterPage() {
                   : 'text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-50'
               }`}
             >
+              {tab.icon && <span className="opacity-70">{tab.icon}</span>}
               {tab.label}
               {tab.count > 0 && (
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
@@ -405,7 +419,7 @@ function AlertsTab({ alerts, total, filter, onFilterChange, onResolve, selectedA
       {/* Alert List */}
       {alerts.length === 0 ? (
         <div className="text-center py-12">
-          <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-emerald-50 flex items-center justify-center text-2xl">🛡️</div>
+          <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-emerald-50 flex items-center justify-center"><HIcon d={P.shieldCheck} className="w-7 h-7 text-emerald-500" /></div>
           <p className="text-[14px] font-medium text-slate-500">暂无风控告警</p>
           <p className="text-[12px] text-slate-400 mt-1">系统运行正常，没有检测到异常行为</p>
         </div>
@@ -446,7 +460,7 @@ function AlertsTab({ alerts, total, filter, onFilterChange, onResolve, selectedA
                     <SeverityBadge severity={alert.severity} />
                     <AlertTypeBadge type={alert.alert_type} />
                     {alert.staff_name && (
-                      <span className="text-[11px] font-medium text-slate-500">👤 {alert.staff_name}</span>
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500"><HIcon d={P.user} className="w-3 h-3" /> {alert.staff_name}</span>
                     )}
                     <span className="text-[11px] text-slate-400 ml-auto whitespace-nowrap">{formatTime(alert.created_at)}</span>
                   </div>
@@ -455,8 +469,8 @@ function AlertsTab({ alerts, total, filter, onFilterChange, onResolve, selectedA
                   </p>
                   <p className="text-[12px] text-slate-500 mt-1 leading-relaxed">{alert.detail}</p>
                   {alert.is_resolved && (
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      ✅ 已由 {alert.resolved_by} 于 {formatTime(alert.resolved_at)} 处理
+                    <p className="inline-flex items-center gap-1 text-[11px] text-slate-400 mt-1">
+                      <HIcon d={P.checkCircle} className="w-3 h-3 text-emerald-500" /> 已由 {alert.resolved_by} 于 {formatTime(alert.resolved_at)} 处理
                       {alert.resolve_remark && ` — ${alert.resolve_remark}`}
                     </p>
                   )}
@@ -692,7 +706,7 @@ function SettingsTab({ config, followStaffList, onSave, onTestBroadcast, saving,
           disabled={!config?.audit_ready || testSending}
           className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
         >
-          {testSending ? '发送中...' : '📡 发送测试'}
+          {testSending ? '发送中...' : <><HIcon d={P.radio} className="w-3.5 h-3.5" /> 发送测试</>}
         </button>
       </div>
 
@@ -750,7 +764,7 @@ function SettingsTab({ config, followStaffList, onSave, onTestBroadcast, saving,
                   disabled={allEventsMode}
                   className="rounded border-slate-300 text-[#434FCF]"
                 />
-                <span className="text-lg">{evt.icon}</span>
+                <HIcon d={P[evt.iconKey]} className="w-5 h-5 text-[#434FCF]" />
                 <div className="flex-1 min-w-0">
                   <p className="text-[13px] font-semibold text-slate-700">{evt.label}</p>
                   <p className="text-[11px] text-slate-400">{evt.desc}</p>
@@ -927,7 +941,7 @@ function SettingsTab({ config, followStaffList, onSave, onTestBroadcast, saving,
             disabled={saving}
             className="px-6 py-3 text-[14px] font-bold text-white bg-[#434FCF] hover:bg-[#3641F5] rounded-xl shadow-lg shadow-[#434FCF]/30 transition-all disabled:opacity-50"
           >
-            {saving ? '保存中...' : '💾 保存配置'}
+            {saving ? '保存中...' : <><HIcon d={P.save} className="w-4 h-4" /> 保存配置</>}
           </button>
         </div>
       )}
