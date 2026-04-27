@@ -14,6 +14,7 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/ui/PageHeader';
 import ExportDialog from '../components/ExportDialog';
 import DesignerSelectModal from '../components/DesignerSelectModal';
+import DateFilterBar from '../components/DateFilterBar';
 
 const EVENT_TYPE_MAP = {
   status_changed: (e) => STATUS_MAP[e.to_status] || e.to_status,
@@ -203,6 +204,9 @@ export default function OrdersPage() {
     orders, loading, currentStatus, setCurrentStatus,
     searchKeyword, setSearchKeyword, totalOrders,
     currentPage, setCurrentPage, totalPages, fetchOrders,
+    datePreset, togglePreset,
+    startDate, endDate, setStartDate, setEndDate,
+    clearDateFilter,
   } = useOrderFilters({ toast, on, off, connected });
 
   const {
@@ -463,6 +467,14 @@ export default function OrdersPage() {
             </div>
           </div>
         </div>
+
+        <DateFilterBar
+          datePreset={datePreset} togglePreset={togglePreset}
+          startDate={startDate} endDate={endDate}
+          setStartDate={setStartDate} setEndDate={setEndDate}
+          clearDateFilter={clearDateFilter}
+          onPageReset={() => setCurrentPage(0)}
+        />
 
         {/* Table */}
         <div className="w-full overflow-hidden relative min-h-[450px]">
