@@ -344,20 +344,56 @@ func extractFromRawText(text string) *OCRResult {
 		}
 	}
 
-	// 提取金额（商品标价优先，因为实付可能是0）
-	pricePatterns := []string{
-		`[¥￥](\d+\.\d{2})`,
-		`(?:实付|实付款|合计|应付|总价|付款)[：:\s¥￥]*(\d+\.?\d{0,2})`,
-		`(\d+\.\d{2})\s*元`,
+	// 提取金额
+	// 策略：关键词匹配优先（实付/合计/成交金额 = 最可靠），
+	//       通用 ¥ 符号匹配兜底（取最大金额，因为实付通常 ≥ 单价）
+	keywordPricePatterns := []string{
+		`(?:实付|实付款|合计|应付|总价|付款|成交金额|订单金额|实收)[：:\s]*[¥￥]?(\d+\.?\d{0,2})`,
+		`[¥￥]\s*(\d+\.\d{2})\s*(?:实付|合计|总计)`,
+		`(\d+\.?\d{0,2})\s*元\s*(?:实付|合计)`,
 	}
-	for _, pattern := range pricePatterns {
+	keywordMatched := false
+	for _, pattern := range keywordPricePatterns {
 		priceRe := regexp.MustCompile(pattern)
 		if m := priceRe.FindStringSubmatch(text); len(m) > 1 {
 			if priceYuan, err := strconv.ParseFloat(m[1], 64); err == nil && priceYuan > 0 {
 				result.Price = int(math.Round(priceYuan * 100))
 				result.RawPrice = m[1]
-				result.Confidence += 0.2
+				result.Confidence += 0.3
+				keywordMatched = true
+				log.Printf("💰 关键词匹配金额: %s 元 (pattern: %s)", m[1], pattern)
 				break
+			}
+		}
+	}
+
+	// 兜底：如果关键词没命中，扫描所有 ¥X.XX，取最大值
+	// 原理：订单截图中实付金额通常 ≥ 商品单价
+	if !keywordMatched {
+		allPriceRe := regexp.MustCompile(`[¥￥]\s*(\d+\.\d{2})`)
+		matches := allPriceRe.FindAllStringSubmatch(text, -1)
+		var maxPrice float64
+		var maxPriceStr string
+		for _, m := range matches {
+			if priceYuan, err := strconv.ParseFloat(m[1], 64); err == nil && priceYuan > maxPrice {
+				maxPrice = priceYuan
+				maxPriceStr = m[1]
+			}
+		}
+		if maxPrice > 0 {
+			result.Price = int(math.Round(maxPrice * 100))
+			result.RawPrice = maxPriceStr
+			result.Confidence += 0.15
+			log.Printf("💰 通用¥匹配金额(取最大值): %s 元 (共发现 %d 个金额)", maxPriceStr, len(matches))
+		} else {
+			// 最终兜底：无 ¥ 符号的 XX.XX 元
+			plainRe := regexp.MustCompile(`(\d+\.\d{2})\s*元`)
+			if m := plainRe.FindStringSubmatch(text); len(m) > 1 {
+				if priceYuan, err := strconv.ParseFloat(m[1], 64); err == nil && priceYuan > 0 {
+					result.Price = int(math.Round(priceYuan * 100))
+					result.RawPrice = m[1]
+					result.Confidence += 0.1
+				}
 			}
 		}
 	}
